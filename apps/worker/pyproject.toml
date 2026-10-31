@@ -10,6 +10,7 @@ dependencies = [
   "google-genai>=2.34",
   "google-auth>=2.36",
   "pydantic-settings>=2.6",
+  "httpx>=0.27",
 ]
 
 [build-system]

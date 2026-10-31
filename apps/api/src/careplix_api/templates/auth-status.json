@@ -1,0 +1,65 @@
+{
+  "id": "auth-status",
+  "version": 1,
+  "name": "Authorization status follow-up",
+  "description": "Calls a payer to collect the status of an existing prior authorization request, any missing requirements, and call references.",
+  "direction": "outbound",
+  "objective": "Obtain the current status of the prior authorization request, any missing requirements with deadlines, and a call reference number.",
+  "required_context": ["payer_name", "provider_name", "provider_npi", "member_id", "patient_name", "date_of_birth", "service_description", "cpt_code", "submitted_on", "known_auth_reference"],
+  "disclose_allowlist": ["provider_name", "provider_npi", "member_id", "patient_name", "date_of_birth", "service_description", "cpt_code", "submitted_on", "known_auth_reference"],
+  "output_fields": {
+    "reported_status": "Status as stated by the payer: approved, denied, pending_review, pending_additional_information, not_found or unknown",
+    "authorization_reference": "Authorization or request reference number",
+    "call_reference": "Reference number for this call",
+    "representative_name": "Name or ID of the payer representative",
+    "missing_requirements": "Documents or information the payer says are missing",
+    "missing_requirements_date_range": "Date range the missing documents must cover, in the payer's words",
+    "due_date": "Deadline to supply missing requirements",
+    "valid_from": "Authorization start date if approved",
+    "valid_to": "Authorization end date if approved",
+    "next_steps": "What the payer says happens next"
+  },
+  "critical_fields": ["reported_status", "authorization_reference", "call_reference", "missing_requirements"],
+  "instructions": "You are calling a health plan's provider services line on behalf of the provider named in the call brief.\n\nHow to run the call:\n1. You may first reach an automated phone menu (IVR). Call set_call_state with substate ivr. Listen to the whole menu before choosing. Choose the option for prior authorization status. When asked for an identifier by keypad, use send_dtmf with exactly the digits from the call brief, followed by # if the menu asks for it. Never guess digits.\n2. If you are placed on hold, call set_call_state with substate hold and stay silent until a person speaks to you.\n3. When a person answers, call set_call_state with substate conversation. Say you are an automated assistant calling on behalf of the provider, then ask for the status of the request using only identifiers from the call brief.\n4. Collect every field in the desired findings. For critical fields (status, reference numbers, missing requirements), read the value back in small groups, for example 'R, 4, 7, 2', and ask the representative to confirm. Record each finding with record_finding; use confirmation read_back_confirmed only after they confirm.\n5. If a date range or deadline is vague, ask once for the exact dates. If it stays vague, record the payer's exact words as original_phrasing and leave the value empty with a null_reason.\n6. When you have the findings, thank the representative, say goodbye, and call end_call with reason objective_complete.\n\nIf you reach voicemail or a closed office, do not leave case details; end the call with reason voicemail_policy_complete.",
+  "default_config": {
+    "identity": {
+      "name": "Avery",
+      "role": "Authorization coordinator assistant",
+      "language": "en-US",
+      "greeting": "Hello, this is Avery, an automated assistant calling on behalf of the provider about a prior authorization request.",
+      "automated_identity_disclosure": "I'm an automated assistant calling on behalf of the provider's office."
+    },
+    "task": {
+      "template_id": "auth-status",
+      "template_version": 1,
+      "objective": "Obtain the current status of the prior authorization request, any missing requirements with deadlines, and a call reference number.",
+      "required_context": ["payer_name", "provider_name", "provider_npi", "member_id", "patient_name", "date_of_birth", "service_description", "cpt_code", "submitted_on", "known_auth_reference"],
+      "output_schema_id": "urn:careplix:voice:prior_auth_outcome"
+    },
+    "conversation": {
+      "pipeline": "native_audio",
+      "voice": "Puck",
+      "silence_timeout_s": 30,
+      "hold_policy": {"mode": "suspend_model", "max_hold_s": 2700},
+      "ivr_policy": {"max_menu_repeats": 3, "wait_for_full_menu": true}
+    },
+    "tools": [
+      {"name": "get_assigned_context", "version": "1.0.0"},
+      {"name": "record_finding", "version": "1.0.0"},
+      {"name": "send_dtmf", "version": "1.0.0"},
+      {"name": "set_call_state", "version": "1.0.0"},
+      {"name": "end_call", "version": "1.0.0"}
+    ],
+    "guardrails": {
+      "allowed_disclosures": ["provider_name", "provider_npi", "member_id", "patient_name", "date_of_birth", "service_description", "cpt_code", "submitted_on", "known_auth_reference"],
+      "escalation_triggers": ["clinical question", "request to transfer", "conflicting status", "request for information outside the call brief"],
+      "max_duration_s": 900
+    },
+    "model": {"provider": "google_vertex", "model_id": "", "connection_id": "vertex-default"},
+    "outcome": {
+      "success_conditions": ["reported_status confirmed by counterpart", "call_reference recorded"],
+      "critical_fields": ["reported_status", "authorization_reference", "call_reference", "missing_requirements"]
+    },
+    "instructions": {"agent_text": "Be concise and courteous. Representatives are busy; avoid small talk."}
+  }
+}

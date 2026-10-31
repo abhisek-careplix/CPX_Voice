@@ -56,8 +56,16 @@ async def check_database(settings: Settings) -> Check:
     engine = create_async_engine(settings.database_url, pool_pre_ping=False)
     try:
         async with asyncio.timeout(settings.check_timeout_s), engine.connect() as conn:
-            version = (await conn.execute(text("SHOW server_version"))).scalar_one()
-        return Check("database", Status.READY, "Database reachable.", {"server_version": version})
+            sqlite = engine.dialect.name == "sqlite"
+            query = "select sqlite_version()" if sqlite else "SHOW server_version"
+            version = (await conn.execute(text(query))).scalar_one()
+        engine_name = "SQLite (local development)" if sqlite else "PostgreSQL"
+        return Check(
+            "database",
+            Status.READY,
+            f"Database reachable · {engine_name}.",
+            {"server_version": version},
+        )
     except Exception as exc:  # noqa: BLE001 - surfaced as a categorised blocker
         return Check(
             "database", Status.BLOCKED, "Database unreachable.", {"error": type(exc).__name__}
@@ -96,7 +104,15 @@ async def check_livekit(settings: Settings) -> list[Check]:
                 Status.BLOCKED,
                 "Voice service rejected the connection. Check LiveKit URL and credentials.",
                 {"error": type(exc).__name__},
-            )
+            ),
+            Check(
+                "outbound_route", Status.BLOCKED, "Phone routes unknown: voice service unreachable."
+            ),
+            Check(
+                "inbound_route",
+                Status.BLOCKED,
+                "Inbound routes unknown: voice service unreachable.",
+            ),
         ]
 
     checks = [

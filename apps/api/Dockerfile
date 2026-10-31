@@ -10,6 +10,8 @@ COPY pyproject.toml uv.lock ./
 COPY packages packages
 COPY apps/worker/pyproject.toml apps/worker/pyproject.toml
 COPY apps/api apps/api
+# Synthetic fixtures seed development workspaces only (SEED_DEMO_DATA).
+COPY fixtures fixtures
 RUN uv sync --frozen --no-dev --package careplix-api \
  && chown -R api /app
 

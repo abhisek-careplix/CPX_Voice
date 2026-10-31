@@ -35,3 +35,11 @@ evidence/**/*.json
 .DS_Store
 # Word lock files
 ~$*.docx
+
+# Local development database
+*.db
+*.db-shm
+*.db-wal
+
+# Web build output
+apps/web/dist/

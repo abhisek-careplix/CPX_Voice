@@ -1,0 +1,261 @@
+import {
+  AlertTriangle,
+  CheckCircle2,
+  CircleDashed,
+  CircleDot,
+  Clock,
+  Info,
+  PhoneOff,
+  XCircle,
+  type LucideIcon,
+} from "lucide-react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import type { AttemptState, CheckStatus, Finding, TaskState } from "./api";
+
+// ---------- Status pills: icon + text, never colour alone ----------
+
+type Tone = "green" | "orange" | "red" | "blue" | "purple" | "gray";
+
+export function Pill({ tone, icon: Icon, children, live }: { tone: Tone; icon?: LucideIcon; children: ReactNode; live?: boolean }) {
+  return (
+    <span className={`pill tone-${tone}`}>
+      {live ? <span className="live-dot" aria-hidden /> : Icon ? <Icon size={13} strokeWidth={2.4} aria-hidden /> : null}
+      {children}
+    </span>
+  );
+}
+
+export function CheckPill({ status }: { status: CheckStatus }) {
+  if (status === "ready") return <Pill tone="green" icon={CheckCircle2}>Ready</Pill>;
+  if (status === "unverified") return <Pill tone="orange" icon={CircleDashed}>Unverified</Pill>;
+  return <Pill tone="red" icon={XCircle}>Blocked</Pill>;
+}
+
+const ATTEMPT: Record<AttemptState, [Tone, string, LucideIcon?]> = {
+  Created: ["gray", "Preparing", CircleDashed],
+  Queued: ["blue", "Starting agent", Clock],
+  Dialing: ["blue", "Dialing", Clock],
+  Connected: ["green", "Live"],
+  Ending: ["orange", "Ending", Clock],
+  Ended: ["gray", "Ended", CheckCircle2],
+  Failed: ["red", "Could not connect", PhoneOff],
+  Cancelled: ["gray", "Cancelled", XCircle],
+};
+
+export function AttemptPill({ state, substate }: { state: AttemptState; substate?: string | null }) {
+  const [tone, label, icon] = ATTEMPT[state];
+  const live = state === "Connected";
+  const text = live && substate ? { IVR: "Phone menu", Hold: "On hold", Conversation: "In conversation", Transferring: "Transferring" }[substate] ?? label : label;
+  return (
+    <Pill tone={tone} icon={icon} live={live}>
+      {text}
+    </Pill>
+  );
+}
+
+const TASK: Record<TaskState, [Tone, LucideIcon]> = {
+  Draft: ["gray", CircleDashed],
+  Ready: ["blue", CircleDot],
+  Running: ["green", CircleDot],
+  Review: ["orange", AlertTriangle],
+  Completed: ["green", CheckCircle2],
+  Partial: ["orange", CircleDashed],
+  Unsuccessful: ["red", XCircle],
+  Cancelled: ["gray", XCircle],
+};
+
+export function TaskPill({ state }: { state: TaskState }) {
+  const [tone, icon] = TASK[state];
+  return (
+    <Pill tone={tone} icon={icon} live={state === "Running"}>
+      {state === "Review" ? "Needs review" : state}
+    </Pill>
+  );
+}
+
+const FINDING: Record<Finding["status"], [Tone, string, LucideIcon]> = {
+  provisional: ["gray", "Reported", CircleDashed],
+  confirmed_by_counterpart: ["blue", "Confirmed on call", CheckCircle2],
+  reviewed: ["green", "Reviewer verified", CheckCircle2],
+  conflicting: ["red", "Conflicting", AlertTriangle],
+};
+
+export function FindingPill({ status }: { status: Finding["status"] }) {
+  const [tone, label, icon] = FINDING[status];
+  return (
+    <Pill tone={tone} icon={icon}>
+      {label}
+    </Pill>
+  );
+}
+
+// ---------- Layout primitives ----------
+
+export function Toolbar({ eyebrow, title, actions }: { eyebrow?: ReactNode; title: ReactNode; actions?: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  return (
+    <header ref={ref} className={`toolbar${scrolled ? " scrolled" : ""}`}>
+      <div className="toolbar-titles">
+        {eyebrow && <div className="eyebrow">{eyebrow}</div>}
+        <h1 className="large-title">{title}</h1>
+      </div>
+      {actions && <div className="toolbar-actions">{actions}</div>}
+    </header>
+  );
+}
+
+export function Card({ title, subtitle, actions, children, pad }: { title?: ReactNode; subtitle?: ReactNode; actions?: ReactNode; children: ReactNode; pad?: boolean }) {
+  return (
+    <section className="card">
+      {(title || actions) && (
+        <div className="card-head">
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {title && <h2 className="card-title">{title}</h2>}
+            {subtitle && <p className="card-sub">{subtitle}</p>}
+          </div>
+          {actions}
+        </div>
+      )}
+      {pad ? <div className="card-pad">{children}</div> : children}
+    </section>
+  );
+}
+
+export function Empty({ icon: Icon, title, children, action }: { icon: LucideIcon; title: string; children?: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="empty">
+      <div className="empty-icon">
+        <Icon size={24} aria-hidden />
+      </div>
+      <h3>{title}</h3>
+      {children && <p>{children}</p>}
+      {action}
+    </div>
+  );
+}
+
+export function Segmented<T extends string>({ value, onChange, options, label }: { value: T; onChange: (v: T) => void; options: { value: T; label: ReactNode }[]; label: string }) {
+  return (
+    <div className="segmented" role="tablist" aria-label={label}>
+      {options.map((o) => (
+        <button key={o.value} role="tab" aria-selected={o.value === value} onClick={() => onChange(o.value)} type="button">
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function Switch({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
+  return <button type="button" role="switch" className="switch" aria-checked={checked} aria-label={label} disabled={disabled} onClick={() => onChange(!checked)} />;
+}
+
+export function Sheet({ title, subtitle, onClose, children, footer, wide }: { title: ReactNode; subtitle?: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className={`sheet${wide ? " sheet-wide" : ""}`} role="dialog" aria-modal="true" aria-label={typeof title === "string" ? title : undefined}>
+        <div className="sheet-head">
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h2 className="card-title">{title}</h2>
+            {subtitle && <p className="card-sub">{subtitle}</p>}
+          </div>
+          <button className="btn btn-secondary btn-icon" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+        <div className="sheet-body">{children}</div>
+        {footer && <div className="sheet-foot">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+export function Banner({ tone, title, children, icon: Icon = Info }: { tone: Tone; title: string; children?: ReactNode; icon?: LucideIcon }) {
+  return (
+    <div className={`banner tone-${tone}`} role={tone === "red" ? "alert" : "status"}>
+      <Icon size={18} style={{ flex: "none", marginTop: 1 }} aria-hidden />
+      <div style={{ color: "var(--label)" }}>
+        <strong>{title}</strong>
+        {children && <span className="muted">{children}</span>}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Toasts ----------
+
+const ToastCtx = createContext<(msg: string) => void>(() => {});
+
+export function ToastProvider({ children }: { children: ReactNode }) {
+  const [items, setItems] = useState<{ id: number; msg: string }[]>([]);
+  const push = useCallback((msg: string) => {
+    const id = Date.now() + Math.random();
+    setItems((xs) => [...xs, { id, msg }]);
+    setTimeout(() => setItems((xs) => xs.filter((x) => x.id !== id)), 3200);
+  }, []);
+  return (
+    <ToastCtx.Provider value={push}>
+      {children}
+      <div className="toast-stack" aria-live="polite">
+        {items.map((t) => (
+          <div className="toast" key={t.id}>
+            <CheckCircle2 size={16} aria-hidden /> {t.msg}
+          </div>
+        ))}
+      </div>
+    </ToastCtx.Provider>
+  );
+}
+
+export const useToast = () => useContext(ToastCtx);
+
+// ---------- Formatting ----------
+
+export function humanize(field: string): string {
+  return field.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+}
+
+export function timeAgo(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const then = new Date(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`).getTime();
+  const s = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  return new Date(then).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+export function parseDate(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  return new Date(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`).getTime();
+}
+
+export function duration(fromIso: string | null, toIso?: string | null): string {
+  const from = parseDate(fromIso);
+  if (!from) return "0:00";
+  const to = parseDate(toIso) ?? Date.now();
+  const s = Math.max(0, Math.floor((to - from) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+export function useNow(intervalMs = 1000, active = true) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(() => setTick((x) => x + 1), intervalMs);
+    return () => clearInterval(t);
+  }, [intervalMs, active]);
+}
+
+export const DIRECTION_LABEL = { outbound: "Outbound call", inbound: "Inbound call", browser: "Browser Test" } as const;

@@ -27,6 +27,7 @@ def test_tool_registry_loads_and_gates_pilot_tools():
         "record_finding",
         "send_dtmf",
         "set_call_state",
+        "verify_caller",
     }
     # Pilot-only tools must never be enabled in the demo (FR13, FR15).
     for name, tool in tools.items():

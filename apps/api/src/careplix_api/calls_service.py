@@ -1,0 +1,756 @@
+"""Tasks, call attempts and their lifecycle (doc 03 sequences, ADR05/ADR08/ADR09).
+
+Ordering rule: the attempt is committed before any external side effect, so a crash or timeout
+always leaves a record the reconciler can repair. Dialing happens only after a worker has claimed
+the attempt (readiness deadline), and only from the API.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import re
+from datetime import timedelta
+from typing import Any
+
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+import careplix_contracts as contracts
+from careplix_api import agents_service, events, templates
+from careplix_api.auth import Principal, issue_attempt_token
+from careplix_api.db import Database, as_utc, new_id, utcnow
+from careplix_api.errors import ApiError
+from careplix_api.livekit_gateway import LiveKitGateway, room_name_for
+from careplix_api.models import (
+    Agent,
+    AgentVersion,
+    CallAttempt,
+    Case,
+    Route,
+    Task,
+    TranscriptSegment,
+    Workspace,
+)
+from careplix_api.settings import Settings
+
+log = logging.getLogger("careplix.calls")
+
+ACTIVE_STATES = ("Created", "Queued", "Dialing", "Connected", "Ending")
+TERMINAL_TASK_STATES = ("Completed", "Partial", "Unsuccessful", "Cancelled")
+RESTRICTED_ACTIONS = [
+    "Do not transfer the call or promise a transfer.",
+    "Do not dial or repeat back any phone number spoken on the call.",
+    "Do not disclose case details outside the allowed list.",
+    "Do not give clinical advice or make financial commitments.",
+]
+
+
+# --- Validation helpers --------------------------------------------------------------------------
+
+
+def normalize_e164(raw: str) -> str:
+    digits = re.sub(r"\D", "", raw)
+    if raw.strip().startswith("+") and 8 <= len(digits) <= 15:
+        return f"+{digits}"
+    if len(digits) == 10:
+        return f"+1{digits}"
+    if len(digits) == 11 and digits.startswith("1"):
+        return f"+{digits}"
+    raise ApiError(
+        422, "invalid_destination", "Enter a phone number in E.164 format, e.g. +12025550142."
+    )
+
+
+def mask_number(number: str | None) -> str | None:
+    return f"•••• {number[-4:]}" if number and len(number) >= 4 else number
+
+
+async def _workspace_guard(session: AsyncSession, principal: Principal) -> None:
+    workspace = await session.get(Workspace, principal.workspace_id)
+    if workspace and workspace.emergency_stop:
+        raise ApiError(423, "emergency_stop", "Calling is stopped for this workspace.")
+
+
+async def _capacity_guard(session: AsyncSession, workspace_id: str, settings: Settings) -> None:
+    active = await session.scalar(
+        select(func.count())
+        .select_from(CallAttempt)
+        .where(CallAttempt.workspace_id == workspace_id, CallAttempt.state.in_(ACTIVE_STATES))
+    )
+    if active >= settings.max_concurrent_calls:
+        raise ApiError(
+            409,
+            "capacity_exhausted",
+            "Another call is in progress. This workspace runs one call at a time.",
+        )
+
+
+def _pins(version: AgentVersion, settings: Settings) -> dict[str, Any]:
+    return {
+        "agent_version_id": version.id,
+        "agent_version": version.number,
+        "version_state": version.state,
+        "config_hash": version.config_hash or agents_service.config_hash(version.config),
+        "model_id": version.config["model"]["model_id"] or settings.gemini_live_model,
+        "policy_version": templates.POLICY_VERSION,
+        "tool_versions": {t["name"]: t["version"] for t in version.config["tools"]},
+    }
+
+
+# --- Browser test --------------------------------------------------------------------------------
+
+
+async def start_browser_session(
+    session: AsyncSession,
+    principal: Principal,
+    settings: Settings,
+    gateway: LiveKitGateway,
+    agent: Agent,
+    use: str,
+    case_id: str | None,
+) -> dict[str, Any]:
+    if not gateway.configured:
+        raise ApiError(503, "voice_not_configured", "Voice connection is not configured.")
+    if use == "draft":
+        version = await agents_service.latest_draft(session, agent)
+        if version is None:
+            raise ApiError(409, "no_draft", "This agent has no draft. Test the published version.")
+    else:
+        version = await agents_service.current_version(session, agent)
+        if version is None:
+            raise ApiError(409, "not_published", "This agent has no published version yet.")
+    if not (version.config["model"]["model_id"] or settings.gemini_live_model):
+        raise ApiError(503, "model_not_configured", "No approved voice model is configured.")
+
+    case = await _resolve_case(session, principal.workspace_id, case_id, required=False)
+    await _workspace_guard(session, principal)
+    await _capacity_guard(session, principal.workspace_id, settings)
+
+    attempt_id = new_id()
+    attempt = CallAttempt(
+        id=attempt_id,
+        workspace_id=principal.workspace_id,
+        agent_id=agent.id,
+        agent_version_id=version.id,
+        case_id=case.id if case else None,
+        direction="browser",
+        sandbox=True,
+        room_name=room_name_for(attempt_id),
+        state="Created",
+        pins=_pins(version, settings),
+        created_by=principal.user_id,
+    )
+    session.add(attempt)
+    await events.append(session, attempt, "attempt.created", "api", {"direction": "browser"})
+    await session.commit()
+
+    try:
+        dispatch_id = await gateway.create_room_and_dispatch(attempt.room_name, attempt.id)
+    except Exception as exc:
+        attempt.disposition = "voice_unavailable"
+        await events.set_state(session, attempt, "Failed", "api", reason=type(exc).__name__)
+        await session.commit()
+        raise ApiError(
+            503, "voice_unavailable", "The voice service could not start the session."
+        ) from exc
+
+    attempt.provider_ids = {"dispatch_id": dispatch_id}
+    await events.set_state(session, attempt, "Queued", "api")
+    await session.commit()
+    return {
+        "attempt_id": attempt.id,
+        "url": settings.livekit_url,
+        "token": gateway.browser_token(
+            attempt.room_name,
+            f"usr_{principal.user_id[:8]}_{attempt.id[:8]}",
+            principal.display_name,
+        ),
+        "version": {"number": version.number, "state": version.state},
+        "case_ref": case.case_ref if case else None,
+    }
+
+
+async def _resolve_case(
+    session: AsyncSession, workspace_id: str, case_id: str | None, *, required: bool
+) -> Case | None:
+    if case_id:
+        case = await session.get(Case, case_id)
+        if case is None or case.workspace_id != workspace_id:
+            # Indistinguishable from "no access" (doc 05: no match never exposes other cases).
+            raise ApiError(404, "case_not_found", "No accessible case matches that reference.")
+        return case
+    if required:
+        raise ApiError(422, "case_required", "Select a case for this task.")
+    return await session.scalar(
+        select(Case).where(Case.workspace_id == workspace_id).order_by(Case.case_ref).limit(1)
+    )
+
+
+# --- Outbound tasks ------------------------------------------------------------------------------
+
+
+async def create_task(
+    session: AsyncSession,
+    principal: Principal,
+    settings: Settings,
+    agent_id: str,
+    case_id: str,
+    destination: str,
+    additional_instructions: str | None,
+) -> Task:
+    agent = await agents_service.get_agent(session, principal, agent_id)
+    version = await agents_service.current_version(session, agent)
+    template = templates.get_template(agent.template_id)
+    if version is None:
+        raise ApiError(422, "agent_not_published", "Publish this agent before creating tasks.")
+    if template["direction"] != "outbound":
+        raise ApiError(422, "agent_not_outbound", "This agent's template answers inbound calls.")
+    case = await _resolve_case(session, principal.workspace_id, case_id, required=True)
+    number = normalize_e164(destination)
+    if number not in settings.approved_destinations:
+        raise ApiError(
+            422,
+            "destination_not_approved",
+            "Only approved test destinations can be called in this release.",
+        )
+    note = (additional_instructions or "").strip()
+    if len(note) > 500:
+        raise ApiError(
+            422, "instructions_too_long", "Keep additional instructions under 500 characters."
+        )
+    task = Task(
+        workspace_id=principal.workspace_id,
+        kind="outbound",
+        created_by=principal.user_id,
+        agent_id=agent.id,
+        agent_version_id=version.id,
+        case_id=case.id,
+        destination_e164=number,
+        objective=template["objective"],
+        additional_instructions=note or None,
+        state="Ready",
+    )
+    session.add(task)
+    return task
+
+
+async def start_call(
+    session: AsyncSession,
+    principal: Principal,
+    settings: Settings,
+    gateway: LiveKitGateway,
+    runner: CallRunner,
+    task: Task,
+    idempotency_key: str,
+) -> CallAttempt:
+    if not idempotency_key or len(idempotency_key) > 100:
+        raise ApiError(400, "idempotency_key_required", "An Idempotency-Key header is required.")
+    key = f"{principal.workspace_id}:{idempotency_key}"
+    existing = await session.scalar(select(CallAttempt).where(CallAttempt.idempotency_key == key))
+    if existing is not None:
+        if existing.task_id != task.id:
+            raise ApiError(409, "idempotency_conflict", "That key was used for another task.")
+        return existing  # FR11: a repeated Start Call returns the same attempt
+    if task.state in TERMINAL_TASK_STATES:
+        raise ApiError(409, "task_closed", "This task is closed.")
+    if not gateway.configured or not settings.livekit_outbound_trunk_id:
+        raise ApiError(503, "outbound_not_configured", "Phone connection missing.")
+    await _workspace_guard(session, principal)
+    await _capacity_guard(session, principal.workspace_id, settings)
+
+    version = await session.get(AgentVersion, task.agent_version_id)
+    attempt_id = new_id()
+    attempt = CallAttempt(
+        id=attempt_id,
+        workspace_id=task.workspace_id,
+        task_id=task.id,
+        agent_id=task.agent_id,
+        agent_version_id=task.agent_version_id,
+        case_id=task.case_id,
+        direction="outbound",
+        room_name=room_name_for(attempt_id),
+        state="Created",
+        idempotency_key=key,
+        destination_e164=task.destination_e164,
+        pins=_pins(version, settings),
+        created_by=principal.user_id,
+    )
+    session.add(attempt)
+    task.state = "Running"
+    await events.append(session, attempt, "attempt.created", "api", {"direction": "outbound"})
+    await session.commit()
+    runner.spawn(runner.run_outbound(attempt.id))
+    return attempt
+
+
+# --- Worker claim (ADR09) ------------------------------------------------------------------------
+
+
+async def claim(
+    session: AsyncSession, settings: Settings, attempt_id: str, room: str, job_id: str, build: str
+) -> dict[str, Any]:
+    attempt = await session.get(CallAttempt, attempt_id)
+    if attempt is None or attempt.room_name != room:
+        raise ApiError(404, "attempt_not_found", "No attempt for this room.")
+    if attempt.claimed_at is not None:
+        raise ApiError(409, "already_claimed", "This attempt was already claimed.")
+    if attempt.state not in ("Created", "Queued"):
+        raise ApiError(409, "attempt_not_claimable", "This attempt is no longer active.")
+    attempt.claimed_at = attempt.last_heartbeat_at = utcnow()
+    attempt.pins = {**attempt.pins, "runtime_build": build}
+    attempt.provider_ids = {**attempt.provider_ids, "job_id": job_id}
+    await events.append(session, attempt, "worker.claimed", "worker", {"runtime_build": build})
+    payload = await _claim_payload(session, settings, attempt)
+    await session.commit()
+    return payload
+
+
+async def inbound_claim(
+    session: AsyncSession,
+    settings: Settings,
+    room: str,
+    job_id: str,
+    build: str,
+    called_number: str,
+    caller_number: str | None,
+) -> dict[str, Any]:
+    # The trusted called number selects the route and workspace; nothing the caller says does (I5).
+    route = await session.scalar(
+        select(Route).where(Route.number_e164 == called_number, Route.direction == "inbound")
+    )
+    if route is None or route.agent_id is None:
+        raise ApiError(404, "no_route", "No inbound route for this number.")
+    agent = await session.get(Agent, route.agent_id)
+    version = await agents_service.current_version(session, agent)
+    if version is None:
+        raise ApiError(409, "not_published", "The routed agent has no published version.")
+    workspace = await session.get(Workspace, route.workspace_id)
+    if workspace.emergency_stop:
+        raise ApiError(423, "emergency_stop", "Calling is stopped for this workspace.")
+    await _capacity_guard(session, route.workspace_id, settings)
+
+    template = templates.get_template(agent.template_id)
+    task = Task(
+        workspace_id=route.workspace_id,
+        kind="inbound",
+        created_by="system",
+        agent_id=agent.id,
+        agent_version_id=version.id,
+        objective=template["objective"],
+        state="Running",
+    )
+    session.add(task)
+    await session.flush()
+    attempt = CallAttempt(
+        workspace_id=route.workspace_id,
+        task_id=task.id,
+        agent_id=agent.id,
+        agent_version_id=version.id,
+        route_id=route.id,
+        direction="inbound",
+        room_name=room,
+        state="Connected",
+        caller_e164=caller_number,
+        pins={**_pins(version, settings), "runtime_build": build},
+        provider_ids={"job_id": job_id},
+        claimed_at=utcnow(),
+        last_heartbeat_at=utcnow(),
+        connected_at=utcnow(),
+    )
+    session.add(attempt)
+    await session.flush()
+    await events.append(session, attempt, "attempt.created", "worker", {"direction": "inbound"})
+    payload = await _claim_payload(session, settings, attempt)
+    await session.commit()
+    return payload
+
+
+async def _claim_payload(
+    session: AsyncSession, settings: Settings, attempt: CallAttempt
+) -> dict[str, Any]:
+    version = await session.get(AgentVersion, attempt.agent_version_id)
+    task = await session.get(Task, attempt.task_id) if attempt.task_id else None
+    case = await session.get(Case, attempt.case_id) if attempt.case_id else None
+    config = version.config
+    template = templates.get_template(config["task"]["template_id"])
+    brief = build_brief(attempt, task, config, template, case, settings)
+    registry = contracts.tool_registry()
+    return {
+        "attempt_id": attempt.id,
+        "attempt_token": issue_attempt_token(settings, attempt.id, attempt.workspace_id),
+        "brief": brief,
+        "instructions": {
+            "platform_policy": templates.PLATFORM_POLICY,
+            "template": template["instructions"],
+            "agent": config["instructions"]["agent_text"],
+        },
+        "identity": config["identity"],
+        "conversation": config["conversation"],
+        "model_id": attempt.pins["model_id"],
+        "speak_first": attempt.direction != "outbound",
+        "expect_sip": attempt.direction == "outbound",
+        "sip_identity": f"pstn_{attempt.id.replace('-', '')}"
+        if attempt.direction == "outbound"
+        else None,
+        "tools": [_model_tool(registry[ref["name"]]) for ref in config["tools"]],
+        "max_duration_s": config["guardrails"]["max_duration_s"],
+    }
+
+
+def _model_tool(tool: dict[str, Any]) -> dict[str, Any]:
+    """Model-facing tool definition. The worker, not the model, attaches evidence references."""
+    schema = dict(tool["arguments_schema"])
+    if tool["name"] == "record_finding":
+        props = {k: v for k, v in schema["properties"].items() if k != "evidence_segment_ids"}
+        schema = {
+            **schema,
+            "properties": props,
+            "required": [r for r in schema["required"] if r != "evidence_segment_ids"],
+        }
+    return {
+        "name": tool["name"],
+        "version": tool["version"],
+        "description": tool["description"],
+        "parameters": schema,
+        "execution": tool["execution"],
+    }
+
+
+def build_brief(
+    attempt: CallAttempt,
+    task: Task | None,
+    config: dict[str, Any],
+    template: dict[str, Any],
+    case: Case | None,
+    settings: Settings,
+) -> dict[str, Any]:
+    context = templates.case_context(case.data) if case else {}
+    required = template["required_context"]
+    objective = task.objective if task else template["objective"]
+    if task and task.additional_instructions:
+        objective += f" Additional operator note: {task.additional_instructions}"
+    issued = utcnow()
+    brief = {
+        "attempt_id": attempt.id,
+        "task_id": attempt.task_id,
+        "workspace_id": attempt.workspace_id,
+        "direction": attempt.direction,
+        "channel": "browser" if attempt.direction == "browser" else "phone",
+        "sandbox": attempt.sandbox,
+        "pins": {
+            k: attempt.pins[k]
+            for k in (
+                "agent_version_id",
+                "config_hash",
+                "model_id",
+                "policy_version",
+                "tool_versions",
+            )
+        },
+        "authority": {
+            "statement": "Act only on behalf of the provider for the purpose of this task.",
+            "on_behalf_of": context.get("provider_name", "the provider's office"),
+            "disclose_allowlist": config["guardrails"].get("allowed_disclosures", []),
+        },
+        "objective": objective,
+        "desired_findings": list(template["output_fields"]),
+        "restricted_actions": RESTRICTED_ACTIONS,
+        "budget": {
+            "max_duration_s": min(
+                config["guardrails"]["max_duration_s"], settings.max_call_duration_s
+            ),
+            "max_hold_s": config["conversation"].get("hold_policy", {}).get("max_hold_s", 0),
+            "max_menu_repeats": config["conversation"]
+            .get("ivr_policy", {})
+            .get("max_menu_repeats", 3),
+        },
+        "context": {k: context[k] for k in required if k in context},
+        "issued_at": issued.isoformat(),
+        "expires_at": (issued + timedelta(seconds=settings.max_call_duration_s + 600)).isoformat(),
+    }
+    contracts.validate("call_brief", brief)
+    return brief
+
+
+# --- Events and termination ----------------------------------------------------------------------
+
+WORKER_EVENT_TYPES = {
+    "worker.ready",
+    "worker.heartbeat",
+    "worker.done",
+    "participant.joined",
+    "participant.left",
+    "transcript.segment",
+    "sip.call_status",
+    "amd.result",
+    "model.error",
+    "audio.missing",
+    "model.session_renewed",
+}
+
+
+async def finalize(
+    session: AsyncSession, attempt: CallAttempt, reason: str, disposition: str | None = None
+) -> None:
+    if attempt.state in ("Ended", "Failed", "Cancelled"):
+        return
+    attempt.ended_at = utcnow()
+    attempt.end_reason = reason
+    if attempt.connected_at is None and attempt.direction != "inbound":
+        attempt.disposition = disposition or attempt.disposition or "not_connected"
+        await events.set_state(session, attempt, "Failed", "api", reason=reason)
+    else:
+        attempt.disposition = disposition or attempt.disposition or "completed"
+        await events.set_state(session, attempt, "Ended", "api", reason=reason)
+    if attempt.task_id:
+        task = await session.get(Task, attempt.task_id)
+        if task and task.state not in TERMINAL_TASK_STATES:
+            # A business outcome needs evidence and review; a finished call is not success (I1).
+            task.state = "Review"
+            task.next_action = task.next_action or _suggested_next_action(attempt)
+
+
+def _suggested_next_action(attempt: CallAttempt) -> str:
+    return {
+        "busy": "Destination was busy. Review and explicitly retry.",
+        "no_answer": "No answer from destination. Review and explicitly retry.",
+        "interrupted": "Call was interrupted. Review partial findings and decide whether to retry.",
+        "agent_unavailable": "No agent was available. Check readiness, then retry.",
+    }.get(attempt.disposition or "", "Review findings and record the outcome.")
+
+
+async def ingest_worker_events(
+    session: AsyncSession, attempt: CallAttempt, items: list[dict[str, Any]]
+) -> int:
+    accepted = 0
+    for item in items:
+        type_ = item.get("type")
+        if type_ not in WORKER_EVENT_TYPES:
+            continue
+        payload = dict(item.get("payload") or {})
+        if type_ == "transcript.segment":
+            segment_id = str(payload.get("segment_id", ""))[:64]
+            text = str(payload.pop("text", ""))[:4000]
+            if not segment_id or await session.get(TranscriptSegment, segment_id):
+                continue
+            session.add(
+                TranscriptSegment(
+                    id=segment_id,
+                    attempt_id=attempt.id,
+                    speaker="agent" if payload.get("speaker") == "agent" else "counterpart",
+                    text=text,
+                    playout=payload.get("playout", "unverified"),
+                    occurred_at=utcnow(),
+                )
+            )
+        event = await events.append(
+            session, attempt, type_, "worker", payload, event_id=item.get("event_id")
+        )
+        if event is None:
+            continue
+        accepted += 1
+        attempt.last_heartbeat_at = utcnow()
+        if type_ == "participant.joined" and attempt.state in ("Queued", "Dialing", "Created"):
+            attempt.connected_at = attempt.connected_at or utcnow()
+            await events.set_state(session, attempt, "Connected", "worker")
+            if attempt.substate is None:
+                attempt.substate = "Conversation" if attempt.direction != "outbound" else "IVR"
+        elif type_ == "sip.call_status" and payload.get("status") == "hangup":
+            if attempt.state == "Connected":
+                await events.set_state(
+                    session, attempt, "Ending", "worker", reason="counterpart_hangup"
+                )
+        elif type_ == "amd.result" and payload.get("category") in ("machine", "voicemail"):
+            attempt.disposition = "voicemail"
+        elif type_ == "worker.done":
+            await finalize(session, attempt, payload.get("reason", "worker_done"))
+    return accepted
+
+
+async def end_by_operator(
+    session: AsyncSession,
+    principal: Principal,
+    gateway: LiveKitGateway,
+    attempt: CallAttempt,
+) -> CallAttempt:
+    if attempt.state not in ACTIVE_STATES:
+        return attempt  # idempotent
+    await events.set_state(
+        session, attempt, "Ending", "api", actor=principal.user_id, reason="operator_end"
+    )
+    await session.commit()
+    if gateway.configured:
+        await gateway.delete_room(attempt.room_name)
+    await finalize(session, attempt, "operator_ended")
+    await session.commit()
+    return attempt
+
+
+# --- Background runner and reconciler ------------------------------------------------------------
+
+
+class CallRunner:
+    """In-process executor for dial commands and reconciliation.
+
+    Development stand-in for the outbox -> Cloud Tasks relay (BUILD_PLAN 5.3); handlers are written
+    to be safe under repeat delivery so the swap does not change their logic.
+    """
+
+    def __init__(self, db: Database, gateway: LiveKitGateway, settings: Settings):
+        self.db, self.gateway, self.settings = db, gateway, settings
+        self._tasks: set[asyncio.Task] = set()
+
+    def spawn(self, coro) -> None:
+        task = asyncio.create_task(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def aclose(self) -> None:
+        for task in list(self._tasks):
+            task.cancel()
+
+    async def run_outbound(self, attempt_id: str) -> None:
+        try:
+            await self._run_outbound(attempt_id)
+        except Exception:
+            log.exception("outbound run failed", extra={"attempt_id": attempt_id})
+
+    async def _run_outbound(self, attempt_id: str) -> None:
+        async with self.db.sessions() as session:
+            attempt = await session.get(CallAttempt, attempt_id)
+            try:
+                dispatch_id = await self.gateway.create_room_and_dispatch(
+                    attempt.room_name, attempt.id
+                )
+            except Exception as exc:
+                attempt.disposition = "voice_unavailable"
+                await finalize(session, attempt, f"dispatch_failed:{type(exc).__name__}")
+                await session.commit()
+                return
+            attempt.provider_ids = {**attempt.provider_ids, "dispatch_id": dispatch_id}
+            await events.set_state(session, attempt, "Queued", "api")
+            await session.commit()
+
+        # Readiness deadline: never dial into a room without a functioning agent (doc 03 step 3).
+        deadline = asyncio.get_running_loop().time() + self.settings.worker_claim_timeout_s
+        while True:
+            async with self.db.sessions() as session:
+                attempt = await session.get(CallAttempt, attempt_id)
+                if attempt.state not in ACTIVE_STATES:
+                    return  # cancelled meanwhile
+                if attempt.claimed_at is not None:
+                    break
+                if asyncio.get_running_loop().time() > deadline:
+                    attempt.disposition = "agent_unavailable"
+                    await finalize(session, attempt, "worker_claim_timeout")
+                    await session.commit()
+                    await self._safe_delete(attempt.room_name)
+                    return
+            await asyncio.sleep(0.5)
+
+        async with self.db.sessions() as session:
+            attempt = await session.get(CallAttempt, attempt_id)
+            await events.set_state(session, attempt, "Dialing", "api")
+            await session.commit()
+            try:
+                outcome = await self.gateway.dial(
+                    attempt.room_name, attempt.id, attempt.destination_e164
+                )
+            except Exception as exc:
+                # Ambiguous: the call may exist. Reconcile instead of dialing again (TR04).
+                await events.append(
+                    session,
+                    attempt,
+                    "tool.unknown",
+                    "api",
+                    {"action": "dial", "error": type(exc).__name__},
+                )
+                present = await self._participant_present(attempt)
+                if present:
+                    attempt.connected_at = utcnow()
+                    await events.set_state(session, attempt, "Connected", "reconciler")
+                else:
+                    attempt.disposition = "failed"
+                    await finalize(session, attempt, "dial_error")
+                    await self._safe_delete(attempt.room_name)
+                await session.commit()
+                return
+            if outcome.connected:
+                attempt.connected_at = attempt.connected_at or utcnow()
+                attempt.provider_ids = {
+                    **attempt.provider_ids,
+                    "sip_participant_id": outcome.participant_id,
+                    "sip_call_id": outcome.sip_call_id,
+                }
+                await events.set_state(session, attempt, "Connected", "api")
+            else:
+                attempt.disposition = outcome.disposition
+                await events.append(
+                    session,
+                    attempt,
+                    "sip.call_status",
+                    "api",
+                    {"status": outcome.disposition, "sip_status_code": outcome.sip_status_code},
+                )
+                await finalize(session, attempt, f"dial_{outcome.disposition}", outcome.disposition)
+                await self._safe_delete(attempt.room_name)
+            await session.commit()
+
+    async def _participant_present(self, attempt: CallAttempt) -> bool:
+        try:
+            return await self.gateway.sip_participant_present(attempt.room_name, attempt.id)
+        except Exception:
+            return False
+
+    async def _safe_delete(self, room: str) -> None:
+        if not self.gateway.configured:
+            return
+        try:
+            await self.gateway.delete_room(room)
+        except Exception:
+            log.warning("room delete failed", extra={"room": room})
+
+    async def reconcile_once(self) -> int:
+        """Repair stale attempts with auditable transitions (doc 03 reconciliation service)."""
+        now = utcnow()
+        repaired = 0
+        async with self.db.sessions() as session:
+            stale = list(
+                await session.scalars(
+                    select(CallAttempt).where(CallAttempt.state.in_(ACTIVE_STATES))
+                )
+            )
+            for attempt in stale:
+                age = (now - as_utc(attempt.created_at)).total_seconds()
+                beat = (
+                    (now - as_utc(attempt.last_heartbeat_at)).total_seconds()
+                    if attempt.last_heartbeat_at
+                    else None
+                )
+                reason = None
+                if attempt.claimed_at is None and age > self.settings.worker_claim_timeout_s + 15:
+                    attempt.disposition, reason = "agent_unavailable", "reconciler_unclaimed"
+                elif beat is not None and beat > self.settings.heartbeat_stale_s:
+                    attempt.disposition, reason = "interrupted", "reconciler_stale_heartbeat"
+                elif attempt.state == "Ending" and beat is not None and beat > 20:
+                    reason = "reconciler_ending_timeout"
+                elif age > self.settings.max_call_duration_s + 60:
+                    attempt.disposition, reason = "budget_exhausted", "reconciler_budget"
+                if reason:
+                    await events.append(
+                        session, attempt, "attempt.reconciled", "reconciler", {"reason": reason}
+                    )
+                    await finalize(session, attempt, reason)
+                    await self._safe_delete(attempt.room_name)
+                    repaired += 1
+            await session.commit()
+        return repaired
+
+    async def reconcile_forever(self, interval_s: float = 10.0) -> None:
+        while True:
+            try:
+                await self.reconcile_once()
+            except Exception:
+                log.exception("reconcile pass failed")
+            await asyncio.sleep(interval_s)

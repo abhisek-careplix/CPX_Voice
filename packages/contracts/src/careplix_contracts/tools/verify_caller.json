@@ -1,0 +1,24 @@
+{
+  "name": "verify_caller",
+  "version": "1.0.0",
+  "description": "Check the caller's member ID and date of birth before sharing any case information. The result only says whether verification passed; it never reveals whether a case exists.",
+  "classification": "read",
+  "execution": "api",
+  "allowed_roles": ["agent_runtime"],
+  "timeout_ms": 2000,
+  "idempotency": "naturally_idempotent",
+  "limits": {"max_attempts_per_call": 2},
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["member_id", "date_of_birth"],
+    "properties": {
+      "member_id": {"type": "string", "pattern": "^[0-9]{6,12}$"},
+      "date_of_birth": {"type": "string", "format": "date"}
+    }
+  },
+  "result_schema": {"type": "object", "required": ["verified"], "properties": {"verified": {"type": "boolean"}}},
+  "owner": "platform",
+  "release": "D",
+  "enabled_in_demo": true
+}
