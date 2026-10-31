@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import careplix_contracts as contracts
-from careplix_api import templates
+from careplix_api import connections, templates
 from careplix_api.auth import Principal
 from careplix_api.db import utcnow
 from careplix_api.errors import ApiError
@@ -41,7 +41,9 @@ def _friendly(field: str, message: str) -> dict[str, str]:
     return {"field": field, "message": message}
 
 
-def validation_issues(config: dict[str, Any], settings: Settings) -> list[dict[str, str]]:
+def validation_issues(
+    config: dict[str, Any], settings: Settings, approved_model: str
+) -> list[dict[str, str]]:
     """Every reason this configuration cannot be published. Empty means publishable."""
     issues = [_friendly(*e.split(":", 1)) for e in contracts.errors("agent_config", config)]
     if issues:
@@ -90,7 +92,7 @@ def validation_issues(config: dict[str, Any], settings: Settings) -> list[dict[s
             }
         )
 
-    approved = settings.gemini_live_model
+    approved = approved_model
     if not approved:
         issues.append(
             {
@@ -201,7 +203,9 @@ async def create_agent(
         raise ApiError(422, "unknown_template", "Unknown template.") from exc
     config = copy.deepcopy(template["default_config"])
     config["identity"]["name"] = name[:60]
-    config["model"]["model_id"] = settings.gemini_live_model
+    config["model"]["model_id"] = (
+        await connections.load(session, principal.workspace_id, settings)
+    ).approved_model
     agent = Agent(workspace_id=principal.workspace_id, name=name, template_id=template_id)
     session.add(agent)
     await session.flush()
@@ -260,7 +264,11 @@ async def publish_preview(
     return {
         "draft_version": draft.number,
         "current_version": current.number if current else None,
-        "issues": validation_issues(draft.config, settings),
+        "issues": validation_issues(
+            draft.config,
+            settings,
+            (await connections.load(session, agent.workspace_id, settings)).approved_model,
+        ),
         **diff(current.config if current else None, draft.config),
         "affected_routes": [
             {"id": r.id, "name": r.name, "number": r.number_e164, "direction": r.direction}
@@ -282,7 +290,8 @@ async def publish(
     draft = await latest_draft(session, agent)
     if draft is None:
         raise ApiError(409, "no_draft", "There is no draft to publish.")
-    if issues := validation_issues(draft.config, settings):
+    approved = (await connections.load(session, agent.workspace_id, settings)).approved_model
+    if issues := validation_issues(draft.config, settings, approved):
         raise ApiError(
             422,
             "not_publishable",

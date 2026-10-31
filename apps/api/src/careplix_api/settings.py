@@ -30,6 +30,19 @@ class Settings(BaseSettings):
     gcp_project: str = ""
     vertex_location: str = ""
     gemini_live_model: str = ""
+    # Optional restricted service-account JSON for the API's own model test. Empty uses ADC.
+    google_service_account_json: SecretStr = SecretStr("")
+
+    # Development payer endpoint seeded as a workspace connection (synthetic). Empty disables.
+    payer_sandbox_url: str = "http://localhost:8091/fhir"
+    payer_sandbox_auth: str = "none"  # none | google_id_token (private Cloud Run sandbox)
+
+    # Cloud deployment (BUILD_PLAN §9): IAP sign-in, bundled Studio, background loop placement.
+    iap_audience: str = ""  # e.g. /projects/<number>/locations/<region>/services/<service>
+    iap_allowed_domain: str = "careplix.com"
+    iap_default_role: str = "admin"  # role granted on first sign-in to the single lab workspace
+    studio_dist: str = ""  # path to the built Studio (apps/web/dist) to serve at /
+    run_background: bool = True  # reconciler, dial runner and integration worker
 
     # Release D calling policy (FR05, SEC12): only approved synthetic test destinations.
     approved_test_destinations: str = ""

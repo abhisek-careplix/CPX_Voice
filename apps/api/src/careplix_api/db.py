@@ -41,6 +41,21 @@ class IdMixin:
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
 
 
+def _add_missing_columns(conn) -> None:
+    """Development convenience: add new nullable columns to an existing SQLite file.
+
+    Shared environments use Alembic migrations instead; this never alters or drops columns.
+    """
+    for table in Base.metadata.sorted_tables:
+        present = {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info('{table.name}')")}
+        for column in table.columns:
+            if column.name not in present and column.nullable:
+                kind = column.type.compile(dialect=conn.dialect)
+                conn.exec_driver_sql(
+                    f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {kind}'
+                )
+
+
 class Database:
     def __init__(self, url: str):
         self.engine: AsyncEngine = create_async_engine(url)
@@ -58,6 +73,8 @@ class Database:
     async def create_all(self) -> None:
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            if self.engine.dialect.name == "sqlite":
+                await conn.run_sync(_add_missing_columns)
 
     async def session(self) -> AsyncIterator[AsyncSession]:
         async with self.sessions() as session:

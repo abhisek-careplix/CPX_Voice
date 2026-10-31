@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AudioLines, Bot, ClipboardCheck, LayoutGrid, ListChecks, LogOut, Phone, PlugZap, ShieldCheck } from "lucide-react";
+import { AudioLines, Bot, Building2, ClipboardCheck, LayoutGrid, ListChecks, LogOut, Phone, PlugZap, ShieldCheck } from "lucide-react";
 import { createContext, useContext, useEffect } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, ApiError, type Me, type WorkspaceSummary } from "./api";
@@ -8,6 +8,7 @@ import Agents from "./pages/Agents";
 import CallDetail from "./pages/CallDetail";
 import Calls from "./pages/Calls";
 import Connections from "./pages/Connections";
+import Integrations from "./pages/Integrations";
 import ResultDetail from "./pages/ResultDetail";
 import Results from "./pages/Results";
 import TaskComposer from "./pages/TaskComposer";
@@ -32,10 +33,17 @@ export default function App() {
 
 function SignIn({ error }: { error?: string }) {
   const qc = useQueryClient();
+  const mode = useQuery({ queryKey: ["auth-mode"], queryFn: () => api.get<{ mode: "dev" | "sso" }>("/auth/mode") });
+  const sso = mode.data?.mode === "sso";
   const login = useMutation({
-    mutationFn: () => api.post<Me>("/auth/dev-login"),
+    // In the cloud, IAP has already authenticated the Google account; this exchanges it for a session.
+    mutationFn: () => api.post<Me>(sso ? "/auth/iap-login" : "/auth/dev-login"),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["me"] }),
   });
+  const { mutate, isIdle } = login;
+  useEffect(() => {
+    if (sso && isIdle && !error) mutate();
+  }, [sso, isIdle, error, mutate]);
   return (
     <main className="signin">
       <div className="card signin-card">
@@ -51,7 +59,7 @@ function SignIn({ error }: { error?: string }) {
           </p>
         </div>
         <button className="btn btn-primary btn-lg" style={{ width: "100%" }} onClick={() => login.mutate()} disabled={login.isPending}>
-          {login.isPending ? <span className="spinner" aria-label="Signing in" /> : "Continue as Demo Administrator"}
+          {login.isPending ? <span className="spinner" aria-label="Signing in" /> : sso ? "Continue with CarePlix account" : "Continue as Demo Administrator"}
         </button>
         {(login.error || error) && (
           <p className="field-error" role="alert">
@@ -59,7 +67,7 @@ function SignIn({ error }: { error?: string }) {
           </p>
         )}
         <p className="small muted" style={{ margin: 0 }}>
-          Development sign-in. Synthetic data only — no patient information may be used.
+          {sso ? "Signed in through CarePlix single sign-on." : "Development sign-in."} Synthetic data only — no patient information may be used.
         </p>
       </div>
     </main>
@@ -120,7 +128,10 @@ function Shell() {
         </NavLink>
         <div className="nav-section">Administration</div>
         <NavLink to="/connections" className="nav-link">
-          <PlugZap size={18} aria-hidden /> Connections & Routes
+          <PlugZap size={18} aria-hidden /> Connections
+        </NavLink>
+        <NavLink to="/integrations" className="nav-link">
+          <Building2 size={18} aria-hidden /> Integrations
         </NavLink>
         <div className="sidebar-foot">
           <span className="sample-label">
@@ -159,6 +170,7 @@ function Shell() {
           <Route path="/results" element={<Results />} />
           <Route path="/results/:id" element={<ResultDetail />} />
           <Route path="/connections" element={<Connections />} />
+          <Route path="/integrations" element={<Integrations />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

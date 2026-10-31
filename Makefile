@@ -1,4 +1,4 @@
-.PHONY: setup lint fmt test check api studio worker-dev db-up probe-readiness probe-gemini browser-session web-check
+.PHONY: payer-sandbox connect-livekit setup lint fmt test check api studio worker-dev db-up probe-readiness probe-gemini browser-session web-check
 
 setup:
 	uv sync
@@ -23,9 +23,17 @@ check: lint test web-check
 db-up:
 	docker compose up -d postgres
 
+# Prompts for LiveKit URL, key and secret (hidden), writes .env and checks the connection.
+connect-livekit:
+	./scripts/connect-livekit.sh
+
 # Settings load .env automatically when present.
 api:
 	uv run uvicorn careplix_api.main:app --reload --reload-dir apps/api/src --port 8080
+
+# Synthetic payer exposing Da Vinci PAS Claim/$inquire and $submit (development only).
+payer-sandbox:
+	uv run uvicorn careplix_api.payer_sandbox:app --port 8091
 
 # Studio web app on http://localhost:5173 (proxies /api to the API above).
 studio:
@@ -33,7 +41,7 @@ studio:
 
 # Runs the agent worker locally: registers with LiveKit Cloud and claims calls from the local API.
 worker-dev:
-	uv run python -m careplix_worker.main dev
+	uv run --env-file .env python -m careplix_worker.main dev
 
 # G0 evidence: connection inventory (LiveKit, trunks, routes, DB, model config).
 probe-readiness:

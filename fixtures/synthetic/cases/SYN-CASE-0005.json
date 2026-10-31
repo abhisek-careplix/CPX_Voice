@@ -33,5 +33,12 @@
       "member_id",
       "date_of_birth"
     ]
-  }
+  },
+  "diagnosis_codes": [
+    "R10.9"
+  ],
+  "coverage_terms": [
+    "computed tomography",
+    "abdomen"
+  ]
 }

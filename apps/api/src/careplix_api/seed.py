@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import careplix_contracts as contracts
 from careplix_api import agents_service
 from careplix_api.auth import Principal
-from careplix_api.models import Agent, Case, Membership, User, Workspace
+from careplix_api.models import Agent, Case, Membership, PayerConnection, User, Workspace
 from careplix_api.settings import Settings
 
 DEMO_EMAIL = "demo.admin@careplix.local"
@@ -51,3 +51,53 @@ async def seed(session: AsyncSession, settings: Settings) -> None:
             session, principal, settings, "Avery Inbound", "inbound-enquiry"
         )
     await session.commit()
+
+
+async def ensure_reference_connections(session: AsyncSession) -> None:
+    """Public reference systems (NPPES, NLM, CMS Coverage) are available to every workspace."""
+    from careplix_api.integrations.reference import REFERENCE_SYSTEMS
+
+    for workspace in list(await session.scalars(select(Workspace))):
+        existing = {
+            c.kind
+            for c in await session.scalars(
+                select(PayerConnection).where(PayerConnection.workspace_id == workspace.id)
+            )
+        }
+        for kind, (name, url) in REFERENCE_SYSTEMS.items():
+            if kind not in existing:
+                session.add(
+                    PayerConnection(
+                        workspace_id=workspace.id,
+                        name=name,
+                        kind=kind,
+                        base_url=url,
+                        ig_version="public-api",
+                        payer_names=["*"],
+                    )
+                )
+    await session.commit()
+
+
+async def ensure_dev_integrations(session: AsyncSession, settings: Settings) -> None:
+    """Connect the synthetic CarePlix Payer Sandbox when one is configured and nothing else is."""
+    principal = await demo_principal(session)
+    if not (settings.payer_sandbox_url and principal):
+        return
+    existing = await session.scalar(
+        select(PayerConnection).where(
+            PayerConnection.workspace_id == principal.workspace_id, PayerConnection.kind == "pas"
+        )
+    )
+    if existing is None:
+        session.add(
+            PayerConnection(
+                workspace_id=principal.workspace_id,
+                name="CarePlix Payer Sandbox (synthetic)",
+                base_url=settings.payer_sandbox_url,
+                auth_type=settings.payer_sandbox_auth,
+                payer_names=["*"],
+                synthetic=True,
+            )
+        )
+        await session.commit()

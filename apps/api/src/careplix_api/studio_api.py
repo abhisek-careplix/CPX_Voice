@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import careplix_contracts as contracts
-from careplix_api import agents_service, calls_service, readiness, templates
+from careplix_api import agents_service, calls_service, connections, readiness, templates
 from careplix_api.auth import SESSION_COOKIE, SESSION_TTL, Principal, issue_session, require
 from careplix_api.calls_service import ACTIVE_STATES, TERMINAL_TASK_STATES, mask_number
 from careplix_api.db import as_utc, utcnow
@@ -79,6 +79,59 @@ async def dev_login(
     return _me(principal)
 
 
+@router.get("/auth/mode")
+async def auth_mode(settings: Settings = Depends(get_settings)):
+    return {"mode": "dev" if settings.is_dev else "sso"}
+
+
+@router.post("/auth/iap-login")
+async def iap_login(
+    request: Request,
+    response: Response,
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """Exchange the IAP-verified Google identity for a Studio session (cloud deployments)."""
+    from careplix_api.auth import verify_iap_assertion
+    from careplix_api.models import Membership, User
+
+    email = verify_iap_assertion(request, settings)
+    user = await session.scalar(select(User).where(User.email == email))
+    if user is None:
+        user = User(email=email, display_name=email.split("@")[0].replace(".", " ").title())
+        session.add(user)
+        await session.flush()
+    membership = await session.scalar(select(Membership).where(Membership.user_id == user.id))
+    if membership is None:
+        workspace = await session.scalar(select(Workspace).order_by(Workspace.created_at).limit(1))
+        if workspace is None:
+            raise ApiError(503, "not_seeded", "No workspace exists yet.")
+        membership = Membership(
+            user_id=user.id, workspace_id=workspace.id, role=settings.iap_default_role
+        )
+        session.add(membership)
+        session.add(
+            AuditEvent(
+                workspace_id=workspace.id,
+                actor=user.id,
+                action="user.provisioned",
+                target=user.id,
+                detail={"role": membership.role},
+            )
+        )
+    await session.commit()
+    principal = Principal(user.id, membership.workspace_id, membership.role, user.display_name)
+    response.set_cookie(
+        SESSION_COOKIE,
+        issue_session(settings, principal),
+        max_age=int(SESSION_TTL.total_seconds()),
+        httponly=True,
+        samesite="strict",
+        secure=True,
+    )
+    return _me(principal)
+
+
 @router.post("/auth/logout")
 async def logout(response: Response):
     response.delete_cookie(SESSION_COOKIE)
@@ -112,9 +165,13 @@ async def me(principal: Principal = Depends(viewer), session: AsyncSession = Ses
 
 @router.get("/readiness")
 async def get_readiness(
-    principal: Principal = Depends(viewer), settings: Settings = Depends(get_settings)
+    principal: Principal = Depends(viewer),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+    gw=Depends(gateway),
 ):
-    return (await readiness.run_all(settings)).as_dict()
+    result = await readiness.run_all(settings, session, principal.workspace_id, gw)
+    return result.as_dict()
 
 
 @router.get("/workspace/summary")
@@ -247,54 +304,6 @@ async def list_routes(principal: Principal = Depends(viewer), session: AsyncSess
     return [_route_view(r) for r in routes]
 
 
-class RouteIn(BaseModel):
-    name: str = Field(min_length=1, max_length=80)
-    provider: Literal["livekit_number", "carrier"]
-    number: str
-    agent_id: str
-
-
-@router.post("/routes")
-async def create_route(
-    body: RouteIn, principal: Principal = Depends(require("admin")), session: AsyncSession = Session
-):
-    agent = await agents_service.get_agent(session, principal, body.agent_id)
-    if templates.get_template(agent.template_id)["direction"] != "inbound":
-        raise ApiError(422, "agent_not_inbound", "Only inbound agents can answer a number.")
-    number = calls_service.normalize_e164(body.number)
-    if await session.scalar(select(Route).where(Route.number_e164 == number)):
-        raise ApiError(409, "route_exists", "That number already has a route.")
-    route = Route(
-        workspace_id=principal.workspace_id,
-        name=body.name,
-        provider=body.provider,
-        direction="inbound",
-        number_e164=number,
-        agent_id=agent.id,
-        # LiveKit-purchased numbers are inbound-only and cannot forward (L1).
-        # Nothing is verified until a real call qualifies the route.
-        capabilities={
-            "inbound": True,
-            "outbound": False,
-            "dtmf": True,
-            "recording": False,
-            "transfer": False,
-        },
-    )
-    session.add(route)
-    session.add(
-        AuditEvent(
-            workspace_id=principal.workspace_id,
-            actor=principal.user_id,
-            action="route.created",
-            target=number[-4:],
-            detail={"agent_id": agent.id},
-        )
-    )
-    await session.commit()
-    return _route_view(route)
-
-
 def _route_view(r: Route) -> dict[str, Any]:
     return {
         "id": r.id,
@@ -305,6 +314,8 @@ def _route_view(r: Route) -> dict[str, Any]:
         "agent_id": r.agent_id,
         "capabilities": r.capabilities,
         "verified_at": r.verified_at,
+        "provider_refs": r.provider_refs or {},
+        "last_call_at": r.last_call_at,
     }
 
 
@@ -315,6 +326,7 @@ async def _agent_view(
     session: AsyncSession, agent: Agent, settings: Settings, full: bool = False
 ) -> dict[str, Any]:
     vs = await agents_service.versions(session, agent)
+    eff = await connections.load(session, agent.workspace_id, settings)
     draft = next((v for v in vs if v.state == "draft"), None)
     current = next((v for v in vs if v.id == agent.current_version_id), None)
     template = templates.get_template(agent.template_id)
@@ -334,9 +346,11 @@ async def _agent_view(
         view["versions"] = [_version_view(v) for v in vs if v.state != "draft"]
         view["draft_config"] = (draft or current).config if (draft or current) else None
         view["draft_issues"] = (
-            agents_service.validation_issues(draft.config, settings) if draft else []
+            agents_service.validation_issues(draft.config, settings, eff.approved_model)
+            if draft
+            else []
         )
-        view["approved_model"] = settings.gemini_live_model or None
+        view["approved_model"] = eff.approved_model or None
     return view
 
 
@@ -566,6 +580,7 @@ async def _task_view(
         else None,
         "outcome_reason": t.outcome_reason,
         "next_action": t.next_action,
+        "electronic_check": t.electronic_check,
         "created_at": t.created_at,
         "updated_at": t.updated_at,
     }
@@ -768,6 +783,8 @@ async def _findings(session: AsyncSession, where) -> list[dict[str, Any]]:
             "evidence_segment_ids": f.evidence_segment_ids,
             "original_phrasing": f.original_phrasing,
             "null_reason": f.null_reason,
+            "source": f.source or "call",
+            "integration_call_id": f.integration_call_id,
             "created_at": f.created_at,
             "revisions": revisions.get(f.id, []),
         }

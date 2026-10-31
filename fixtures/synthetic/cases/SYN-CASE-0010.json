@@ -33,5 +33,12 @@
       "member_id",
       "date_of_birth"
     ]
-  }
+  },
+  "diagnosis_codes": [
+    "M62.81"
+  ],
+  "coverage_terms": [
+    "occupational therapy",
+    "outpatient"
+  ]
 }

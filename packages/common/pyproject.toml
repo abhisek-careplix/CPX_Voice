@@ -1,9 +1,9 @@
 [project]
 name = "careplix-common"
 version = "0.1.0"
-description = "CarePlix Voice shared runtime utilities (PHI-safe logging, evidence records)"
+description = "CarePlix Voice shared runtime utilities (PHI-safe logging, evidence, Gemini probe)"
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = ["google-genai>=2.34", "google-auth>=2.36"]
 
 [build-system]
 requires = ["hatchling"]

@@ -34,5 +34,11 @@
       "date_of_birth",
       "postal_code"
     ]
-  }
+  },
+  "diagnosis_codes": [
+    "H25.11"
+  ],
+  "coverage_terms": [
+    "cataract"
+  ]
 }

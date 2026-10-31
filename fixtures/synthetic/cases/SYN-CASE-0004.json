@@ -33,5 +33,12 @@
       "member_id",
       "date_of_birth"
     ]
-  }
+  },
+  "diagnosis_codes": [
+    "G47.3"
+  ],
+  "coverage_terms": [
+    "sleep",
+    "polysomnograph"
+  ]
 }

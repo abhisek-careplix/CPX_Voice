@@ -34,5 +34,12 @@
       "date_of_birth",
       "postal_code"
     ]
-  }
+  },
+  "diagnosis_codes": [
+    "R01.1"
+  ],
+  "coverage_terms": [
+    "echocardiograph",
+    "transthoracic"
+  ]
 }

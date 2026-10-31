@@ -17,10 +17,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import careplix_contracts as contracts
-from careplix_api import agents_service, events, templates
+from careplix_api import agents_service, connections, events, templates
 from careplix_api.auth import Principal, issue_attempt_token
 from careplix_api.db import Database, as_utc, new_id, utcnow
 from careplix_api.errors import ApiError
+from careplix_api.integrations import service as integration_service
 from careplix_api.livekit_gateway import LiveKitGateway, room_name_for
 from careplix_api.models import (
     Agent,
@@ -86,13 +87,13 @@ async def _capacity_guard(session: AsyncSession, workspace_id: str, settings: Se
         )
 
 
-def _pins(version: AgentVersion, settings: Settings) -> dict[str, Any]:
+def _pins(version: AgentVersion, eff: connections.Effective) -> dict[str, Any]:
     return {
         "agent_version_id": version.id,
         "agent_version": version.number,
         "version_state": version.state,
         "config_hash": version.config_hash or agents_service.config_hash(version.config),
-        "model_id": version.config["model"]["model_id"] or settings.gemini_live_model,
+        "model_id": version.config["model"]["model_id"] or eff.approved_model,
         "policy_version": templates.POLICY_VERSION,
         "tool_versions": {t["name"]: t["version"] for t in version.config["tools"]},
     }
@@ -120,7 +121,8 @@ async def start_browser_session(
         version = await agents_service.current_version(session, agent)
         if version is None:
             raise ApiError(409, "not_published", "This agent has no published version yet.")
-    if not (version.config["model"]["model_id"] or settings.gemini_live_model):
+    eff = await connections.load(session, principal.workspace_id, settings)
+    if not (version.config["model"]["model_id"] or eff.approved_model):
         raise ApiError(503, "model_not_configured", "No approved voice model is configured.")
 
     case = await _resolve_case(session, principal.workspace_id, case_id, required=False)
@@ -138,7 +140,7 @@ async def start_browser_session(
         sandbox=True,
         room_name=room_name_for(attempt_id),
         state="Created",
-        pins=_pins(version, settings),
+        pins=_pins(version, eff),
         created_by=principal.user_id,
     )
     session.add(attempt)
@@ -208,7 +210,8 @@ async def create_task(
         raise ApiError(422, "agent_not_outbound", "This agent's template answers inbound calls.")
     case = await _resolve_case(session, principal.workspace_id, case_id, required=True)
     number = normalize_e164(destination)
-    if number not in settings.approved_destinations:
+    eff = await connections.load(session, principal.workspace_id, settings)
+    if number not in eff.approved_destinations:
         raise ApiError(
             422,
             "destination_not_approved",
@@ -231,6 +234,9 @@ async def create_task(
         additional_instructions=note or None,
         state="Ready",
     )
+    # API first: check the payer's Prior Authorization API before anyone dials (outbox).
+    integration_service.mark_pending(task, "readiness")
+    integration_service.mark_pending(task, "pre_call")
     session.add(task)
     return task
 
@@ -254,7 +260,8 @@ async def start_call(
         return existing  # FR11: a repeated Start Call returns the same attempt
     if task.state in TERMINAL_TASK_STATES:
         raise ApiError(409, "task_closed", "This task is closed.")
-    if not gateway.configured or not settings.livekit_outbound_trunk_id:
+    eff = await connections.load(session, principal.workspace_id, settings)
+    if not gateway.configured or not eff.outbound_trunk_id:
         raise ApiError(503, "outbound_not_configured", "Phone connection missing.")
     await _workspace_guard(session, principal)
     await _capacity_guard(session, principal.workspace_id, settings)
@@ -273,11 +280,65 @@ async def start_call(
         state="Created",
         idempotency_key=key,
         destination_e164=task.destination_e164,
-        pins=_pins(version, settings),
+        pins={**_pins(version, eff), "outbound_trunk_id": eff.outbound_trunk_id},
         created_by=principal.user_id,
     )
     session.add(attempt)
     task.state = "Running"
+    await events.append(session, attempt, "attempt.created", "api", {"direction": "outbound"})
+    await session.commit()
+    runner.spawn(runner.run_outbound(attempt.id))
+    return attempt
+
+
+async def start_test_call(
+    session: AsyncSession,
+    principal: Principal,
+    settings: Settings,
+    gateway: LiveKitGateway,
+    runner: CallRunner,
+    agent: Agent,
+    destination: str,
+) -> CallAttempt:
+    """Route qualification: a sandbox outbound call with a published agent to an approved number.
+
+    The admin listens for two-way audio and keypad tones, then confirms; nothing is qualified
+    automatically from a connected call alone.
+    """
+    version = await agents_service.current_version(session, agent)
+    if version is None or templates.get_template(agent.template_id)["direction"] != "outbound":
+        raise ApiError(422, "agent_not_ready", "Choose a published outbound agent.")
+    eff = await connections.load(session, principal.workspace_id, settings)
+    number = normalize_e164(destination)
+    if number not in eff.approved_destinations:
+        raise ApiError(
+            422, "destination_not_approved", "Add this number to approved test destinations first."
+        )
+    if not gateway.configured or not eff.outbound_trunk_id:
+        raise ApiError(503, "outbound_not_configured", "Select a carrier trunk first.")
+    await _workspace_guard(session, principal)
+    await _capacity_guard(session, principal.workspace_id, settings)
+    case = await _resolve_case(session, principal.workspace_id, None, required=False)
+    attempt_id = new_id()
+    attempt = CallAttempt(
+        id=attempt_id,
+        workspace_id=principal.workspace_id,
+        agent_id=agent.id,
+        agent_version_id=version.id,
+        case_id=case.id if case else None,
+        direction="outbound",
+        sandbox=True,
+        room_name=room_name_for(attempt_id),
+        state="Created",
+        destination_e164=number,
+        pins={
+            **_pins(version, eff),
+            "outbound_trunk_id": eff.outbound_trunk_id,
+            "qualification": True,
+        },
+        created_by=principal.user_id,
+    )
+    session.add(attempt)
     await events.append(session, attempt, "attempt.created", "api", {"direction": "outbound"})
     await session.commit()
     runner.spawn(runner.run_outbound(attempt.id))
@@ -306,6 +367,48 @@ async def claim(
     return payload
 
 
+def phone_digits(number: str | None) -> str:
+    """Comparable form of a phone number: digits only, US 10-digit numbers given country code 1."""
+    digits = re.sub(r"\D", "", number or "")
+    return f"1{digits}" if len(digits) == 10 else digits
+
+
+async def resolve_inbound_route(
+    session: AsyncSession, called_number: str, route_id: str | None, rule_id: str | None
+) -> Route:
+    """Pick the route from trusted signals only; nothing the caller says or sends counts (I5).
+
+    Signals: the called number reported by LiveKit SIP, and the route ID our own dispatch rule
+    attached, cross-checked against the rule LiveKit says it matched. A reported called number
+    always decides; the rule signal is used only when LiveKit does not report the number.
+    """
+    by_rule = None
+    if route_id and rule_id:
+        candidate = await session.get(Route, route_id)
+        if (
+            candidate is not None
+            and candidate.direction == "inbound"
+            and (candidate.provider_refs or {}).get("dispatch_rule_id") == rule_id
+        ):
+            by_rule = candidate
+    by_number = None
+    if phone_digits(called_number):
+        routes = await session.scalars(select(Route).where(Route.direction == "inbound"))
+        by_number = next(
+            (r for r in routes if phone_digits(r.number_e164) == phone_digits(called_number)), None
+        )
+    if phone_digits(called_number):
+        # A reported called number decides; a project-wide rule must not answer other numbers.
+        if by_rule and by_number and by_rule.id != by_number.id:
+            raise ApiError(403, "route_mismatch", "Called number and dispatch rule disagree.")
+        route = by_number
+    else:
+        route = by_rule
+    if route is None or route.agent_id is None:
+        raise ApiError(404, "no_route", "No inbound route for this number.")
+    return route
+
+
 async def inbound_claim(
     session: AsyncSession,
     settings: Settings,
@@ -314,13 +417,10 @@ async def inbound_claim(
     build: str,
     called_number: str,
     caller_number: str | None,
+    route_id: str | None = None,
+    rule_id: str | None = None,
 ) -> dict[str, Any]:
-    # The trusted called number selects the route and workspace; nothing the caller says does (I5).
-    route = await session.scalar(
-        select(Route).where(Route.number_e164 == called_number, Route.direction == "inbound")
-    )
-    if route is None or route.agent_id is None:
-        raise ApiError(404, "no_route", "No inbound route for this number.")
+    route = await resolve_inbound_route(session, called_number, route_id, rule_id)
     agent = await session.get(Agent, route.agent_id)
     version = await agents_service.current_version(session, agent)
     if version is None:
@@ -331,6 +431,8 @@ async def inbound_claim(
     await _capacity_guard(session, route.workspace_id, settings)
 
     template = templates.get_template(agent.template_id)
+    eff = connections.effective(workspace, settings)
+    route.last_call_at = utcnow()
     task = Task(
         workspace_id=route.workspace_id,
         kind="inbound",
@@ -352,7 +454,7 @@ async def inbound_claim(
         room_name=room,
         state="Connected",
         caller_e164=caller_number,
-        pins={**_pins(version, settings), "runtime_build": build},
+        pins={**_pins(version, eff), "runtime_build": build},
         provider_ids={"job_id": job_id},
         claimed_at=utcnow(),
         last_heartbeat_at=utcnow(),
@@ -372,6 +474,7 @@ async def _claim_payload(
     version = await session.get(AgentVersion, attempt.agent_version_id)
     task = await session.get(Task, attempt.task_id) if attempt.task_id else None
     case = await session.get(Case, attempt.case_id) if attempt.case_id else None
+    eff = await connections.load(session, attempt.workspace_id, settings)
     config = version.config
     template = templates.get_template(config["task"]["template_id"])
     brief = build_brief(attempt, task, config, template, case, settings)
@@ -388,6 +491,7 @@ async def _claim_payload(
         "identity": config["identity"],
         "conversation": config["conversation"],
         "model_id": attempt.pins["model_id"],
+        "vertex": {"project": eff.gcp_project, "location": eff.vertex_location},
         "speak_first": attempt.direction != "outbound",
         "expect_sip": attempt.direction == "outbound",
         "sip_identity": f"pstn_{attempt.id.replace('-', '')}"
@@ -396,6 +500,39 @@ async def _claim_payload(
         "tools": [_model_tool(registry[ref["name"]]) for ref in config["tools"]],
         "max_duration_s": config["guardrails"]["max_duration_s"],
     }
+
+
+_MODEL_SCHEMA_KEYS = {"type", "description", "enum", "properties", "required", "items"}
+_MODEL_SCHEMA_LIMITS = {"minItems", "maxItems"}
+
+
+def model_safe_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Reduce a registry JSON Schema to the subset Gemini function declarations accept.
+
+    Gemini takes one type per field (``nullable`` instead of ``["string", "null"]``) and rejects
+    some keywords. Constraints dropped here (pattern, format, lengths, additionalProperties) are
+    still enforced by the API against the full registry schema before any tool runs (SEC06).
+    """
+    out: dict[str, Any] = {
+        k: schema[k] for k in _MODEL_SCHEMA_KEYS | _MODEL_SCHEMA_LIMITS if k in schema
+    }
+    if isinstance(out.get("type"), list):
+        types_ = [t for t in out["type"] if t != "null"]
+        out["type"] = types_[0] if types_ else "string"
+        if "null" in schema["type"]:
+            out["nullable"] = True
+    hints = []
+    if schema.get("format") == "date":
+        hints.append("Use YYYY-MM-DD.")
+    if "pattern" in schema:
+        hints.append(f"Must match {schema['pattern']}.")
+    if hints:
+        out["description"] = " ".join([out.get("description", ""), *hints]).strip()
+    if "properties" in out:
+        out["properties"] = {k: model_safe_schema(v) for k, v in out["properties"].items()}
+    if isinstance(out.get("items"), dict):
+        out["items"] = model_safe_schema(out["items"])
+    return out
 
 
 def _model_tool(tool: dict[str, Any]) -> dict[str, Any]:
@@ -412,7 +549,7 @@ def _model_tool(tool: dict[str, Any]) -> dict[str, Any]:
         "name": tool["name"],
         "version": tool["version"],
         "description": tool["description"],
-        "parameters": schema,
+        "parameters": model_safe_schema(schema),
         "execution": tool["execution"],
     }
 
@@ -509,6 +646,9 @@ async def finalize(
             # A business outcome needs evidence and review; a finished call is not success (I1).
             task.state = "Review"
             task.next_action = task.next_action or _suggested_next_action(attempt)
+            if task.case_id:
+                # Validate what was heard against the payer system (outbox).
+                integration_service.mark_pending(task, "post_call")
 
 
 def _suggested_next_action(attempt: CallAttempt) -> str:
@@ -655,7 +795,10 @@ class CallRunner:
             await session.commit()
             try:
                 outcome = await self.gateway.dial(
-                    attempt.room_name, attempt.id, attempt.destination_e164
+                    attempt.room_name,
+                    attempt.id,
+                    attempt.destination_e164,
+                    attempt.pins.get("outbound_trunk_id", ""),
                 )
             except Exception as exc:
                 # Ambiguous: the call may exist. Reconcile instead of dialing again (TR04).

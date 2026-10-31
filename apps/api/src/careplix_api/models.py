@@ -20,6 +20,28 @@ class Workspace(IdMixin, Base):
     name: Mapped[str] = mapped_column(String(120))
     emergency_stop: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # Connection choices made in the Studio. Env values are fallbacks; secrets never live here.
+    outbound_trunk_id: Mapped[str | None] = mapped_column(String(64))
+    outbound_verified_at: Mapped[datetime | None] = mapped_column()
+    outbound_evidence_attempt_id: Mapped[str | None] = mapped_column(String(36))
+    approved_destinations: Mapped[list[str] | None] = mapped_column(JSON)
+    approved_model: Mapped[str | None] = mapped_column(String(80))
+    gcp_project: Mapped[str | None] = mapped_column(String(80))
+    vertex_location: Mapped[str | None] = mapped_column(String(40))
+    # Last live model test: {model_id, ok, connect_ms, first_audio_ms, error, at}
+    model_check: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+
+class WorkerProbe(IdMixin, Base):
+    """A dispatch sent only to prove a worker answers (readiness: agent worker)."""
+
+    __tablename__ = "worker_probes"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    room_name: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    acked_at: Mapped[datetime | None] = mapped_column()
+    runtime_build: Mapped[str | None] = mapped_column(String(80))
+    error: Mapped[str | None] = mapped_column(String(80))
 
 
 class User(IdMixin, Base):
@@ -74,6 +96,10 @@ class Route(IdMixin, Base):
     agent_id: Mapped[str | None] = mapped_column(ForeignKey("agents.id"))
     capabilities: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     verified_at: Mapped[datetime | None] = mapped_column()
+    # LiveKit object IDs for this route, e.g. {"dispatch_rule_id": "SDR_..."}
+    provider_refs: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    last_call_at: Mapped[datetime | None] = mapped_column()
+    evidence_attempt_id: Mapped[str | None] = mapped_column(String(36))
 
 
 class Case(IdMixin, Base):
@@ -100,6 +126,9 @@ class Task(IdMixin, Base):
     outcome_reason: Mapped[str | None] = mapped_column(Text)
     next_action: Mapped[str | None] = mapped_column(Text)
     outcome_by: Mapped[str | None] = mapped_column(String(36))
+    # Electronic payer check (PAS $inquire), keyed by phase: {"pre_call": {...}, "post_call": {...}}
+    # A phase whose value is {"state": "pending"} is picked up by the integration worker.
+    electronic_check: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
@@ -187,6 +216,9 @@ class Finding(IdMixin, Base):
     original_phrasing: Mapped[str | None] = mapped_column(Text)
     null_reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    # "call" (heard on a call, transcript evidence) or "system" (read from a payer system).
+    source: Mapped[str | None] = mapped_column(String(10), default="call")
+    integration_call_id: Mapped[str | None] = mapped_column(String(36))
 
 
 class FindingRevision(IdMixin, Base):
@@ -209,3 +241,44 @@ class AuditEvent(IdMixin, Base):
     target: Mapped[str] = mapped_column(String(80))
     detail: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class PayerConnection(IdMixin, Base):
+    """A payer (or intermediary) endpoint for one workspace. Secrets are references only."""
+
+    __tablename__ = "payer_connections"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(20), default="pas")  # pas (FHIR); x12 later
+    base_url: Mapped[str] = mapped_column(String(300))
+    ig_version: Mapped[str] = mapped_column(String(20), default="pas-stu2")
+    auth_type: Mapped[str] = mapped_column(String(20), default="none")  # none|smart_backend
+    # {"client_id", "token_url", "key_env", "kid", "scope"}; key_env names an env variable.
+    auth_ref: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    # Payer names this connection answers for (matched against the case's payer).
+    payer_names: Mapped[list[str]] = mapped_column(JSON, default=list)
+    synthetic: Mapped[bool] = mapped_column(Boolean, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    verified_at: Mapped[datetime | None] = mapped_column()
+    capability: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    last_error: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class IntegrationCall(IdMixin, Base):
+    """Audit of every external call. Holds outcomes and a request hash, never patient payloads."""
+
+    __tablename__ = "integration_calls"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    connection_id: Mapped[str] = mapped_column(ForeignKey("payer_connections.id"), index=True)
+    operation: Mapped[str] = mapped_column(String(40))  # metadata|pas.inquire|pas.submit
+    phase: Mapped[str | None] = mapped_column(String(20))  # verify|pre_call|post_call|manual
+    task_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    ok: Mapped[bool] = mapped_column(Boolean)
+    status: Mapped[str] = mapped_column(String(20))  # success|not_found|error|timeout
+    http_status: Mapped[int | None] = mapped_column(Integer)
+    duration_ms: Mapped[int] = mapped_column(Integer)
+    request_hash: Mapped[str | None] = mapped_column(String(80))
+    summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    error: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)

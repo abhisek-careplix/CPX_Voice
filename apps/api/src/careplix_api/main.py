@@ -12,13 +12,15 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from careplix_api import internal_api, seed, studio_api
+from careplix_api import connections_api, integrations_api, internal_api, seed, studio_api
 from careplix_api.calls_service import CallRunner
 from careplix_api.db import Database
 from careplix_api.errors import ApiError
+from careplix_api.integrations.service import IntegrationWorker
 from careplix_api.livekit_gateway import LiveKitGateway
 from careplix_api.settings import Settings, get_settings
 from careplix_common import safe_logging
+from careplix_common.gemini import probe_live
 
 log = logging.getLogger("careplix.api")
 
@@ -33,7 +35,12 @@ def _error(request: Request, status: int, code: str, message: str, detail: dict 
     )
 
 
-def create_app(settings: Settings | None = None, gateway: LiveKitGateway | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    gateway: LiveKitGateway | None = None,
+    model_prober=probe_live,
+    integration_transport=None,
+) -> FastAPI:
     settings = settings or get_settings()
     safe_logging.configure(settings.log_level)
 
@@ -42,13 +49,31 @@ def create_app(settings: Settings | None = None, gateway: LiveKitGateway | None 
         app.state.db = Database(settings.database_url)
         app.state.gateway = gateway or LiveKitGateway(settings)
         app.state.runner = CallRunner(app.state.db, app.state.gateway, settings)
+        app.state.model_prober = model_prober
+        # Tests inject an in-process transport (e.g. the payer sandbox ASGI app).
+        app.state.integration_transport = integration_transport
         await app.state.db.create_all()
         if settings.seed_demo_data:
             async with app.state.db.sessions() as session:
                 await seed.seed(session, settings)
-        reconciler = asyncio.create_task(app.state.runner.reconcile_forever())
+                await seed.ensure_dev_integrations(session, settings)
+            async with app.state.db.sessions() as session:
+                await seed.ensure_reference_connections(session)
+        app.state.integration_worker = IntegrationWorker(
+            app.state.db, lambda: app.state.integration_transport
+        )
+        # One service runs the background loops; others (e.g. the worker-facing internal API) don't.
+        loops = (
+            [
+                asyncio.create_task(app.state.runner.reconcile_forever()),
+                asyncio.create_task(app.state.integration_worker.run_forever()),
+            ]
+            if settings.run_background
+            else []
+        )
         yield
-        reconciler.cancel()
+        for loop in loops:
+            loop.cancel()
         await app.state.runner.aclose()
         await app.state.db.dispose()
 
@@ -90,8 +115,32 @@ def create_app(settings: Settings | None = None, gateway: LiveKitGateway | None 
         return {"status": "ok"}
 
     app.include_router(studio_api.router, prefix="/api")
+    app.include_router(connections_api.router, prefix="/api")
+    app.include_router(integrations_api.router, prefix="/api")
     app.include_router(internal_api.router)
+    if settings.studio_dist:
+        _mount_studio(app, settings.studio_dist)
     return app
+
+
+def _mount_studio(app: FastAPI, dist: str) -> None:
+    """Serve the built Studio from the API so the session cookie stays same-origin."""
+    from pathlib import Path
+
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
+
+    root = Path(dist)
+    app.mount("/assets", StaticFiles(directory=root / "assets"), name="studio-assets")
+
+    @app.get("/{path:path}", include_in_schema=False)
+    async def studio(path: str):
+        if path.startswith(("api/", "internal/")):
+            raise StarletteHTTPException(404)
+        candidate = root / path
+        if path and candidate.is_file() and root in candidate.resolve().parents:
+            return FileResponse(candidate)
+        return FileResponse(root / "index.html", headers={"Cache-Control": "no-store"})
 
 
 app = create_app()

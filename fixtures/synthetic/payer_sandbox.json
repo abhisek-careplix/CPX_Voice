@@ -1,0 +1,16 @@
+{
+  "synthetic": true,
+  "description": "Decisions the CarePlix Payer Sandbox returns to PAS $inquire, keyed by synthetic case. Review actions are X12 306 codes. SYN-CASE-0001 matches the Northwind call script so call findings and the payer record agree; others cover approved, denied, pended, modified, contact-payer and not-found.",
+  "decisions": {
+    "SYN-CASE-0001": {"action": "A4", "reason": "Additional documentation required: physical therapy progress notes", "ref": "SYN-PA-73915"},
+    "SYN-CASE-0002": {"action": "A1", "ref": "SYN-PA-73988", "valid_from": "2026-10-20", "valid_to": "2027-01-18"},
+    "SYN-CASE-0003": {"action": "A1", "ref": "SYN-PA-48213", "valid_from": "2026-10-07", "valid_to": "2027-01-05"},
+    "SYN-CASE-0004": {"action": "A4", "reason": "Pended for medical review", "ref": "SYN-PA-61022"},
+    "SYN-CASE-0005": {"action": "A1", "ref": "SYN-PA-61190", "valid_from": "2026-10-23", "valid_to": "2026-11-22"},
+    "SYN-CASE-0006": {"action": "A3", "reason": "Coverage criteria not met", "ref": "SYN-PA-61201"},
+    "SYN-CASE-0007": {"action": "A4", "reason": "Pended for medical review", "ref": null},
+    "SYN-CASE-0008": null,
+    "SYN-CASE-0009": {"action": "CT", "reason": "Contact payer for status", "ref": "SYN-PA-90433"},
+    "SYN-CASE-0010": {"action": "A6", "reason": "Approved with modified units", "ref": "SYN-PA-74002", "valid_from": "2026-10-27", "valid_to": "2027-01-25"}
+  }
+}

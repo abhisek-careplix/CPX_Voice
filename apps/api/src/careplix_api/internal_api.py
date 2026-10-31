@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -9,8 +10,9 @@ from pydantic import BaseModel, Field
 
 from careplix_api import calls_service, tools_service
 from careplix_api.auth import AttemptGrant, require_attempt_token, require_worker_service
+from careplix_api.db import utcnow
 from careplix_api.errors import ApiError
-from careplix_api.models import CallAttempt
+from careplix_api.models import CallAttempt, WorkerProbe
 from careplix_api.settings import Settings, get_settings
 
 router = APIRouter(prefix="/internal")
@@ -23,8 +25,11 @@ class ClaimIn(BaseModel):
 
 
 class InboundClaimIn(ClaimIn):
-    called_number: str = Field(max_length=20)
-    caller_number: str | None = Field(default=None, max_length=20)
+    # All from LiveKit (SIP attributes, our dispatch rule's metadata), never from the caller.
+    called_number: str = Field(default="", max_length=32)
+    caller_number: str | None = Field(default=None, max_length=32)
+    route_id: str | None = Field(default=None, max_length=36)
+    rule_id: str | None = Field(default=None, max_length=64)
 
 
 @router.post("/attempts/{attempt_id}/claim", dependencies=[Depends(require_worker_service)])
@@ -50,6 +55,8 @@ async def inbound_claim(
             body.runtime_build,
             body.called_number,
             body.caller_number,
+            body.route_id,
+            body.rule_id,
         )
 
 
@@ -92,3 +99,25 @@ async def run_tool(
         )
         await session.commit()
         return result
+
+
+class ProbeAckIn(BaseModel):
+    runtime_build: str = Field(max_length=80)
+    room: str = Field(max_length=64)
+
+
+@router.post("/probes/{probe_id}/ack", dependencies=[Depends(require_worker_service)])
+async def ack_probe(probe_id: str, body: ProbeAckIn, request: Request):
+    """A worker answered a Connections > Test agent dispatch."""
+    async with request.app.state.db.sessions() as session:
+        probe = await session.get(WorkerProbe, probe_id)
+        if probe is None or probe.room_name != body.room:
+            raise ApiError(404, "probe_not_found", "Unknown probe.")
+        if probe.acked_at is None:
+            probe.acked_at, probe.runtime_build = utcnow(), body.runtime_build
+            await session.commit()
+    if request.app.state.gateway.configured:
+        # The probe room also expires on its own, so a failed delete is harmless.
+        with contextlib.suppress(Exception):
+            await request.app.state.gateway.delete_room(body.room)
+    return {"ok": True}

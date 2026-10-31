@@ -171,6 +171,7 @@ dependencies = [
     { name = "asyncpg" },
     { name = "careplix-common" },
     { name = "careplix-contracts" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "livekit-api" },
@@ -186,6 +187,7 @@ requires-dist = [
     { name = "asyncpg", specifier = ">=0.30" },
     { name = "careplix-common", editable = "packages/common" },
     { name = "careplix-contracts", editable = "packages/contracts" },
+    { name = "cryptography", specifier = ">=43" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "livekit-api", specifier = ">=1.2,<2" },
@@ -199,6 +201,16 @@ requires-dist = [
 name = "careplix-common"
 version = "0.1.0"
 source = { editable = "packages/common" }
+dependencies = [
+    { name = "google-auth" },
+    { name = "google-genai" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "google-auth", specifier = ">=2.36" },
+    { name = "google-genai", specifier = ">=2.34" },
+]
 
 [[package]]
 name = "careplix-contracts"

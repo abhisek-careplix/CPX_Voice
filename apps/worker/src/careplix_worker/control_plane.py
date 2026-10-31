@@ -25,9 +25,30 @@ class ClaimRejected(Exception):
         self.status, self.code = status, code
 
 
+class _CloudRunIdentity(httpx.Auth):
+    """Adds a Google ID token for a private Cloud Run API without touching Authorization."""
+
+    def __init__(self, audience: str):
+        self.audience, self._token, self._expires = audience, "", 0.0
+
+    async def async_auth_flow(self, request):
+        if time.time() > self._expires:
+            from google.auth.transport.requests import Request
+            from google.oauth2 import id_token
+
+            self._token = await asyncio.to_thread(id_token.fetch_id_token, Request(), self.audience)
+            self._expires = time.time() + 3000
+        request.headers["X-Serverless-Authorization"] = f"Bearer {self._token}"
+        yield request
+
+
 class ControlPlane:
-    def __init__(self, base_url: str, service_token: str):
-        self._http = httpx.AsyncClient(base_url=base_url, timeout=httpx.Timeout(8.0, connect=4.0))
+    def __init__(self, base_url: str, service_token: str, audience: str = ""):
+        self._http = httpx.AsyncClient(
+            base_url=base_url,
+            timeout=httpx.Timeout(8.0, connect=4.0),
+            auth=_CloudRunIdentity(audience) if audience else None,
+        )
         self._service_token = service_token
         self.attempt_id: str | None = None
         self._attempt_token: str | None = None
@@ -53,7 +74,14 @@ class ControlPlane:
         )
 
     async def claim_inbound(
-        self, room: str, job_id: str, build: str, called: str, caller: str | None
+        self,
+        room: str,
+        job_id: str,
+        build: str,
+        called: str,
+        caller: str | None,
+        route_id: str | None,
+        rule_id: str | None,
     ) -> dict[str, Any]:
         return await self._claim(
             "/internal/inbound/claim",
@@ -63,8 +91,18 @@ class ControlPlane:
                 "runtime_build": build,
                 "called_number": called,
                 "caller_number": caller,
+                "route_id": route_id,
+                "rule_id": rule_id,
             },
         )
+
+    async def ack_probe(self, probe_id: str, room: str, build: str) -> None:
+        response = await self._http.post(
+            f"/internal/probes/{probe_id}/ack",
+            json={"room": room, "runtime_build": build},
+            headers={"Authorization": f"Bearer {self._service_token}"},
+        )
+        response.raise_for_status()
 
     def _auth(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._attempt_token}"}
@@ -80,12 +118,15 @@ class ControlPlane:
                     json=body,
                     headers=self._auth(),
                 )
-                response.raise_for_status()
-                return response.json()
+                if response.status_code < 500:
+                    response.raise_for_status()
+                    return response.json()
             except httpx.TransportError:
-                # Safe to retry: the API keys executions on the model's call_id (FR11).
-                await asyncio.sleep(0.3 * (attempt + 1))
-        return {"state": "unknown", "result": {"error": "control_plane_unreachable"}}
+                pass
+            # Safe to retry: the API keys executions on the model's call_id (FR11).
+            await asyncio.sleep(0.3 * (attempt + 1))
+        # Never raise into the conversation: the model gets an explicit "unknown" outcome.
+        return {"state": "unknown", "result": {"message": "The system could not complete that."}}
 
     async def post_events(self, events: list[dict[str, Any]]) -> dict[str, Any]:
         response = await self._http.post(

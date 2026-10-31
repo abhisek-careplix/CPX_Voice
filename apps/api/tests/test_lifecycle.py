@@ -281,3 +281,61 @@ def test_reviewer_correction_preserves_original(client):
     ).json()
     assert revised["value"] == "NW-55210" and revised["status"] == "reviewed"
     assert revised["revisions"][0]["prior_value"] == "NW-552"
+
+
+async def test_concurrent_events_get_distinct_cursors(tmp_path):
+    """Regression: parallel tool calls from Gemini collided on the event cursor (HTTP 500)."""
+    import asyncio
+
+    from careplix_api import events
+    from careplix_api.db import Database
+    from careplix_api.models import Agent, AgentVersion, CallAttempt, Workspace
+
+    db = Database(f"sqlite+aiosqlite:///{tmp_path}/race.db")
+    await db.create_all()
+    async with db.sessions() as s:
+        ws = Workspace(name="w")
+        s.add(ws)
+        await s.flush()
+        agent = Agent(workspace_id=ws.id, name="a", template_id="auth-status")
+        s.add(agent)
+        await s.flush()
+        version = AgentVersion(
+            workspace_id=ws.id,
+            agent_id=agent.id,
+            number=1,
+            state="draft",
+            config={},
+            updated_by="u",
+        )
+        s.add(version)
+        await s.flush()
+        attempt = CallAttempt(
+            workspace_id=ws.id,
+            agent_id=agent.id,
+            agent_version_id=version.id,
+            direction="browser",
+            room_name="r",
+        )
+        s.add(attempt)
+        await s.commit()
+        attempt_id = attempt.id
+
+    async def write(label):
+        async with db.sessions() as s:
+            loaded = await s.get(CallAttempt, attempt_id)  # both sessions read the same state
+            await asyncio.sleep(0)
+            await events.append(s, loaded, "tool.succeeded", "api", {"label": label})
+            await s.commit()
+
+    await asyncio.gather(write("a"), write("b"), write("c"))
+    async with db.sessions() as s:
+        from sqlalchemy import select
+
+        from careplix_api.models import CallEvent
+
+        seqs = sorted(
+            await s.scalars(select(CallEvent.seq).where(CallEvent.attempt_id == attempt_id))
+        )
+    await db.dispose()
+    assert seqs == [1, 2, 3]

@@ -76,6 +76,7 @@ export function TaskPill({ state }: { state: TaskState }) {
 const FINDING: Record<Finding["status"], [Tone, string, LucideIcon]> = {
   provisional: ["gray", "Reported", CircleDashed],
   confirmed_by_counterpart: ["blue", "Confirmed on call", CheckCircle2],
+  system_verified: ["green", "Payer system verified", CheckCircle2],
   reviewed: ["green", "Reviewer verified", CheckCircle2],
   conflicting: ["red", "Conflicting", AlertTriangle],
 };

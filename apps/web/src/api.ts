@@ -162,6 +162,8 @@ export interface Route {
   agent_id: string | null;
   capabilities: Record<string, boolean>;
   verified_at: string | null;
+  provider_refs: Record<string, unknown>;
+  last_call_at: string | null;
 }
 
 export type AttemptState = "Created" | "Queued" | "Dialing" | "Connected" | "Ending" | "Ended" | "Failed" | "Cancelled";
@@ -190,7 +192,9 @@ export interface Finding {
   attempt_id: string;
   field: string;
   value: string | null;
-  status: "provisional" | "confirmed_by_counterpart" | "reviewed" | "conflicting";
+  status: "provisional" | "confirmed_by_counterpart" | "system_verified" | "reviewed" | "conflicting";
+  source: "call" | "system";
+  integration_call_id: string | null;
   evidence_segment_ids: string[];
   original_phrasing: string | null;
   null_reason: string | null;
@@ -226,6 +230,7 @@ export interface Task {
   case: { id: string; case_ref: string; synthetic: boolean } | null;
   outcome_reason: string | null;
   next_action: string | null;
+  electronic_check: ElectronicCheck | null;
   created_at: string;
   updated_at: string;
 }
@@ -260,4 +265,138 @@ export interface CallEvent {
   source: string;
   occurred_at: string;
   payload: Record<string, unknown>;
+}
+
+export interface LiveKitInventory {
+  active_rooms: number;
+  outbound_trunks: { id: string; name: string; address: string; numbers: string[]; has_auth: boolean }[];
+  inbound_trunks: { id: string; name: string; numbers: string[] }[];
+  dispatch_rules: { id: string; name: string; numbers: string[]; trunk_ids: string[]; agents: string[] }[];
+}
+
+export interface ProbeStatus {
+  id: string;
+  status: "waiting" | "answered" | "failed" | "no_worker";
+  created_at: string;
+  acked_at: string | null;
+  runtime_build: string | null;
+  error: string | null;
+  latency_ms: number | null;
+}
+
+export interface ModelCheck {
+  model_id: string;
+  location: string;
+  ok: boolean;
+  connect_ms: number | null;
+  first_audio_ms: number | null;
+  reply_transcript: string | null;
+  resumption_handle_received: boolean;
+  error: string | null;
+  error_detail: string | null;
+  at: string;
+}
+
+export interface ConnectionsOverview {
+  livekit: { configured: boolean; project: string | null; agent_name: string; inventory?: LiveKitInventory; error?: string };
+  outbound: {
+    trunk_id: string | null;
+    trunk_from_env: boolean;
+    verified: boolean;
+    verified_at: string | null;
+    evidence_attempt_id: string | null;
+    approved_destinations: string[];
+    env_destinations: string[];
+  };
+  model: {
+    approved_model: string | null;
+    gcp_project: string | null;
+    vertex_location: string | null;
+    known_models: string[];
+    check: ModelCheck | null;
+    verified: boolean;
+    credential_source: string;
+  };
+  worker_probe: ProbeStatus | null;
+}
+
+export interface PasStatus {
+  found: boolean;
+  outcome: string | null;
+  review_action: string | null;
+  reported_status: string;
+  final: boolean;
+  authorization_reference: string | null;
+  reason: string | null;
+  synthetic: boolean;
+}
+
+export interface CheckPhase {
+  state: "pending" | "done" | "failed" | "skipped";
+  at?: string;
+  queued_at?: string;
+  reason?: string;
+  connection?: { id: string; name: string; synthetic: boolean };
+  integration_call_id?: string;
+  duration_ms?: number;
+  error?: string | null;
+  status?: PasStatus | null;
+  comparison?: Record<string, "match" | "conflict" | "call_missing" | "system_missing">;
+}
+
+export interface ReadinessCheck {
+  capability: string;
+  status: "confirmed" | "invalid" | "unverifiable" | "skipped" | "error";
+  subject: string;
+  detail: { display?: string; reason?: string | null; suggestions?: string[]; name?: string; taxonomy?: string; policies?: { id: string; type: string; title: string; url: string; contractor?: string }[] };
+  duration_ms: number;
+  source: string;
+  system?: string;
+}
+
+export interface ReadinessPhase {
+  state: "pending" | "done" | "skipped";
+  at?: string;
+  reason?: string;
+  checks?: ReadinessCheck[];
+  summary?: Record<string, number>;
+}
+
+export type ElectronicCheck = Partial<Record<"pre_call" | "post_call" | "manual", CheckPhase>> & { readiness?: ReadinessPhase };
+
+export interface PayerConnection {
+  id: string;
+  name: string;
+  kind: string;
+  base_url: string;
+  ig_version: string;
+  auth_type: "none" | "smart_backend" | "google_id_token";
+  auth_ref: Record<string, string>;
+  payer_names: string[];
+  synthetic: boolean;
+  enabled: boolean;
+  verified_at: string | null;
+  capability: { fhir_version?: string; software?: string; operations?: string[]; synthetic?: boolean } | null;
+  last_error: string | null;
+}
+
+export interface IntegrationCallRow {
+  id: string;
+  connection_id: string;
+  operation: string;
+  phase: string | null;
+  task_id: string | null;
+  ok: boolean;
+  status: string;
+  http_status: number | null;
+  duration_ms: number;
+  summary: Record<string, unknown>;
+  error: string | null;
+  at: string;
+}
+
+export interface IntegrationsOverview {
+  connections: PayerConnection[];
+  recent_calls: IntegrationCallRow[];
+  supported: { kind: string; ig_version: string; operations: string[]; status: string }[];
 }

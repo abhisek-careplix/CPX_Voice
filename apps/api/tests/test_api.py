@@ -84,3 +84,58 @@ def test_session_for_missing_membership_is_rejected(tmp_path, settings, client):
         c2.cookies.update(client.cookies)
         response = c2.get("/api/me")
     assert response.status_code == 401
+
+
+def _sso_client(tmp_path, **overrides):
+    settings = make_settings(
+        tmp_path,
+        careplix_env="labs",
+        session_secret="s" * 48,
+        iap_audience="/projects/1/locations/us-central1/services/careplix-studio",
+        **overrides,
+    )
+    return TestClient(create_app(settings, FakeGateway(settings)), base_url="https://testserver")
+
+
+def test_iap_sign_in_provisions_user_and_session(tmp_path, monkeypatch):
+    from google.oauth2 import id_token
+
+    seen = {}
+
+    def fake_verify(token, request, audience=None, certs_url=None, **_):
+        seen.update(token=token, audience=audience, certs_url=certs_url)
+        return {"email": "Asha.Rao@careplix.com"}
+
+    monkeypatch.setattr(id_token, "verify_token", fake_verify)
+    with _sso_client(tmp_path) as c:
+        assert c.get("/api/auth/mode").json() == {"mode": "sso"}
+        assert c.post("/api/auth/dev-login").status_code == 404
+        assert c.post("/api/auth/iap-login").status_code == 401  # no signed header
+        r = c.post("/api/auth/iap-login", headers={"x-goog-iap-jwt-assertion": "signed"})
+        assert r.status_code == 200, r.text
+        assert seen["audience"].endswith("/services/careplix-studio")
+        assert seen["certs_url"] == "https://www.gstatic.com/iap/verify/public_key"
+        me = c.get("/api/me").json()
+        assert me["display_name"] == "Asha Rao" and me["role"] == "admin"
+
+
+def test_iap_rejects_other_domains(tmp_path, monkeypatch):
+    from google.oauth2 import id_token
+
+    monkeypatch.setattr(id_token, "verify_token", lambda *a, **k: {"email": "someone@gmail.com"})
+    with _sso_client(tmp_path) as c:
+        r = c.post("/api/auth/iap-login", headers={"x-goog-iap-jwt-assertion": "signed"})
+        assert r.status_code == 403
+
+
+def test_studio_is_served_with_spa_fallback(tmp_path):
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<html>studio</html>")
+    (dist / "assets" / "app.js").write_text("console.log(1)")
+    settings = make_settings(tmp_path, studio_dist=str(dist))
+    with TestClient(create_app(settings, FakeGateway(settings))) as c:
+        assert "studio" in c.get("/").text
+        assert "studio" in c.get("/agents/123").text  # client-side route
+        assert c.get("/assets/app.js").text == "console.log(1)"
+        assert c.get("/api/nope").json()["error"]["code"] == "http_error"

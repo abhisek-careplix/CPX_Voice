@@ -13,7 +13,7 @@
       "required": ["value", "status"],
       "properties": {
         "value": {"type": ["string", "null"]},
-        "status": {"enum": ["provisional", "confirmed_by_counterpart", "reviewed", "conflicting"]},
+        "status": {"enum": ["provisional", "confirmed_by_counterpart", "system_verified", "reviewed", "conflicting"]},
         "evidence_segment_ids": {"type": "array", "items": {"type": "string"}},
         "original_phrasing": {"type": "string"},
         "null_reason": {"type": "string"}

@@ -33,5 +33,12 @@
       "member_id",
       "date_of_birth"
     ]
-  }
+  },
+  "diagnosis_codes": [
+    "M54.17"
+  ],
+  "coverage_terms": [
+    "epidural",
+    "steroid injection"
+  ]
 }

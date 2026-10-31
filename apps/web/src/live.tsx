@@ -135,7 +135,7 @@ function Bubble({ e, highlighted }: { e: CallEvent; highlighted?: boolean }) {
 
 export function FindingsChecklist({ expected, findings, onEvidence }: { expected: string[]; findings: Finding[]; onEvidence?: (ids: string[]) => void }) {
   const latest = new Map<string, Finding>();
-  for (const f of findings) latest.set(f.field, f);
+  for (const f of findings) if (f.source !== "system") latest.set(f.field, f);
   return (
     <div>
       {expected.map((field) => {

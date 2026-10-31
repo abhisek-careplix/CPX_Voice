@@ -34,5 +34,12 @@
       "date_of_birth",
       "postal_code"
     ]
-  }
+  },
+  "diagnosis_codes": [
+    "M23.221"
+  ],
+  "coverage_terms": [
+    "arthroscop",
+    "knee"
+  ]
 }

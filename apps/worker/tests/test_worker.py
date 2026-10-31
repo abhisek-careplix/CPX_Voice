@@ -71,3 +71,32 @@ def test_evidence_window_keeps_recent_segments_only():
     for i in range(10):
         reporter.segment(f"s{i}", "counterpart", "x", "played")
     assert reporter.evidence_window() == ["s4", "s5", "s6", "s7", "s8", "s9"]
+
+
+def test_every_model_tool_is_accepted_by_the_gemini_plugin():
+    """Regression: a ["string", "null"] type crashed the Gemini session before the greeting."""
+    from livekit.agents import llm
+    from livekit.agents.llm import function_tool
+    from livekit.plugins.google.utils import create_tools_config
+
+    import careplix_contracts as contracts
+    from careplix_api.calls_service import _model_tool
+
+    async def noop(raw_arguments: dict) -> dict:
+        return {}
+
+    tools = [
+        function_tool(
+            noop,
+            raw_schema={
+                "name": s["name"],
+                "description": s["description"],
+                "parameters": s["parameters"],
+            },
+        )
+        for s in (_model_tool(t) for t in contracts.tool_registry().values())
+    ]
+    # Vertex AI path: the plugin simplifies JSON Schema (this is where the live call crashed).
+    declared, _ = create_tools_config(llm.ToolContext(tools), use_parameters_json_schema=False)
+    names = {d.name for t in declared for d in (t.function_declarations or [])}
+    assert names == set(contracts.tool_registry())

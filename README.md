@@ -46,15 +46,20 @@ make studio              # http://localhost:5173  → "Continue as Demo Administ
 make worker-dev          # agent worker: registers with LiveKit Cloud, claims from the local API
 ```
 
-The Studio runs without any external accounts: readiness shows what is missing, and actions that
-need LiveKit or a phone route explain why they are unavailable. For real conversations you need:
+The Studio runs without any external accounts. **Connections** walks through setup and only marks a
+step verified when there is evidence:
 
-| Setting | Needed for |
-|---|---|
-| `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Browser Test, all calls |
-| `GCP_PROJECT`, `VERTEX_LOCATION`, `GEMINI_LIVE_MODEL` (+ ADC or `GOOGLE_SERVICE_ACCOUNT_JSON` on the worker) | The agent's voice. Agents can only publish with this approved model. |
-| `LIVEKIT_OUTBOUND_TRUNK_ID`, `APPROVED_TEST_DESTINATIONS` | Outbound calls |
-| A LiveKit number with a dispatch rule to `careplix-agent`, added under **Connections & Routes** | Inbound calls |
+| Step | You provide | The Studio does | Verified when |
+|---|---|---|---|
+| 1. LiveKit | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` in `.env` (restart the API) | Reads the project: rooms, trunks, dispatch rules | The API connects |
+| 2. Agent worker | `make worker-dev` running | **Test agent** sends a probe dispatch | A worker answers it |
+| 3. Gemini Live | Google Cloud project with Vertex AI, plus `gcloud auth application-default login` | Saves the project, region and approved model; **Test model** opens a real Live session | Audio comes back |
+| 4. Inbound | A number bought in LiveKit (dashboard or `lk number purchase`) | **Connect number** creates the dispatch rule to `careplix-agent` | A real call completes and you mark it qualified |
+| 5. Outbound | A SIP carrier trunk (Twilio, Telnyx, Plivo…) and your own test phone numbers | **Add carrier trunk** creates it in LiveKit (the password goes to LiveKit only); **Place test call** dials | You confirm two-way audio |
+
+LiveKit-purchased numbers are inbound-only, so outbound calling always needs a carrier trunk.
+Environment values (`LIVEKIT_OUTBOUND_TRUNK_ID`, `APPROVED_TEST_DESTINATIONS`, `GCP_PROJECT`,
+`VERTEX_LOCATION`, `GEMINI_LIVE_MODEL`) still work as fallbacks for scripted environments.
 
 A worker running locally reaches the API at `CAREPLIX_API_URL`. A worker hosted on LiveKit Cloud
 needs a public URL for the API instead, such as a tunnel during development.

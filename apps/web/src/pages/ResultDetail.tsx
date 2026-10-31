@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, Copy, History, Pencil, Phone } from "lucide-react";
+import { AlertTriangle, Building2, CheckCircle2, ChevronLeft, CircleDashed, Copy, History, Pencil, Phone, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, ApiError, type CallEvent, type Finding, type TaskResult } from "../api";
+import { api, ApiError, type CallEvent, type CheckPhase, type Finding, type TaskResult } from "../api";
 import { useCan } from "../App";
 import { Transcript } from "../live";
 import { AttemptPill, Banner, Card, DIRECTION_LABEL, FindingPill, Segmented, TaskPill, Toolbar, duration, humanize, timeAgo, useToast } from "../ui";
@@ -11,7 +11,12 @@ type Outcome = "Completed" | "Partial" | "Unsuccessful";
 
 export default function ResultDetail() {
   const { id = "" } = useParams();
-  const result = useQuery({ queryKey: ["result", id], queryFn: () => api.get<TaskResult>(`/tasks/${id}/result`), refetchInterval: (q) => (q.state.data?.task.state === "Running" ? 3000 : false) });
+  const result = useQuery({ queryKey: ["result", id], queryFn: () => api.get<TaskResult>(`/tasks/${id}/result`), refetchInterval: (q) => {
+      const t = q.state.data?.task;
+      const pending = Object.values(t?.electronic_check ?? {}).some((p) => p?.state === "pending");
+      return t?.state === "Running" || pending ? 2500 : false;
+    },
+  });
   const [highlight, setHighlight] = useState<Set<string>>(new Set());
   const toast = useToast();
   const r = result.data;
@@ -30,7 +35,8 @@ export default function ResultDetail() {
 
   if (!r) return <Toolbar title={<span className="skeleton" style={{ display: "inline-block", width: 260, height: 32 }} />} />;
   const latest = new Map<string, Finding>();
-  for (const f of r.findings) latest.set(f.field, f);
+  // Call findings carry transcript evidence; payer-system values are shown in the payer check panel.
+  for (const f of r.findings) if (f.source !== "system") latest.set(f.field, f);
 
   const copySummary = () => {
     const lines = [
@@ -73,6 +79,8 @@ export default function ResultDetail() {
       />
       <div className="content">
         <OutcomeCard result={r} />
+        <ReadinessCard result={r} />
+        <PayerCheckCard result={r} />
 
         <div className="split">
           <Card title="Findings" subtitle="Each value links to the conversation that supports it. Corrections keep the original.">
@@ -271,5 +279,172 @@ function FindingRow({ field, description, finding, critical, onEvidence, taskId 
         </div>
       )}
     </li>
+  );
+}
+
+const VERDICT = {
+  match: { label: "Matches call", tone: "var(--green)", icon: CheckCircle2 },
+  conflict: { label: "Conflicts with call", tone: "var(--red)", icon: AlertTriangle },
+  call_missing: { label: "Not heard on call", tone: "var(--label-2)", icon: CircleDashed },
+  system_missing: { label: "Not in payer record", tone: "var(--label-2)", icon: CircleDashed },
+} as const;
+
+function PhaseView({ title, phase }: { title: string; phase?: CheckPhase }) {
+  if (!phase) return null;
+  const s = phase.status;
+  return (
+    <div className="subcard" style={{ flex: 1, minWidth: 260 }}>
+      <div className="row">
+        <strong>{title}</strong>
+        <span className="spacer" />
+        {phase.state === "pending" ? (
+          <span className="pill tone-blue">
+            <span className="spinner" style={{ width: 10, height: 10 }} aria-hidden /> Checking
+          </span>
+        ) : phase.state === "done" ? (
+          <span className="small muted tabular">{phase.duration_ms} ms</span>
+        ) : (
+          <span className="pill tone-gray">{phase.state === "skipped" ? (phase.reason ?? "skipped").replace(/_/g, " ") : "failed"}</span>
+        )}
+      </div>
+      {s && (
+        <div className="stack" style={{ gap: 4, marginTop: 8 }}>
+          <div className="row" style={{ flexWrap: "wrap" }}>
+            <span className="finding-value">{s.reported_status.replace(/_/g, " ")}</span>
+            {s.review_action && <span className="chip mono">X12 306 · {s.review_action}</span>}
+            {s.final && <span className="pill tone-green">Final</span>}
+          </div>
+          {s.authorization_reference && (
+            <div className="small">
+              Reference <span className="mono">{s.authorization_reference}</span>
+            </div>
+          )}
+          {s.reason && <div className="small muted">{s.reason}</div>}
+        </div>
+      )}
+      {phase.error && <div className="field-error" style={{ marginTop: 6 }}>{phase.error}</div>}
+      {phase.connection && (
+        <div className="small muted" style={{ marginTop: 8 }}>
+          {phase.connection.name}
+          {phase.connection.synthetic ? " · synthetic" : ""}
+        </div>
+      )}
+      {phase.comparison && (
+        <ul className="list" style={{ marginTop: 10 }}>
+          {Object.entries(phase.comparison).map(([field, verdict]) => {
+            const v = VERDICT[verdict];
+            return (
+              <li key={field} className="row small" style={{ padding: "3px 0" }}>
+                <v.icon size={14} color={v.tone} aria-hidden />
+                <span style={{ width: 170 }}>{humanize(field)}</span>
+                <span style={{ color: v.tone }}>{v.label}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function PayerCheckCard({ result }: { result: TaskResult }) {
+  const qc = useQueryClient();
+  const canRun = useCan("start_task");
+  const check = result.task.electronic_check;
+  const run = useMutation({
+    mutationFn: () => api.post(`/integrations/tasks/${result.task.id}/check`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["result", result.task.id] }),
+  });
+  if (!result.task.case) return null;
+  return (
+    <Card
+      title={
+        <span className="row">
+          <Building2 size={16} aria-hidden /> Payer system check
+        </span>
+      }
+      subtitle="Da Vinci PAS status from the payer's Prior Authorization API, before and after the call."
+      actions={
+        canRun && (
+          <button className="btn btn-secondary" onClick={() => run.mutate()} disabled={run.isPending}>
+            <RefreshCw size={14} className={run.isPending ? "spin" : ""} aria-hidden /> Check now
+          </button>
+        )
+      }
+    >
+      <div className="card-pad row" style={{ alignItems: "stretch", flexWrap: "wrap", paddingTop: 4 }}>
+        {!check ? (
+          <span className="small muted">No electronic check has run for this task.</span>
+        ) : (
+          <>
+            <PhaseView title="Before the call" phase={check.pre_call} />
+            <PhaseView title="After the call" phase={check.post_call} />
+            <PhaseView title="Latest manual check" phase={check.manual} />
+          </>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+const CAPABILITY_LABEL: Record<string, string> = {
+  "provider.npi.validate": "Provider NPI · NPPES",
+  "code.icd10.validate": "Diagnosis · ICD-10-CM",
+  "code.hcpcs.validate": "Service code · HCPCS",
+  "coverage.policy.lookup": "Medicare coverage · NCD/LCD",
+};
+
+const CHECK_TONE = { confirmed: "green", invalid: "red", unverifiable: "orange", skipped: "gray", error: "red" } as const;
+
+function ReadinessCard({ result }: { result: TaskResult }) {
+  const phase = result.task.electronic_check?.readiness;
+  if (!phase) return null;
+  return (
+    <Card
+      title={
+        <span className="row">
+          <CheckCircle2 size={16} aria-hidden /> Case readiness
+        </span>
+      }
+      subtitle="Validated against public systems of record before any call: NPPES, NLM Clinical Tables, CMS Coverage."
+    >
+      {phase.state === "pending" ? (
+        <div className="card-pad small muted">Checking…</div>
+      ) : phase.state !== "done" ? (
+        <div className="card-pad small muted">Skipped ({phase.reason?.replace(/_/g, " ")}).</div>
+      ) : (
+        <ul className="list">
+          {phase.checks?.map((c, i) => (
+            <li key={i} className="list-row" style={{ alignItems: "flex-start", paddingTop: 12, paddingBottom: 12 }}>
+              <div className="row-main">
+                <div className="row" style={{ flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 600 }}>{CAPABILITY_LABEL[c.capability] ?? c.capability}</span>
+                  <span className="finding-value">{c.subject}</span>
+                </div>
+                <div className="small muted" style={{ whiteSpace: "normal", marginTop: 2 }}>
+                  {c.detail.display ?? c.detail.name ?? c.detail.reason ?? ""}
+                  {c.detail.suggestions?.length ? ` · did you mean ${c.detail.suggestions.slice(0, 3).join(", ")}?` : ""}
+                </div>
+                {c.detail.policies?.length ? (
+                  <ul className="small" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                    {c.detail.policies.map((p) => (
+                      <li key={p.id}>
+                        <a href={p.url} target="_blank" rel="noreferrer">
+                          {p.type} {p.id}
+                        </a>{" "}
+                        {p.title}
+                        {p.contractor ? <span className="muted"> · {p.contractor}</span> : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+              <span className="small muted tabular">{c.duration_ms} ms</span>
+              <span className={`pill tone-${CHECK_TONE[c.status]}`}>{c.status}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }

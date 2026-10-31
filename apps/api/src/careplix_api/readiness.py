@@ -3,10 +3,10 @@
 Each dependency is reported separately so that a healthy application never implies telephone or
 model health. Statuses:
 
-- ready: verified against the live provider just now.
-- blocked: misconfigured or failing; ``message`` is an actionable blocker for the Workspace screen.
-- unverified: configured, but this check cannot prove it works (evidence comes from a probe or,
-  from G1, from worker claims).
+- ready: verified against the live provider, or proven by recent evidence (a worker answered a
+  probe dispatch, the model answered a live test, a test call qualified the route).
+- blocked: missing or failing; ``message`` is an actionable blocker for the Workspace screen.
+- unverified: configured, but not yet proven to work.
 
 Details carry identifiers and counts only, never secrets.
 """
@@ -19,10 +19,13 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from livekit import api as lkapi
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from careplix_api.connections import VERIFICATION_TTL, Effective, effective
+from careplix_api.db import as_utc, utcnow
+from careplix_api.livekit_gateway import LiveKitGateway
+from careplix_api.models import Route, WorkerProbe
 from careplix_api.settings import Settings
 
 
@@ -74,29 +77,32 @@ async def check_database(settings: Settings) -> Check:
         await engine.dispose()
 
 
-async def check_livekit(settings: Settings) -> list[Check]:
-    """Credentials, outbound trunk (OD01) and an inbound route dispatching our agent (OD02)."""
+def _host(url: str) -> str:
+    return url.split("://", 1)[-1].split("/", 1)[0]
+
+
+async def check_livekit(
+    settings: Settings,
+    eff: Effective | None = None,
+    routes: list[Route] | None = None,
+    gateway: LiveKitGateway | None = None,
+) -> list[Check]:
+    """Credentials, the selected outbound trunk (OD01) and inbound routes (OD02)."""
+    eff = eff or effective(None, settings)
+    gateway = gateway or LiveKitGateway(settings)
     if not settings.livekit_configured:
-        msg = "Voice connection missing. Set LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET."
+        msg = (
+            "Not connected. Add LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET, then restart."
+        )
         return [
             Check("livekit_api", Status.BLOCKED, msg),
-            Check("outbound_route", Status.BLOCKED, "Phone connection missing (voice not set up)."),
-            Check("inbound_route", Status.BLOCKED, "Inbound number missing (voice not set up)."),
+            Check("outbound_route", Status.BLOCKED, "Needs the voice platform connected first."),
+            Check("inbound_route", Status.BLOCKED, "Needs the voice platform connected first."),
         ]
 
     try:
-        async with (
-            asyncio.timeout(settings.check_timeout_s),
-            lkapi.LiveKitAPI(
-                settings.livekit_url,
-                settings.livekit_api_key,
-                settings.livekit_api_secret.get_secret_value(),
-            ) as lk,
-        ):
-            rooms = await lk.room.list_rooms(lkapi.ListRoomsRequest())
-            outbound = await lk.sip.list_outbound_trunk(lkapi.ListSIPOutboundTrunkRequest())
-            inbound = await lk.sip.list_inbound_trunk(lkapi.ListSIPInboundTrunkRequest())
-            rules = await lk.sip.list_dispatch_rule(lkapi.ListSIPDispatchRuleRequest())
+        async with asyncio.timeout(settings.check_timeout_s):
+            inventory = await gateway.inventory()
     except Exception as exc:  # noqa: BLE001
         return [
             Check(
@@ -119,28 +125,39 @@ async def check_livekit(settings: Settings) -> list[Check]:
         Check(
             "livekit_api",
             Status.READY,
-            "Voice service reachable.",
-            {"active_rooms": len(rooms.rooms)},
+            "Connected to LiveKit Cloud.",
+            {"project": _host(settings.livekit_url), "active_rooms": inventory["active_rooms"]},
         )
     ]
 
-    trunk_ids = [t.sip_trunk_id for t in outbound.items]
-    if not settings.livekit_outbound_trunk_id:
+    trunk_ids = [t["id"] for t in inventory["outbound_trunks"]]
+    if not eff.outbound_trunk_id:
         checks.append(
             Check(
                 "outbound_route",
                 Status.BLOCKED,
-                "Phone connection missing. Select a carrier and set LIVEKIT_OUTBOUND_TRUNK_ID.",
+                "No carrier trunk selected. Add or choose one under Outbound calling."
+                if trunk_ids
+                else "No carrier trunk. LiveKit numbers are inbound-only; add a SIP carrier trunk.",
                 {"outbound_trunks_found": len(trunk_ids)},
             )
         )
-    elif settings.livekit_outbound_trunk_id not in trunk_ids:
+    elif eff.outbound_trunk_id not in trunk_ids:
         checks.append(
             Check(
                 "outbound_route",
                 Status.BLOCKED,
-                "Configured outbound trunk was not found in the LiveKit project.",
+                "The selected carrier trunk no longer exists in LiveKit.",
                 {"outbound_trunks_found": len(trunk_ids)},
+            )
+        )
+    elif eff.outbound_verified:
+        checks.append(
+            Check(
+                "outbound_route",
+                Status.READY,
+                "Carrier trunk qualified by a real test call.",
+                {"trunk_id": eff.outbound_trunk_id},
             )
         )
     else:
@@ -148,27 +165,32 @@ async def check_livekit(settings: Settings) -> list[Check]:
             Check(
                 "outbound_route",
                 Status.UNVERIFIED,
-                "Outbound trunk exists. Route qualification (real call to an approved test number) "
-                "is still required.",
-                {"trunk_id": settings.livekit_outbound_trunk_id},
+                "Carrier trunk selected. Place a qualification call to an approved test number.",
+                {"trunk_id": eff.outbound_trunk_id},
             )
         )
 
-    agent_rules = [
-        r
-        for r in rules.items
-        if any(a.agent_name == settings.livekit_agent_name for a in r.room_config.agents)
+    rules = inventory["dispatch_rules"]
+    rule_ids = {r["id"] for r in rules}
+    linked = [
+        r for r in routes or [] if (r.provider_refs or {}).get("dispatch_rule_id") in rule_ids
     ]
-    if not agent_rules:
+    if not linked:
         checks.append(
             Check(
                 "inbound_route",
                 Status.BLOCKED,
-                f"No inbound number routes to agent '{settings.livekit_agent_name}'.",
-                {
-                    "inbound_trunks_found": len(inbound.items),
-                    "dispatch_rules_found": len(rules.items),
-                },
+                "No inbound number connected. Connect a LiveKit number under Inbound numbers.",
+                {"dispatch_rules_found": len(rules)},
+            )
+        )
+    elif any(r.verified_at for r in linked):
+        checks.append(
+            Check(
+                "inbound_route",
+                Status.READY,
+                "Inbound number answered a real call and was qualified.",
+                {"numbers": [r.number_e164 for r in linked if r.verified_at]},
             )
         )
     else:
@@ -176,50 +198,86 @@ async def check_livekit(settings: Settings) -> list[Check]:
             Check(
                 "inbound_route",
                 Status.UNVERIFIED,
-                "Inbound dispatch rule exists. A real test call is still required.",
-                {"dispatch_rule_ids": [r.sip_dispatch_rule_id for r in agent_rules]},
+                "Number connected. Call it once, then mark the route qualified.",
+                {"numbers": [r.number_e164 for r in linked]},
             )
         )
     return checks
 
 
-def check_model(settings: Settings) -> Check:
+def check_model(settings: Settings, eff: Effective | None = None) -> Check:
+    eff = eff or effective(None, settings)
     missing = [
         name
         for name, value in [
-            ("GCP_PROJECT", settings.gcp_project),
-            ("VERTEX_LOCATION", settings.vertex_location),
-            ("GEMINI_LIVE_MODEL", settings.gemini_live_model),
+            ("Google Cloud project", eff.gcp_project),
+            ("Vertex AI region", eff.vertex_location),
+            ("approved Gemini Live model", eff.approved_model),
         ]
         if not value
     ]
     if missing:
+        return Check("voice_model", Status.BLOCKED, f"Choose the {', '.join(missing)}.")
+    detail = {"model_id": eff.approved_model, "location": eff.vertex_location}
+    check = eff.model_check or {}
+    if eff.model_verified:
+        return Check(
+            "voice_model",
+            Status.READY,
+            f"Gemini Live answered a live test in {check.get('first_audio_ms')} ms.",
+            {**detail, "connect_ms": check.get("connect_ms")},
+        )
+    if check.get("model_id") == eff.approved_model and check.get("error"):
         return Check(
             "voice_model",
             Status.BLOCKED,
-            f"Voice model not configured. Set {', '.join(missing)}.",
+            "The last live test failed. Check Vertex AI access, region and model ID.",
+            {**detail, "error": check.get("error")},
         )
-    return Check(
-        "voice_model",
-        Status.UNVERIFIED,
-        "Model configured. Run the Gemini Live probe from the worker environment to verify access.",
-        {"model_id": settings.gemini_live_model, "location": settings.vertex_location},
-    )
+    return Check("voice_model", Status.UNVERIFIED, "Model chosen. Run Test model.", detail)
 
 
-def check_agent_worker(settings: Settings) -> Check:
+def check_agent_worker(settings: Settings, probe: WorkerProbe | None) -> Check:
+    detail = {"agent_name": settings.livekit_agent_name}
+    if probe and probe.acked_at and utcnow() - as_utc(probe.acked_at) < VERIFICATION_TTL:
+        return Check(
+            "agent_worker",
+            Status.READY,
+            "A worker answered a test dispatch.",
+            {**detail, "runtime_build": probe.runtime_build, "answered_at": probe.acked_at},
+        )
     return Check(
         "agent_worker",
         Status.UNVERIFIED,
-        "Agent availability is confirmed per call by worker claims (G1). Use the browser-session "
-        "probe to confirm a worker answers dispatch.",
-        {"agent_name": settings.livekit_agent_name},
+        "Start the worker (make worker-dev), then run Test agent.",
+        detail,
     )
 
 
-async def run_all(settings: Settings) -> Readiness:
-    db, lk = await asyncio.gather(check_database(settings), check_livekit(settings))
-    checks = [db, *lk, check_model(settings), check_agent_worker(settings)]
+async def run_all(
+    settings: Settings,
+    session: AsyncSession | None = None,
+    workspace_id: str | None = None,
+    gateway: LiveKitGateway | None = None,
+) -> Readiness:
+    eff, routes, probe = effective(None, settings), [], None
+    if session is not None and workspace_id:
+        from careplix_api.models import Workspace
+
+        eff = effective(await session.get(Workspace, workspace_id), settings)
+        routes = list(
+            await session.scalars(select(Route).where(Route.workspace_id == workspace_id))
+        )
+        probe = await session.scalar(
+            select(WorkerProbe)
+            .where(WorkerProbe.workspace_id == workspace_id, WorkerProbe.acked_at.is_not(None))
+            .order_by(WorkerProbe.acked_at.desc())
+            .limit(1)
+        )
+    db, lk = await asyncio.gather(
+        check_database(settings), check_livekit(settings, eff, routes, gateway)
+    )
+    checks = [db, *lk, check_model(settings, eff), check_agent_worker(settings, probe)]
     statuses = {c.status for c in checks}
     overall = (
         Status.BLOCKED

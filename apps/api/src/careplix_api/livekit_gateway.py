@@ -93,8 +93,7 @@ class LiveKitGateway:
             .to_jwt()
         )
 
-    async def dial(self, room: str, attempt_id: str, destination: str) -> DialOutcome:
-        trunk = self.settings.livekit_outbound_trunk_id
+    async def dial(self, room: str, attempt_id: str, destination: str, trunk: str) -> DialOutcome:
         if not trunk:
             raise ApiError(503, "outbound_not_configured", "Phone connection is not configured.")
         async with self._client() as lk:
@@ -137,3 +136,119 @@ class LiveKitGateway:
             except lkapi.ServerError as err:
                 if "not_found" not in str(err.code).lower():
                     raise
+
+    # --- Project setup (Connections) ------------------------------------------------------------
+
+    async def inventory(self) -> dict:
+        """Trunks and dispatch rules in the project. Credentials are never returned."""
+        async with self._client() as lk:
+            rooms = await lk.room.list_rooms(lkapi.ListRoomsRequest())
+            outbound = await lk.sip.list_outbound_trunk(lkapi.ListSIPOutboundTrunkRequest())
+            inbound = await lk.sip.list_inbound_trunk(lkapi.ListSIPInboundTrunkRequest())
+            rules = await lk.sip.list_dispatch_rule(lkapi.ListSIPDispatchRuleRequest())
+        return {
+            "active_rooms": len(rooms.rooms),
+            "outbound_trunks": [
+                {
+                    "id": t.sip_trunk_id,
+                    "name": t.name,
+                    "address": t.address,
+                    "numbers": list(t.numbers),
+                    "has_auth": bool(t.auth_username),
+                }
+                for t in outbound.items
+            ],
+            "inbound_trunks": [
+                {"id": t.sip_trunk_id, "name": t.name, "numbers": list(t.numbers)}
+                for t in inbound.items
+            ],
+            "dispatch_rules": [
+                {
+                    "id": r.sip_dispatch_rule_id,
+                    "name": r.name,
+                    "numbers": list(r.numbers),
+                    "trunk_ids": list(r.trunk_ids),
+                    "agents": [a.agent_name for a in r.room_config.agents],
+                }
+                for r in rules.items
+            ],
+        }
+
+    async def create_inbound_rule(self, name: str, number: str, route_id: str) -> dict:
+        """Send inbound calls into a fresh room with an explicit CarePlix agent dispatch.
+
+        Asks LiveKit to scope the rule to ``number``. LiveKit may store it project-wide instead
+        (observed for purchased numbers: ``numbers`` comes back empty), so the stored scope is
+        returned rather than assumed. Either way the worker claims by the called number and the
+        API answers only numbers that have a CarePlix route. Metadata carries only the opaque
+        route ID (I4).
+        """
+        async with self._client() as lk:
+            rule = await lk.sip.create_dispatch_rule(
+                lkapi.CreateSIPDispatchRuleRequest(
+                    dispatch_rule=lkapi.SIPDispatchRuleInfo(
+                        name=name,
+                        numbers=[number],
+                        # Callee rule: rooms are named after our number, never the caller's (I4).
+                        rule=lkapi.SIPDispatchRule(
+                            dispatch_rule_callee=lkapi.SIPDispatchRuleCallee(
+                                room_prefix="inb", randomize=True
+                            )
+                        ),
+                        room_config=lkapi.RoomConfiguration(
+                            agents=[
+                                lkapi.RoomAgentDispatch(
+                                    agent_name=self.settings.livekit_agent_name,
+                                    metadata=json.dumps({"route_id": route_id}),
+                                )
+                            ]
+                        ),
+                        krisp_enabled=True,
+                    )
+                )
+            )
+        return {"id": rule.sip_dispatch_rule_id, "numbers": list(rule.numbers)}
+
+    async def delete_dispatch_rule(self, rule_id: str) -> None:
+        async with self._client() as lk:
+            await lk.sip.delete_dispatch_rule(
+                lkapi.DeleteSIPDispatchRuleRequest(sip_dispatch_rule_id=rule_id)
+            )
+
+    async def create_outbound_trunk(
+        self, name: str, address: str, number: str, username: str, password: str, transport: str
+    ) -> str:
+        """Create a carrier trunk. The SIP password goes to LiveKit; CarePlix never stores it."""
+        transports = {
+            "auto": lkapi.SIP_TRANSPORT_AUTO,
+            "udp": lkapi.SIP_TRANSPORT_UDP,
+            "tcp": lkapi.SIP_TRANSPORT_TCP,
+            "tls": lkapi.SIP_TRANSPORT_TLS,
+        }
+        async with self._client() as lk:
+            trunk = await lk.sip.create_outbound_trunk(
+                lkapi.CreateSIPOutboundTrunkRequest(
+                    trunk=lkapi.SIPOutboundTrunkInfo(
+                        name=name,
+                        address=address,
+                        numbers=[number],
+                        auth_username=username,
+                        auth_password=password,
+                        transport=transports[transport],
+                    )
+                )
+            )
+        return trunk.sip_trunk_id
+
+    async def dispatch_probe(self, room: str, probe_id: str) -> None:
+        async with self._client() as lk:
+            await lk.room.create_room(
+                lkapi.CreateRoomRequest(name=room, empty_timeout=30, max_participants=1)
+            )
+            await lk.agent_dispatch.create_dispatch(
+                lkapi.CreateAgentDispatchRequest(
+                    agent_name=self.settings.livekit_agent_name,
+                    room=room,
+                    metadata=json.dumps({"probe_id": probe_id}),
+                )
+            )

@@ -15,6 +15,9 @@ class WorkerSettings(BaseSettings):
     # CarePlix control plane the worker claims attempts from (ADR09). Hosted workers need a URL
     # reachable from LiveKit Cloud (for local development, a tunnel to the API).
     careplix_api_url: str = "http://localhost:8080"
+    # When the internal API is a private Cloud Run service, the worker also presents a Google ID
+    # token for this audience in X-Serverless-Authorization (Authorization keeps our own token).
+    careplix_api_audience: str = ""
     worker_service_token: SecretStr = SecretStr("")
 
     gcp_project: str = ""

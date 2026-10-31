@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from careplix_api.db import utcnow
@@ -30,17 +31,27 @@ async def append(
     event_id = event_id or str(uuid.uuid4())
     if await session.get(CallEvent, event_id) is not None:
         return None  # duplicate delivery
+    # Allocate the cursor atomically: concurrent requests for one call (e.g. parallel tool calls
+    # from the model) must never read the same next value.
+    seq = (
+        await session.execute(
+            update(CallAttempt)
+            .where(CallAttempt.id == attempt.id)
+            .values(next_event_seq=CallAttempt.next_event_seq + 1)
+            .returning(CallAttempt.next_event_seq)
+            .execution_options(synchronize_session=False)
+        )
+    ).scalar_one() - 1
     event = CallEvent(
         id=event_id,
         workspace_id=attempt.workspace_id,
         attempt_id=attempt.id,
-        seq=attempt.next_event_seq,
+        seq=seq,
         type=type_,
         source=source,
         occurred_at=occurred_at or utcnow(),
         payload=payload or {},
     )
-    attempt.next_event_seq += 1
     session.add(event)
     return event
 

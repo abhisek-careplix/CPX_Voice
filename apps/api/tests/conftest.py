@@ -27,7 +27,7 @@ class FakeGateway(LiveKitGateway):
     def browser_token(self, room, identity, display_name):
         return f"token-for-{room}"
 
-    async def dial(self, room, attempt_id, destination):
+    async def dial(self, room, attempt_id, destination, trunk):
         self.calls.append(("dial", room, destination))
         return self.dial_outcome
 
@@ -39,6 +39,46 @@ class FakeGateway(LiveKitGateway):
 
     async def delete_room(self, room):
         self.calls.append(("delete", room))
+
+    # A small in-memory LiveKit project for Connections flows.
+    outbound_trunks: list
+    dispatch_rules: list
+
+    async def inventory(self):
+        return {
+            "active_rooms": 0,
+            "outbound_trunks": list(getattr(self, "outbound_trunks", [])),
+            "inbound_trunks": [],
+            "dispatch_rules": list(getattr(self, "dispatch_rules", [])),
+        }
+
+    async def create_inbound_rule(self, name, number, route_id):
+        # Like LiveKit Cloud for purchased numbers: the number scope is not stored.
+        rule = {
+            "id": f"SDR_{len(getattr(self, 'dispatch_rules', [])) + 1}",
+            "name": name,
+            "numbers": [],
+            "trunk_ids": [],
+            "agents": ["careplix-agent"],
+        }
+        self.dispatch_rules = [*getattr(self, "dispatch_rules", []), rule]
+        return rule
+
+    async def create_outbound_trunk(self, name, address, number, username, password, transport):
+        self.calls.append(("trunk", address, number, password))
+        self.outbound_trunks = [
+            {
+                "id": "ST_new",
+                "name": name,
+                "address": address,
+                "numbers": [number],
+                "has_auth": bool(username),
+            }
+        ]
+        return "ST_new"
+
+    async def dispatch_probe(self, room, probe_id):
+        self.calls.append(("probe", room, probe_id))
 
 
 def make_settings(tmp_path, **overrides) -> Settings:

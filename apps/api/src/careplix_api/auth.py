@@ -156,3 +156,40 @@ def require_attempt_token(
     if claims["sub"] != attempt_id:
         raise ApiError(403, "forbidden", "Token is not valid for this attempt.")
     return AttemptGrant(claims["sub"], claims["ws"])
+
+
+# --- Identity-Aware Proxy (cloud) ---------------------------------------------------------------
+
+IAP_CERTS_URL = "https://www.gstatic.com/iap/verify/public_key"
+
+
+def verify_iap_assertion(request: Request, settings: Settings) -> str:
+    """Return the signed-in Google account email from IAP's signed header, or raise 401.
+
+    Only the signed ``x-goog-iap-jwt-assertion`` counts; plain identity headers are spoofable if
+    traffic ever bypasses IAP. The audience pins the token to this exact service.
+    """
+    import logging
+
+    from google.auth.transport.requests import Request as GoogleRequest
+    from google.oauth2 import id_token
+
+    assertion = request.headers.get("x-goog-iap-jwt-assertion", "")
+    if not (settings.iap_audience and assertion):
+        raise ApiError(401, "unauthenticated", "Sign in through CarePlix single sign-on.")
+    try:
+        claims = id_token.verify_token(
+            assertion, GoogleRequest(), audience=settings.iap_audience, certs_url=IAP_CERTS_URL
+        )
+    except Exception as exc:
+        try:
+            seen_aud = jwt.decode(assertion, options={"verify_signature": False}).get("aud")
+        except jwt.PyJWTError:
+            seen_aud = "unreadable"
+        # The audience is a resource path, not personal data; logging it makes misconfig obvious.
+        logging.getLogger("careplix.auth").warning("IAP assertion rejected; token aud=%s", seen_aud)
+        raise ApiError(401, "unauthenticated", "Your sign-in could not be verified.") from exc
+    email = str(claims.get("email", "")).lower()
+    if not email.endswith("@" + settings.iap_allowed_domain.lower()):
+        raise ApiError(403, "forbidden", "This account is not allowed in this workspace.")
+    return email

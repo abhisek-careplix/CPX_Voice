@@ -33,5 +33,12 @@
       "member_id",
       "date_of_birth"
     ]
-  }
+  },
+  "diagnosis_codes": [
+    "K92.1"
+  ],
+  "coverage_terms": [
+    "colonoscopy",
+    "colorectal"
+  ]
 }

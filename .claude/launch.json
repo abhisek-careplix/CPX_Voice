@@ -4,14 +4,40 @@
     {
       "name": "api",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "uvicorn", "careplix_api.main:app", "--port", "8080", "--reload", "--reload-dir", "apps/api/src"],
+      "runtimeArgs": [
+        "run",
+        "uvicorn",
+        "careplix_api.main:app",
+        "--port",
+        "8080",
+        "--reload",
+        "--reload-dir",
+        "apps/api/src"
+      ],
       "port": 8080
     },
     {
       "name": "studio",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "apps/web", "run", "dev"],
+      "runtimeArgs": [
+        "--prefix",
+        "apps/web",
+        "run",
+        "dev"
+      ],
       "port": 5173
+    },
+    {
+      "name": "payer-sandbox",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "uvicorn",
+        "careplix_api.payer_sandbox:app",
+        "--port",
+        "8091"
+      ],
+      "port": 8091
     }
   ]
 }

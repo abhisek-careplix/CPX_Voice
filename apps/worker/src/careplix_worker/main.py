@@ -32,7 +32,8 @@ RUNTIME_BUILD = os.environ.get("CAREPLIX_RUNTIME_BUILD", "dev")
 DTMF_CODES = {**{str(d): d for d in range(10)}, "*": 10, "#": 11}
 SIP_KIND = rtc.ParticipantKind.PARTICIPANT_KIND_SIP
 
-server = AgentServer()
+# Cloud Run sends health checks to $PORT; locally the SDK picks its own port.
+server = AgentServer(port=int(os.environ["PORT"])) if os.environ.get("PORT") else AgentServer()
 
 
 def _metadata(raw: str) -> dict[str, Any]:
@@ -110,14 +111,26 @@ async def _claim(ctx: JobContext, plane: ControlPlane) -> dict[str, Any]:
     meta = _metadata(ctx.job.metadata)
     if attempt_id := meta.get("attempt_id"):
         return await plane.claim(attempt_id, ctx.room.name, ctx.job.id, RUNTIME_BUILD)
-    # Inbound: the trusted called number (from LiveKit SIP, not the caller) selects the route.
+    # Inbound: route by signals from LiveKit and our dispatch rule, never by the caller (I5).
     caller = await ctx.wait_for_participant(kind=SIP_KIND)
+    attrs = caller.attributes
+    called = attrs.get("sip.trunkPhoneNumber", "")
+    log.info(
+        "inbound sip attributes keys=%s called_len=%d called_last4=%s rule=%s",
+        sorted(k for k in attrs if k.startswith("sip.")),
+        len(called),
+        called[-4:] or "-",
+        attrs.get("sip.ruleID", "-"),
+        extra={"job_id": ctx.job.id},
+    )
     return await plane.claim_inbound(
         ctx.room.name,
         ctx.job.id,
         RUNTIME_BUILD,
-        caller.attributes.get("sip.trunkPhoneNumber", ""),
-        caller.attributes.get("sip.phoneNumber"),
+        called,
+        attrs.get("sip.phoneNumber"),
+        meta.get("route_id"),
+        attrs.get("sip.ruleID"),
     )
 
 
@@ -128,7 +141,19 @@ async def entrypoint(ctx: JobContext) -> None:
     log.info("job accepted, metadata keys=%s", _metadata_keys(ctx.job.metadata), extra=ids)
     await ctx.connect()
 
-    plane = ControlPlane(settings.careplix_api_url, settings.service_token())
+    plane = ControlPlane(
+        settings.careplix_api_url, settings.service_token(), settings.careplix_api_audience
+    )
+    if probe_id := _metadata(ctx.job.metadata).get("probe_id"):
+        # Connections > Test agent: prove this worker answers dispatch; no model session.
+        try:
+            await plane.ack_probe(probe_id, ctx.room.name, RUNTIME_BUILD)
+            log.info("probe acknowledged", extra=ids)
+        finally:
+            await plane.aclose()
+            ctx.shutdown(reason="probe_acknowledged")
+        return
+
     try:
         claim = await _claim(ctx, plane)
     except ClaimRejected as rejected:
@@ -169,8 +194,9 @@ async def entrypoint(ctx: JobContext) -> None:
         llm=google.realtime.RealtimeModel(
             model=claim["model_id"],
             vertexai=True,
-            project=settings.gcp_project,
-            location=settings.vertex_location,
+            # Workspace choice from the Studio first, worker environment as fallback.
+            project=claim.get("vertex", {}).get("project") or settings.gcp_project,
+            location=claim.get("vertex", {}).get("location") or settings.vertex_location,
             voice=conversation.get("voice") or settings.gemini_voice,
             credentials=load_credentials(settings),
         )
