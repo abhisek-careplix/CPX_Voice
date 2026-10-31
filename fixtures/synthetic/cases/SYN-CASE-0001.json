@@ -1,0 +1,37 @@
+{
+  "case_id": "SYN-CASE-0001",
+  "synthetic": true,
+  "case_type": "prior_authorization",
+  "patient": {
+    "display_name": "Synthetic Patient Alpha",
+    "date_of_birth": "1958-03-14",
+    "member_id": "994810231",
+    "postal_code": "10115"
+  },
+  "provider": {
+    "name": "Riverside Orthopedic Group (synthetic)",
+    "npi": "9100000011",
+    "callback_phone": "+12025550142"
+  },
+  "payer": {
+    "name": "Northwind Health Plan (synthetic)",
+    "payer_script_id": "northwind-pending-info"
+  },
+  "service": {
+    "description": "Outpatient physical therapy, therapeutic exercise",
+    "cpt_code": "97110",
+    "units": 12,
+    "site_of_care": "outpatient clinic"
+  },
+  "request": {
+    "submitted_on": "2026-10-12",
+    "urgency": "standard",
+    "known_auth_reference": null
+  },
+  "inbound_verification": {
+    "factors": [
+      "member_id",
+      "date_of_birth"
+    ]
+  }
+}

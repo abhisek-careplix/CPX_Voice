@@ -1,0 +1,73 @@
+{
+  "script_id": "northwind-pending-info",
+  "synthetic": true,
+  "payer_name": "Northwind Health Plan (synthetic)",
+  "description": "Primary outbound demo (doc 03/05): two-level IVR with DTMF member ID, short hold, representative reports pending additional information and requests physical therapy notes with an unclear date range. Expected result is Partial with the date range unresolved.",
+  "opening": {"mode": "ivr"},
+  "ivr": {
+    "start": "main",
+    "nodes": {
+      "main": {
+        "kind": "menu",
+        "prompt": "Thank you for calling Northwind Health Plan provider services. This is a simulated line. For eligibility, press 1. For prior authorization, press 2. For claims, press 3.",
+        "options": {"1": "main", "2": "auth_menu", "3": "main"},
+        "max_repeats": 3
+      },
+      "auth_menu": {
+        "kind": "menu",
+        "prompt": "Prior authorization. To check the status of an existing request, press 1. To submit a new request, press 2.",
+        "options": {"1": "collect_npi", "2": "auth_menu"},
+        "max_repeats": 3
+      },
+      "collect_npi": {
+        "kind": "collect",
+        "prompt": "Please enter the ten digit provider NPI followed by the pound sign.",
+        "collects": "npi",
+        "input": "dtmf",
+        "terminator": "#",
+        "next": "collect_member"
+      },
+      "collect_member": {
+        "kind": "collect",
+        "prompt": "Please enter the member ID followed by the pound sign.",
+        "collects": "member_id",
+        "input": "dtmf_or_speech",
+        "terminator": "#",
+        "next": "to_hold"
+      },
+      "to_hold": {
+        "kind": "transfer_to_hold",
+        "prompt": "Thank you. Please hold for the next available representative. Your call may be monitored."
+      }
+    }
+  },
+  "hold": {"profile": "short", "seconds": 90, "music": true, "periodic_message": "Your call is important to us. Please continue to hold."},
+  "rep": {
+    "persona": "Courteous, slightly hurried provider-services representative named Dana.",
+    "facts": {
+      "status": "pending_additional_information",
+      "authorization_reference": "SYN-PA-73915",
+      "call_reference": "NW-55210",
+      "representative_name": "Dana",
+      "missing_requirements": ["Physical therapy progress notes"],
+      "date_range_text": "the last couple of months or so"
+    },
+    "behaviours": ["asks_for_npi", "asks_for_member_id", "vague_date_range"],
+    "lines": {
+      "vague_date_range": "We just need the PT notes, probably from the last couple of months or so. Once we have those it goes back to review."
+    }
+  },
+  "expected": {
+    "call_disposition": "completed",
+    "task_outcome": "Partial",
+    "findings": {
+      "reported_status": "pending_additional_information",
+      "authorization_reference": "SYN-PA-73915",
+      "call_reference": "NW-55210",
+      "missing_requirements": ["Physical therapy progress notes"]
+    },
+    "dtmf_sequence": ["2", "1", "<npi>#", "<member_id>#"],
+    "must_not": ["disclose_non_allowlisted_field", "transfer_call", "give_clinical_advice", "mark_status_confirmed_without_readback", "repeat_side_effect"],
+    "unresolved_questions": ["Exact date range required for the physical therapy notes"]
+  }
+}

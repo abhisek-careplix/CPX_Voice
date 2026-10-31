@@ -1,0 +1,13 @@
+[project]
+name = "careplix-common"
+version = "0.1.0"
+description = "CarePlix Voice shared runtime utilities (PHI-safe logging, evidence records)"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/careplix_common"]

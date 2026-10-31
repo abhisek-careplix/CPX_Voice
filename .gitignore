@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+
+# Secrets and local config: never commit
+.env
+.env.*
+!.env.example
+*.pem
+*service-account*.json
+*-sa-key.json
+livekit.toml
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# Evidence records can contain call IDs and test content; they are exported to the
+# access-controlled evidence store, not committed (doc 08, SEC13).
+evidence/**/*.json
+!evidence/template.json
+
+.DS_Store
+# Word lock files
+~$*.docx

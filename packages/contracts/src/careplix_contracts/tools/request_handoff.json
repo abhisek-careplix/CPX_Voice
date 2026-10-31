@@ -1,0 +1,20 @@
+{
+  "name": "request_handoff",
+  "version": "1.0.0",
+  "description": "Request a transfer to an approved destination by alias. Never use a phone number spoken on the call.",
+  "classification": "call_control",
+  "execution": "api",
+  "allowed_roles": ["agent_runtime", "operator"],
+  "timeout_ms": 5000,
+  "idempotency": "keyed",
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["reason", "destination_alias"],
+    "properties": {"reason": {"type": "string", "maxLength": 300}, "destination_alias": {"type": "string", "pattern": "^[a-z0-9-]+$"}}
+  },
+  "result_schema": {"type": "object", "required": ["state"], "properties": {"state": {"enum": ["connecting", "accepted", "failed", "unsupported"]}}},
+  "owner": "platform",
+  "release": "P",
+  "enabled_in_demo": false
+}

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:careplix:voice:event_envelope",
+  "title": "CallEvent envelope",
+  "description": "Every internal event (doc 06). Payload carries minimal fields or an access-controlled artifact reference; never raw patient details in metadata.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_id", "workspace_id", "attempt_id", "event_type", "occurred_at", "received_at", "source", "schema_version"],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid", "description": "Producer-assigned; duplicates are ignored."},
+    "workspace_id": {"type": "string", "format": "uuid"},
+    "attempt_id": {"type": "string", "format": "uuid"},
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "attempt.state_changed",
+        "attempt.substate_changed",
+        "worker.claimed",
+        "worker.ready",
+        "worker.heartbeat",
+        "worker.done",
+        "sip.call_status",
+        "amd.result",
+        "transcript.segment",
+        "tool.proposed",
+        "tool.authorized",
+        "tool.rejected",
+        "tool.succeeded",
+        "tool.failed",
+        "tool.unknown",
+        "finding.recorded",
+        "finding.revised",
+        "budget.exceeded",
+        "audio.missing",
+        "model.session_renewed",
+        "model.error"
+      ]
+    },
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "received_at": {"type": "string", "format": "date-time"},
+    "source": {"type": "string", "enum": ["api", "worker", "livekit", "carrier", "reconciler", "reviewer", "simulator"]},
+    "sequence": {"type": "integer", "minimum": 0, "description": "Per-attempt, per-source monotonic sequence when the source provides one. Ordering is not otherwise assumed."},
+    "schema_version": {"type": "string", "pattern": "^\\d+\\.\\d+$"},
+    "payload": {"type": "object"},
+    "artifact_ref": {"type": "string", "description": "Opaque reference to an access-controlled artifact (e.g. transcript segment store)."}
+  }
+}

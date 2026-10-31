@@ -1,0 +1,28 @@
+{
+  "name": "send_dtmf",
+  "version": "1.0.0",
+  "description": "Press keypad digits on the phone line to navigate an automated menu. Wait until the menu has finished speaking before pressing.",
+  "classification": "call_control",
+  "execution": "worker_after_authorization",
+  "allowed_roles": ["agent_runtime"],
+  "timeout_ms": 1500,
+  "idempotency": "keyed",
+  "limits": {"max_digits": 20, "allowed_characters": "0123456789*#", "cooldown_ms": 1500, "max_menu_repeats": 3},
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["digits", "reason"],
+    "properties": {
+      "digits": {"type": "string", "pattern": "^[0-9*#]{1,20}$"},
+      "reason": {"type": "string", "maxLength": 200}
+    }
+  },
+  "result_schema": {
+    "type": "object",
+    "required": ["action_id", "state"],
+    "properties": {"action_id": {"type": "string"}, "state": {"enum": ["succeeded", "rejected"]}, "rejection_code": {"type": "string"}}
+  },
+  "owner": "platform",
+  "release": "D",
+  "enabled_in_demo": true
+}

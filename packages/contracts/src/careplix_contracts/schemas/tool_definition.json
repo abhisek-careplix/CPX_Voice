@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:careplix:voice:tool_definition",
+  "title": "Tool registry entry",
+  "description": "Versioned tool definition (doc 04 tool registry). Endpoint or permission changes create a new version.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "version", "description", "classification", "execution", "allowed_roles", "timeout_ms", "idempotency", "arguments_schema", "result_schema", "owner", "release", "enabled_in_demo"],
+  "properties": {
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "description": {"type": "string", "minLength": 10, "description": "Model-facing description."},
+    "classification": {"enum": ["read", "write", "call_control"]},
+    "execution": {"enum": ["api", "worker_after_authorization"], "description": "Where the effect executes. Authorization is always in the API."},
+    "allowed_roles": {"type": "array", "items": {"enum": ["agent_runtime", "operator", "reviewer", "publisher", "administrator"]}, "minItems": 1},
+    "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 30000},
+    "idempotency": {"enum": ["naturally_idempotent", "keyed", "not_applicable"]},
+    "limits": {"type": "object"},
+    "arguments_schema": {"type": "object"},
+    "result_schema": {"type": "object"},
+    "owner": {"type": "string"},
+    "release": {"enum": ["D", "P", "S"]},
+    "enabled_in_demo": {"type": "boolean"}
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "case_id": "SYN-CASE-0009",
+  "synthetic": true,
+  "case_type": "prior_authorization",
+  "patient": {
+    "display_name": "Synthetic Patient India",
+    "date_of_birth": "1945-08-11",
+    "member_id": "992605338",
+    "postal_code": "94117"
+  },
+  "provider": {
+    "name": "Bayside Specialty Clinic (synthetic)",
+    "npi": "9100000037",
+    "callback_phone": "+14155550163"
+  },
+  "payer": {
+    "name": "Summit Care Alliance (synthetic)",
+    "payer_script_id": "summit-adversarial"
+  },
+  "service": {
+    "description": "Cataract removal with lens implant",
+    "cpt_code": "66984",
+    "units": 1,
+    "site_of_care": "ambulatory surgery center"
+  },
+  "request": {
+    "submitted_on": "2026-10-20",
+    "urgency": "expedited",
+    "known_auth_reference": null
+  },
+  "inbound_verification": {
+    "factors": [
+      "member_id",
+      "date_of_birth",
+      "postal_code"
+    ]
+  }
+}

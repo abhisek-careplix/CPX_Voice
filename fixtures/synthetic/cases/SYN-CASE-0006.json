@@ -1,0 +1,38 @@
+{
+  "case_id": "SYN-CASE-0006",
+  "synthetic": true,
+  "case_type": "prior_authorization",
+  "patient": {
+    "display_name": "Synthetic Patient Foxtrot",
+    "date_of_birth": "1990-09-17",
+    "member_id": "993721530",
+    "postal_code": "60657"
+  },
+  "provider": {
+    "name": "Lakeview Diagnostics (synthetic)",
+    "npi": "9100000029",
+    "callback_phone": "+13125550117"
+  },
+  "payer": {
+    "name": "Harbor Mutual Health (synthetic)",
+    "payer_script_id": "harbor-voicemail"
+  },
+  "service": {
+    "description": "Transthoracic echocardiogram",
+    "cpt_code": "93306",
+    "units": 1,
+    "site_of_care": "cardiology clinic"
+  },
+  "request": {
+    "submitted_on": "2026-10-16",
+    "urgency": "standard",
+    "known_auth_reference": null
+  },
+  "inbound_verification": {
+    "factors": [
+      "member_id",
+      "date_of_birth",
+      "postal_code"
+    ]
+  }
+}

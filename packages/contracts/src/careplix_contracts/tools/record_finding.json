@@ -1,0 +1,31 @@
+{
+  "name": "record_finding",
+  "version": "1.0.0",
+  "description": "Record one finding for the task, with the transcript segments that support it. Use read_back_confirmed only after the other person has confirmed your read-back of the value.",
+  "classification": "write",
+  "execution": "api",
+  "allowed_roles": ["agent_runtime"],
+  "timeout_ms": 2000,
+  "idempotency": "keyed",
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["field", "value", "evidence_segment_ids", "confirmation"],
+    "properties": {
+      "field": {"type": "string"},
+      "value": {"type": ["string", "null"]},
+      "null_reason": {"type": "string"},
+      "original_phrasing": {"type": "string"},
+      "evidence_segment_ids": {"type": "array", "items": {"type": "string"}},
+      "confirmation": {"enum": ["stated_once", "read_back_confirmed"]}
+    }
+  },
+  "result_schema": {
+    "type": "object",
+    "required": ["finding_id", "status"],
+    "properties": {"finding_id": {"type": "string"}, "status": {"type": "string"}}
+  },
+  "owner": "platform",
+  "release": "D",
+  "enabled_in_demo": true
+}

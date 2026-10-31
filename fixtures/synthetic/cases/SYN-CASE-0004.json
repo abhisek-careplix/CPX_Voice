@@ -1,0 +1,37 @@
+{
+  "case_id": "SYN-CASE-0004",
+  "synthetic": true,
+  "case_type": "prior_authorization",
+  "patient": {
+    "display_name": "Synthetic Patient Delta",
+    "date_of_birth": "1980-01-30",
+    "member_id": "993720118",
+    "postal_code": "60614"
+  },
+  "provider": {
+    "name": "Lakeview Diagnostics (synthetic)",
+    "npi": "9100000029",
+    "callback_phone": "+13125550117"
+  },
+  "payer": {
+    "name": "Harbor Mutual Health (synthetic)",
+    "payer_script_id": "harbor-voicemail"
+  },
+  "service": {
+    "description": "Attended polysomnography sleep study",
+    "cpt_code": "95810",
+    "units": 1,
+    "site_of_care": "sleep lab"
+  },
+  "request": {
+    "submitted_on": "2026-10-21",
+    "urgency": "standard",
+    "known_auth_reference": null
+  },
+  "inbound_verification": {
+    "factors": [
+      "member_id",
+      "date_of_birth"
+    ]
+  }
+}

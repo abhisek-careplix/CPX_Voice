@@ -1,0 +1,46 @@
+[project]
+name = "careplix-voice"
+version = "0.0.0"
+description = "CarePlix Voice monorepo (workspace root)"
+requires-python = ">=3.12,<3.13"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/contracts", "packages/common", "apps/api", "apps/worker"]
+
+[tool.uv.sources]
+careplix-contracts = { workspace = true }
+careplix-common = { workspace = true }
+careplix-api = { workspace = true }
+careplix-worker = { workspace = true }
+
+[dependency-groups]
+dev = [
+  "careplix-contracts",
+  "careplix-common",
+  "careplix-api",
+  "careplix-worker",
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "ruff>=0.8",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+# B008: FastAPI's Depends() in parameter defaults is the framework idiom.
+ignore = ["B008"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["careplix_api", "careplix_common", "careplix_contracts", "careplix_worker"]
+
+[tool.pytest.ini_options]
+testpaths = ["packages/contracts/tests", "packages/common/tests", "apps/api/tests", "apps/worker/tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "--import-mode=importlib"

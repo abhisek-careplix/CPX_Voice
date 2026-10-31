@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:careplix:voice:prior_auth_outcome",
+  "title": "Prior authorization status outcome",
+  "description": "Output schema for template auth-status (doc 03 case outcome schema). Every material value carries evidence and a verification state. A reported approval is not a written determination.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id", "attempt_id", "agent_version_id", "reported_status", "missing_requirements", "unresolved_questions", "next_action", "review_status"],
+  "$defs": {
+    "evidenced": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "status"],
+      "properties": {
+        "value": {"type": ["string", "null"]},
+        "status": {"enum": ["provisional", "confirmed_by_counterpart", "reviewed", "conflicting"]},
+        "evidence_segment_ids": {"type": "array", "items": {"type": "string"}},
+        "original_phrasing": {"type": "string"},
+        "null_reason": {"type": "string"}
+      },
+      "if": {"properties": {"value": {"type": "null"}}},
+      "then": {"required": ["null_reason"]}
+    }
+  },
+  "properties": {
+    "task_id": {"type": "string", "format": "uuid"},
+    "attempt_id": {"type": "string", "format": "uuid"},
+    "agent_version_id": {"type": "string", "format": "uuid"},
+    "reported_status": {
+      "allOf": [{"$ref": "#/$defs/evidenced"}],
+      "properties": {"value": {"enum": [null, "approved", "denied", "pending_review", "pending_additional_information", "not_found", "unknown"]}}
+    },
+    "authorization_reference": {"$ref": "#/$defs/evidenced"},
+    "call_reference": {"$ref": "#/$defs/evidenced"},
+    "covered_service": {"$ref": "#/$defs/evidenced"},
+    "valid_from": {"$ref": "#/$defs/evidenced"},
+    "valid_to": {"$ref": "#/$defs/evidenced"},
+    "decision_date": {"$ref": "#/$defs/evidenced"},
+    "timezone": {"type": "string"},
+    "representative": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"name": {"$ref": "#/$defs/evidenced"}, "identifier": {"$ref": "#/$defs/evidenced"}}
+    },
+    "missing_requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["description"],
+        "properties": {
+          "description": {"$ref": "#/$defs/evidenced"},
+          "date_range": {"$ref": "#/$defs/evidenced"},
+          "due_date": {"$ref": "#/$defs/evidenced"},
+          "submission_method": {"$ref": "#/$defs/evidenced"}
+        }
+      }
+    },
+    "written_confirmation_pending": {"type": "boolean", "description": "True when the status is verbal only."},
+    "unresolved_questions": {"type": "array", "items": {"type": "string"}},
+    "next_action": {"type": "string"},
+    "review_status": {"enum": ["not_reviewed", "needs_review", "reviewed"]},
+    "external_receipts": {"type": "array", "items": {"type": "string"}}
+  }
+}

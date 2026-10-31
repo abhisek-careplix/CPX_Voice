@@ -1,0 +1,18 @@
+{
+  "test_id": "T05",
+  "gate": "G2",
+  "expected": "Correct caller/destination and actual two-way audio",
+  "observed": {},
+  "result": "pass | fail | blocked",
+  "environment": "staging",
+  "runtime_build": "git:<sha>",
+  "recorded_at": "<ISO-8601>",
+  "fixture_version": "<fixtures commit or tag>",
+  "agent_version": "<agent_version_id>",
+  "model_id": "<approved Gemini Live model ID>",
+  "route": "<route_id>",
+  "provider_ids": {"room": "", "sip_participant": "", "carrier_call_id": ""},
+  "references": ["<transcript or evidence artifact refs>"],
+  "reviewer": "<name>",
+  "defects": []
+}

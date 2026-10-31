@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:careplix:voice:call_brief",
+  "title": "Immutable call brief",
+  "description": "Returned to the worker on a successful attempt claim (ADR09). Becomes the delimited L3 data block of the prompt; it is data, never instructions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["attempt_id", "workspace_id", "direction", "channel", "pins", "authority", "objective", "desired_findings", "restricted_actions", "budget", "context", "issued_at", "expires_at"],
+  "properties": {
+    "attempt_id": {"type": "string", "format": "uuid"},
+    "task_id": {"type": ["string", "null"], "format": "uuid", "description": "Null for inbound interactions not yet linked to a task."},
+    "workspace_id": {"type": "string", "format": "uuid"},
+    "direction": {"enum": ["outbound", "inbound", "browser"]},
+    "channel": {"enum": ["phone", "browser"]},
+    "sandbox": {"type": "boolean", "default": false, "description": "True for Browser Test and simulator runs; excluded from real usage metrics."},
+    "pins": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent_version_id", "config_hash", "model_id", "policy_version", "tool_versions"],
+      "properties": {
+        "runtime_build": {"type": "string", "description": "Filled by the worker on claim."},
+        "agent_version_id": {"type": "string", "format": "uuid"},
+        "config_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "model_id": {"type": "string", "minLength": 1},
+        "policy_version": {"type": "string", "minLength": 1},
+        "tool_versions": {"type": "object", "additionalProperties": {"type": "string"}}
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statement", "on_behalf_of", "disclose_allowlist"],
+      "properties": {
+        "statement": {"type": "string", "description": "What the agent is authorised to ask for and on whose behalf."},
+        "on_behalf_of": {"type": "string"},
+        "disclose_allowlist": {"type": "array", "items": {"type": "string"}, "description": "Context field names the agent may say aloud (e.g. to an IVR)."}
+      }
+    },
+    "objective": {"type": "string", "minLength": 1},
+    "desired_findings": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "restricted_actions": {"type": "array", "items": {"type": "string"}, "description": "Explicitly named actions the agent must not take (UX: call brief names restricted actions)."},
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_duration_s"],
+      "properties": {
+        "max_duration_s": {"type": "integer", "minimum": 30, "maximum": 14400},
+        "max_hold_s": {"type": "integer", "minimum": 0},
+        "max_menu_repeats": {"type": "integer", "minimum": 1, "maximum": 10}
+      }
+    },
+    "context": {"type": "object", "description": "Only the fields the template requires. Further fields only via get_assigned_context."},
+    "issued_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"}
+  }
+}

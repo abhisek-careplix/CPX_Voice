@@ -1,0 +1,38 @@
+{
+  "case_id": "SYN-CASE-0003",
+  "synthetic": true,
+  "case_type": "prior_authorization",
+  "patient": {
+    "display_name": "Synthetic Patient Charlie",
+    "date_of_birth": "1964-11-23",
+    "member_id": "994811002",
+    "postal_code": "10027"
+  },
+  "provider": {
+    "name": "Riverside Orthopedic Group (synthetic)",
+    "npi": "9100000011",
+    "callback_phone": "+12025550142"
+  },
+  "payer": {
+    "name": "Northwind Health Plan (synthetic)",
+    "payer_script_id": "northwind-pending-info"
+  },
+  "service": {
+    "description": "Knee arthroscopy with meniscectomy",
+    "cpt_code": "29881",
+    "units": 1,
+    "site_of_care": "ambulatory surgery center"
+  },
+  "request": {
+    "submitted_on": "2026-10-05",
+    "urgency": "standard",
+    "known_auth_reference": "SYN-PA-48213"
+  },
+  "inbound_verification": {
+    "factors": [
+      "member_id",
+      "date_of_birth",
+      "postal_code"
+    ]
+  }
+}

@@ -1,0 +1,4 @@
+project_id  = "careplix-voice-dev"
+region      = "us-central1"
+environment = "dev"
+# api_image = "us-central1-docker.pkg.dev/careplix-voice-dev/careplix-voice/careplix-api:<sha>"

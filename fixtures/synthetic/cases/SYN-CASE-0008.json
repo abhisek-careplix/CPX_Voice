@@ -1,0 +1,37 @@
+{
+  "case_id": "SYN-CASE-0008",
+  "synthetic": true,
+  "case_type": "prior_authorization",
+  "patient": {
+    "display_name": "Synthetic Patient Hotel",
+    "date_of_birth": "1968-04-25",
+    "member_id": "992604921",
+    "postal_code": "94110"
+  },
+  "provider": {
+    "name": "Bayside Specialty Clinic (synthetic)",
+    "npi": "9100000037",
+    "callback_phone": "+14155550163"
+  },
+  "payer": {
+    "name": "Summit Care Alliance (synthetic)",
+    "payer_script_id": "summit-adversarial"
+  },
+  "service": {
+    "description": "Diagnostic colonoscopy",
+    "cpt_code": "45378",
+    "units": 1,
+    "site_of_care": "ambulatory surgery center"
+  },
+  "request": {
+    "submitted_on": "2026-10-14",
+    "urgency": "standard",
+    "known_auth_reference": null
+  },
+  "inbound_verification": {
+    "factors": [
+      "member_id",
+      "date_of_birth"
+    ]
+  }
+}

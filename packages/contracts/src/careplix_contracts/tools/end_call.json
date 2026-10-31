@@ -1,0 +1,20 @@
+{
+  "name": "end_call",
+  "version": "1.0.0",
+  "description": "End this call after saying goodbye. Only ends the current call.",
+  "classification": "call_control",
+  "execution": "api",
+  "allowed_roles": ["agent_runtime", "operator", "administrator"],
+  "timeout_ms": 3000,
+  "idempotency": "naturally_idempotent",
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["reason"],
+    "properties": {"reason": {"enum": ["objective_complete", "counterpart_ended", "cannot_proceed", "verification_failed", "budget_exhausted", "voicemail_policy_complete"]}}
+  },
+  "result_schema": {"type": "object", "required": ["state"], "properties": {"state": {"enum": ["ending", "already_ended"]}}},
+  "owner": "platform",
+  "release": "D",
+  "enabled_in_demo": true
+}

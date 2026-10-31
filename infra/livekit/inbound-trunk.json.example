@@ -1,0 +1,8 @@
+{
+  "trunk": {
+    "name": "careplix-dev-inbound",
+    "numbers": ["<E.164 inbound number>"],
+    "allowedAddresses": ["<carrier signalling IP ranges>"],
+    "krispEnabled": true
+  }
+}

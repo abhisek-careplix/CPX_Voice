@@ -1,0 +1,19 @@
+{
+  "script_id": "harbor-voicemail",
+  "synthetic": true,
+  "payer_name": "Harbor Mutual Health (synthetic)",
+  "description": "After-hours line that answers with a recorded greeting and a voicemail beep. Tests voicemail detection, the synthetic-data message policy, and a distinct voicemail disposition (FR07, T07).",
+  "opening": {
+    "mode": "voicemail",
+    "voicemail_greeting": "You have reached Harbor Mutual Health provider services, a simulated line. Our office is currently closed. Please leave a message after the tone."
+  },
+  "ivr": {"start": "closed", "nodes": {"closed": {"kind": "menu", "prompt": "Office closed.", "options": {}}}},
+  "hold": {"profile": "none", "seconds": 0},
+  "rep": {"persona": "None; no human answers.", "facts": {}, "behaviours": []},
+  "expected": {
+    "call_disposition": "voicemail",
+    "task_outcome": "Unsuccessful",
+    "must_not": ["disclose_non_allowlisted_field", "transfer_call", "repeat_side_effect"],
+    "unresolved_questions": ["Authorization status not obtained; payer office closed"]
+  }
+}

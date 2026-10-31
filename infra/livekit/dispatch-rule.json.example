@@ -1,0 +1,17 @@
+{
+  "dispatchRule": {
+    "name": "careplix-dev-inbound-enquiry",
+    "trunkIds": ["<inbound trunk ID, or omit for a LiveKit-purchased number>"],
+    "rule": {
+      "dispatchRuleIndividual": { "roomPrefix": "inb-" }
+    },
+    "roomConfig": {
+      "agents": [
+        {
+          "agentName": "careplix-agent",
+          "metadata": "{\"route_id\": \"<opaque CarePlix route UUID>\"}"
+        }
+      ]
+    }
+  }
+}

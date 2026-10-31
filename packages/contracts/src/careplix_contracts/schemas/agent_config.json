@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:careplix:voice:agent_config",
+  "title": "Agent version configuration",
+  "description": "Body of an AgentVersion (doc 04). Hashed on publish; immutable once published. Secrets are referenced by connection ID only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["identity", "task", "conversation", "tools", "guardrails", "model", "outcome", "instructions"],
+  "properties": {
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "role", "language", "greeting", "automated_identity_disclosure"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 60},
+        "role": {"type": "string", "minLength": 1},
+        "language": {"type": "string", "enum": ["en-US"], "description": "English only in release D."},
+        "greeting": {"type": "string", "minLength": 1},
+        "automated_identity_disclosure": {"type": "string", "minLength": 1, "description": "Spoken disclosure that the caller is an automated assistant."}
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["template_id", "template_version", "objective", "required_context", "output_schema_id"],
+      "properties": {
+        "template_id": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+        "template_version": {"type": "integer", "minimum": 1},
+        "objective": {"type": "string", "minLength": 1},
+        "required_context": {"type": "array", "items": {"type": "string"}},
+        "input_schema": {"type": "object"},
+        "output_schema_id": {"type": "string", "pattern": "^urn:careplix:voice:"}
+      }
+    },
+    "conversation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pipeline", "voice"],
+      "properties": {
+        "pipeline": {"enum": ["native_audio"], "description": "Only native audio is selectable in D (ADR03). 'modular' is a later extension."},
+        "voice": {"type": "string"},
+        "silence_timeout_s": {"type": "integer", "minimum": 5, "maximum": 120},
+        "hold_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {"enum": ["suspend_model", "keep_model"], "default": "suspend_model", "description": "ADR10 hold mode."},
+            "max_hold_s": {"type": "integer", "minimum": 0}
+          }
+        },
+        "ivr_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_menu_repeats": {"type": "integer", "minimum": 1, "maximum": 10},
+            "wait_for_full_menu": {"type": "boolean", "default": true}
+          }
+        }
+      }
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "version"],
+        "properties": {"name": {"type": "string"}, "version": {"type": "string"}}
+      }
+    },
+    "guardrails": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_duration_s"],
+      "properties": {
+        "allowed_disclosures": {"type": "array", "items": {"type": "string"}},
+        "escalation_triggers": {"type": "array", "items": {"type": "string"}},
+        "max_duration_s": {"type": "integer", "minimum": 30, "maximum": 14400}
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "model_id", "connection_id"],
+      "properties": {
+        "provider": {"enum": ["google_vertex"]},
+        "model_id": {"type": "string", "minLength": 1},
+        "connection_id": {"type": "string", "description": "Reference to a verified connection; never a credential."}
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["success_conditions", "critical_fields"],
+      "properties": {
+        "success_conditions": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "critical_fields": {"type": "array", "items": {"type": "string"}, "description": "Fields that require read-back confirmation (BUILD_PLAN 4.5)."}
+      }
+    },
+    "instructions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent_text"],
+      "properties": {
+        "agent_text": {"type": "string", "maxLength": 8000, "description": "L2 author instructions. Cannot grant tools or authority."}
+      }
+    }
+  }
+}

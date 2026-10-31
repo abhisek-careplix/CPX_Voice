@@ -1,0 +1,24 @@
+{
+  "name": "get_assigned_context",
+  "version": "1.0.0",
+  "description": "Retrieve additional fields of the case assigned to this call. Only fields allowed by the task template are returned; other fields are refused.",
+  "classification": "read",
+  "execution": "api",
+  "allowed_roles": ["agent_runtime"],
+  "timeout_ms": 2000,
+  "idempotency": "naturally_idempotent",
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["fields"],
+    "properties": {"fields": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 10}}
+  },
+  "result_schema": {
+    "type": "object",
+    "required": ["values", "refused"],
+    "properties": {"values": {"type": "object"}, "refused": {"type": "array", "items": {"type": "string"}}}
+  },
+  "owner": "platform",
+  "release": "D",
+  "enabled_in_demo": true
+}

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:careplix:voice:synthetic_case",
+  "title": "Synthetic prior authorization case (release D fixture)",
+  "description": "Fixture shape for the D case store. Identifiers use reserved synthetic ranges so they cannot collide with real people: member IDs start 99, NPIs start 9 (real NPIs start 1 or 2), phone numbers use 555-01xx.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["case_id", "synthetic", "case_type", "patient", "provider", "payer", "service", "request", "inbound_verification"],
+  "properties": {
+    "case_id": {"type": "string", "pattern": "^SYN-CASE-\\d{4}$"},
+    "synthetic": {"const": true},
+    "case_type": {"enum": ["prior_authorization"]},
+    "patient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["display_name", "date_of_birth", "member_id", "postal_code"],
+      "properties": {
+        "display_name": {"type": "string", "pattern": "^Synthetic Patient [A-Z][a-z]+$"},
+        "date_of_birth": {"type": "string", "format": "date"},
+        "member_id": {"type": "string", "pattern": "^99\\d{7}$"},
+        "postal_code": {"type": "string", "pattern": "^\\d{5}$"}
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "npi", "callback_phone"],
+      "properties": {
+        "name": {"type": "string", "pattern": "\\(synthetic\\)$"},
+        "npi": {"type": "string", "pattern": "^9\\d{9}$"},
+        "callback_phone": {"type": "string", "pattern": "^\\+1\\d{3}55501\\d{2}$"}
+      }
+    },
+    "payer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "payer_script_id"],
+      "properties": {
+        "name": {"type": "string", "pattern": "\\(synthetic\\)$"},
+        "payer_script_id": {"type": "string"}
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "cpt_code", "units"],
+      "properties": {
+        "description": {"type": "string"},
+        "cpt_code": {"type": "string", "pattern": "^\\d{4}[0-9A-Z]$"},
+        "units": {"type": "integer", "minimum": 1},
+        "site_of_care": {"type": "string"}
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["submitted_on", "urgency"],
+      "properties": {
+        "submitted_on": {"type": "string", "format": "date"},
+        "urgency": {"enum": ["standard", "expedited"]},
+        "known_auth_reference": {"type": ["string", "null"]}
+      }
+    },
+    "inbound_verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["factors"],
+      "properties": {
+        "factors": {
+          "type": "array",
+          "items": {"enum": ["member_id", "date_of_birth", "postal_code"]},
+          "minItems": 2,
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

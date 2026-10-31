@@ -1,0 +1,20 @@
+{
+  "name": "write_case_result",
+  "version": "1.0.0",
+  "description": "Write a reviewer-approved result to the customer case system. Not available to the conversational model.",
+  "classification": "write",
+  "execution": "api",
+  "allowed_roles": ["reviewer"],
+  "timeout_ms": 10000,
+  "idempotency": "keyed",
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["task_id", "result_revision_id"],
+    "properties": {"task_id": {"type": "string"}, "result_revision_id": {"type": "string"}}
+  },
+  "result_schema": {"type": "object", "required": ["state"], "properties": {"state": {"enum": ["succeeded", "failed", "unknown"]}, "receipt": {"type": "string"}}},
+  "owner": "integrations",
+  "release": "P",
+  "enabled_in_demo": false
+}

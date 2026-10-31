@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:careplix:voice:payer_script",
+  "title": "Counterpart simulator / Mock Payer Line script",
+  "description": "Deterministic script for the simulator counterpart (ADR16): IVR tree, hold profile, representative persona and the ground truth used by deterministic checks. Always synthetic; all runs are labelled Simulation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["script_id", "synthetic", "payer_name", "description", "opening", "ivr", "hold", "rep", "expected"],
+  "$defs": {
+    "node_ref": {"type": "string", "pattern": "^[a-z0-9_]+$"}
+  },
+  "properties": {
+    "script_id": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+    "synthetic": {"const": true},
+    "payer_name": {"type": "string", "pattern": "\\(synthetic\\)$"},
+    "description": {"type": "string"},
+    "opening": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {"enum": ["ivr", "voicemail", "busy", "no_answer", "human"]},
+        "voicemail_greeting": {"type": "string"}
+      }
+    },
+    "ivr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "nodes"],
+      "properties": {
+        "start": {"$ref": "#/$defs/node_ref"},
+        "nodes": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/node_ref"},
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["prompt", "kind"],
+            "properties": {
+              "kind": {"enum": ["menu", "collect", "transfer_to_hold"]},
+              "prompt": {"type": "string"},
+              "options": {"type": "object", "propertyNames": {"pattern": "^[0-9*#]$"}, "additionalProperties": {"$ref": "#/$defs/node_ref"}},
+              "collects": {"enum": ["member_id", "npi", "date_of_birth", "auth_reference"]},
+              "input": {"enum": ["dtmf", "speech", "dtmf_or_speech"]},
+              "terminator": {"enum": ["#", "none"]},
+              "next": {"$ref": "#/$defs/node_ref"},
+              "max_repeats": {"type": "integer", "minimum": 1}
+            }
+          }
+        }
+      }
+    },
+    "hold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "seconds"],
+      "properties": {
+        "profile": {"enum": ["none", "short", "long", "extended"]},
+        "seconds": {"type": "integer", "minimum": 0},
+        "music": {"type": "boolean"},
+        "periodic_message": {"type": "string"}
+      }
+    },
+    "rep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["persona", "facts", "behaviours"],
+      "properties": {
+        "persona": {"type": "string"},
+        "facts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "status": {"enum": ["approved", "denied", "pending_review", "pending_additional_information", "not_found"]},
+            "authorization_reference": {"type": ["string", "null"]},
+            "call_reference": {"type": "string"},
+            "representative_name": {"type": "string"},
+            "missing_requirements": {"type": "array", "items": {"type": "string"}},
+            "date_range_text": {"type": "string"},
+            "valid_from": {"type": "string", "format": "date"},
+            "valid_to": {"type": "string", "format": "date"}
+          }
+        },
+        "behaviours": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "asks_for_npi",
+              "asks_for_member_id",
+              "speaks_quickly",
+              "vague_date_range",
+              "injection_attempt",
+              "offers_spoken_transfer_number",
+              "contradicts_status",
+              "asks_clinical_question",
+              "hangs_up_early"
+            ]
+          }
+        },
+        "lines": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Scripted utterances keyed by behaviour."}
+      }
+    },
+    "expected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["call_disposition", "task_outcome", "must_not"],
+      "properties": {
+        "call_disposition": {"enum": ["completed", "voicemail", "busy", "no_answer", "interrupted"]},
+        "task_outcome": {"enum": ["Completed", "Partial", "Unsuccessful", "Review"]},
+        "findings": {"type": "object"},
+        "dtmf_sequence": {
+          "type": "array",
+          "description": "Expected key presses. <field> placeholders resolve from the case under test.",
+          "items": {"type": "string", "pattern": "^([0-9*#]|<(npi|member_id|date_of_birth|auth_reference)>)+$"}
+        },
+        "must_not": {
+          "type": "array",
+          "items": {"enum": ["disclose_non_allowlisted_field", "transfer_call", "dial_spoken_number", "give_clinical_advice", "mark_status_confirmed_without_readback", "repeat_side_effect"]}
+        },
+        "unresolved_questions": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

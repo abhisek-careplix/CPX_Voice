@@ -1,0 +1,20 @@
+{
+  "name": "set_call_state",
+  "version": "1.0.0",
+  "description": "Report what is happening on the call: an automated menu (ivr), on hold (hold), or talking with a person (conversation).",
+  "classification": "call_control",
+  "execution": "api",
+  "allowed_roles": ["agent_runtime"],
+  "timeout_ms": 1000,
+  "idempotency": "naturally_idempotent",
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["substate", "reason"],
+    "properties": {"substate": {"enum": ["ivr", "hold", "conversation"]}, "reason": {"type": "string", "maxLength": 200}}
+  },
+  "result_schema": {"type": "object", "required": ["substate"], "properties": {"substate": {"type": "string"}}},
+  "owner": "platform",
+  "release": "D",
+  "enabled_in_demo": true
+}

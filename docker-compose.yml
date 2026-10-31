@@ -1,0 +1,19 @@
+# Local development dependencies only. Synthetic data only.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: careplix
+      POSTGRES_PASSWORD: careplix
+      POSTGRES_DB: careplix
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U careplix"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  pgdata:
