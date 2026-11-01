@@ -434,7 +434,7 @@ export interface WriteIntentRow {
   target_id: string;
   reason: string;
   source: string;
-  state: "proposed" | "approved" | "sending" | "accepted" | "written" | "needs_review" | "rejected" | "failed";
+  state: "proposed" | "approved" | "sending" | "accepted" | "written" | "needs_review" | "manual" | "rejected" | "failed";
   confirmation: string | null;
   remote_id: string | null;
   last_error: string | null;
@@ -541,4 +541,40 @@ export interface BackfillBoard {
   metrics: { states: Record<string, number>; fill_rate: number | null; median_minutes_to_fill: number | null; visit_minutes_recovered: number };
   active: BackfillOpeningRow[];
   recent: BackfillOpeningRow[];
+}
+
+// --- CarePlix Connect (EHR hub) --------------------------------------------------------------
+
+export type HubSupport = "yes" | "no" | "verify" | "existing_patients";
+
+export interface HubProfile {
+  id: string;
+  name: string;
+  path: "direct" | "nexhealth";
+  category: "medical" | "dental" | "ortho" | "general";
+  deployment: "cloud" | "server" | "self-hosted";
+  connects_by: string;
+  confirm: "immediate" | "async" | "async_office_hours";
+  ops: Record<string, HubSupport>;
+  notes: string[];
+}
+
+export interface HubConnection {
+  connection_id: string;
+  kind: "openemr" | "nexhealth";
+  name: string;
+  env: string | null;
+  profile: string | null;
+  profile_name: string | null;
+  emulating: string | null;
+  links: Record<string, string> | null;
+  verified_at: string | null;
+  writes_confirmable: boolean | null;
+  support: Record<string, HubSupport>;
+}
+
+export interface HubCatalog {
+  operations: { id: string; label: string }[];
+  profiles: HubProfile[];
+  connections: HubConnection[];
 }

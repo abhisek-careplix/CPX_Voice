@@ -4,7 +4,8 @@
 #
 #   ./infra/gcp/deploy-labs.sh setup     # APIs, registry, service accounts, Cloud SQL, secrets
 #   ./infra/gcp/deploy-labs.sh build     # build images with Cloud Build
-#   ./infra/gcp/deploy-labs.sh deploy    # deploy/refresh the four Cloud Run services
+#   ./infra/gcp/deploy-labs.sh openemr   # hosted OpenEMR demo: private VM, installed and seeded
+#   ./infra/gcp/deploy-labs.sh deploy    # deploy/refresh the Cloud Run services
 #
 # Secrets are read from the local .env and written straight into Secret Manager; they are never
 # printed or passed on a command line. Synthetic data only until the G4 PHI gate.
@@ -25,9 +26,21 @@ SA_STUDIO="careplix-studio@$PROJECT.iam.gserviceaccount.com"
 SA_WORKER="careplix-worker@$PROJECT.iam.gserviceaccount.com"
 SA_SANDBOX="careplix-sandbox@$PROJECT.iam.gserviceaccount.com"
 SA_WEBHOOKS="careplix-webhooks@$PROJECT.iam.gserviceaccount.com"
+SA_OE_PROXY="careplix-openemr-proxy@$PROJECT.iam.gserviceaccount.com"
+OE_VM=careplix-openemr
+OE_ZONE=$REGION-a
+OE_PUBLIC_URL="https://careplix-openemr-$NUMBER.$REGION.run.app"
+# Private egress to the OpenEMR VM; public traffic (LiveKit, Vertex, NexHealth, Stedi) is unchanged.
+VPC_FLAGS="--network default --subnet default --vpc-egress private-ranges-only"
 G="gcloud --project $PROJECT --quiet"
 
 env_value() { grep -E "^$1=" .env | head -1 | cut -d= -f2-; }
+
+# careplix-labs is synthetic-only until the G4 PHI gate: never ship a production NexHealth key there.
+if [ "$(env_value NEXHEALTH_ENV)" = "production" ]; then
+  echo "✗ .env has a production NexHealth key; careplix-labs takes the sandbox key only (G4 PHI gate)." >&2
+  exit 1
+fi
 
 put_secret() {  # put_secret NAME  (value on stdin)
   if ! $G secrets describe "$1" >/dev/null 2>&1; then
@@ -102,6 +115,65 @@ build() {
 
 url_of() { $G run services describe "$1" --region "$REGION" --format 'value(status.url)' 2>/dev/null || true; }
 
+oe_ip() { $G compute addresses describe careplix-openemr-ip --region "$REGION" --format 'value(address)' 2>/dev/null || true; }
+oe_ssh() { $G compute ssh "$OE_VM" --zone "$OE_ZONE" --tunnel-through-iap --command "$1"; }
+secret_value() { $G secrets versions access latest --secret "$1"; }
+
+# Hosted OpenEMR demo (synthetic clinic): a VM with no public IP running infra/openemr. Staff reach it
+# through the IAP-protected careplix-openemr proxy (deploy step); the Studio over the VPC.
+openemr() {
+  # Outbound-only internet for the private VM (image pulls, OS updates).
+  $G compute routers describe careplix-nat-router --region "$REGION" >/dev/null 2>&1 ||
+    $G compute routers create careplix-nat-router --network default --region "$REGION"
+  $G compute routers nats describe careplix-nat --router careplix-nat-router --region "$REGION" >/dev/null 2>&1 ||
+    $G compute routers nats create careplix-nat --router careplix-nat-router --region "$REGION" \
+      --auto-allocate-nat-external-ips --nat-all-subnet-ip-ranges
+  [ -n "$(oe_ip)" ] || $G compute addresses create careplix-openemr-ip --region "$REGION" --subnet default
+
+  # Hosted passwords live only in Secret Manager and the VM's infra/openemr/.env (mode 600).
+  for s in cpx-openemr-admin-password cpx-openemr-db-root-password cpx-openemr-db-password; do
+    $G secrets describe "$s" >/dev/null 2>&1 ||
+      python3 -c 'import secrets; print(secrets.token_urlsafe(24), end="")' | put_secret "$s"
+  done
+
+  if ! $G compute instances describe "$OE_VM" --zone "$OE_ZONE" >/dev/null 2>&1; then
+    $G compute instances create "$OE_VM" --zone "$OE_ZONE" --machine-type e2-medium \
+      --image-family debian-12 --image-project debian-cloud --boot-disk-size 30GB --boot-disk-type pd-balanced \
+      --network default --subnet default --private-network-ip "$(oe_ip)" --no-address \
+      --no-service-account --no-scopes --shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring \
+      --metadata-from-file startup-script=infra/openemr/vm-startup.sh
+  fi
+  echo "Waiting for Docker on $OE_VM…"
+  until oe_ssh 'sudo docker compose version' >/dev/null 2>&1; do sleep 15; done
+
+  tar czf - infra/openemr scripts/openemr_setup.py | oe_ssh 'mkdir -p careplix && tar xzf - -C careplix'
+  {
+    echo "OPENEMR_ADMIN_PASSWORD=$(secret_value cpx-openemr-admin-password)"
+    echo "OPENEMR_DB_ROOT_PASSWORD=$(secret_value cpx-openemr-db-root-password)"
+    echo "OPENEMR_DB_PASSWORD=$(secret_value cpx-openemr-db-password)"
+    echo "OPENEMR_PUBLIC_URL=$OE_PUBLIC_URL"
+  } | oe_ssh 'umask 077 && cat > careplix/infra/openemr/.env'
+  oe_ssh 'cd careplix && sudo docker compose -f infra/openemr/docker-compose.yml -f infra/openemr/docker-compose.cloud.yml --env-file infra/openemr/.env up -d'
+  echo "Waiting for OpenEMR's first-boot install (≈ 5 min)…"
+  until oe_ssh 'curl -sk -o /dev/null -w "%{http_code}" https://localhost:9300/interface/login/login.php' | grep -q 200; do
+    sleep 20
+  done
+  oe_ssh 'cd careplix && set -a && . infra/openemr/.env && set +a &&
+    sudo -E OPENEMR_COMPOSE_EXTRA=infra/openemr/docker-compose.cloud.yml python3 scripts/openemr_setup.py'
+
+  # The API client the setup registered, for the Studio (read on the VM, never printed).
+  oe_value() { oe_ssh "sudo grep -E '^$1=' careplix/.env | cut -d= -f2-" | tr -d '\r\n'; }
+  oe_value OPENEMR_CLIENT_ID | put_secret cpx-openemr-client-id
+  oe_value OPENEMR_CLIENT_SECRET | put_secret cpx-openemr-client-secret
+  oe_value OPENEMR_FACILITY_ID | put_secret cpx-openemr-facility-id
+  for s in cpx-openemr-client-id cpx-openemr-client-secret cpx-openemr-facility-id cpx-openemr-admin-password; do
+    $G secrets add-iam-policy-binding "$s" --member "serviceAccount:$SA_STUDIO" --role roles/secretmanager.secretAccessor >/dev/null
+  done
+  $G iam service-accounts describe "$SA_OE_PROXY" >/dev/null 2>&1 ||
+    $G iam service-accounts create careplix-openemr-proxy --display-name "CarePlix Voice OpenEMR proxy"
+  echo "OpenEMR is installed on $OE_VM ($(oe_ip)). Run deploy to publish $OE_PUBLIC_URL behind IAP."
+}
+
 deploy() {
   local livekit_url conn common_env secrets
   livekit_url=$(env_value LIVEKIT_URL)
@@ -129,8 +201,14 @@ deploy() {
   # 3. Studio + API + background loops, behind IAP (CarePlix Google accounts only).
   practice_env="NEXHEALTH_ENV=$(env_value NEXHEALTH_ENV),NEXHEALTH_SUBDOMAIN=$(env_value NEXHEALTH_SUBDOMAIN),NEXHEALTH_INSTITUTION_ID=$(env_value NEXHEALTH_INSTITUTION_ID),NEXHEALTH_LOCATION_ID=$(env_value NEXHEALTH_LOCATION_ID),STEDI_ENV=$(env_value STEDI_ENV),WEBHOOK_PUBLIC_URL=$webhooks_url"
   practice_secrets="NEXHEALTH_API_KEY=cpx-nexhealth-api-key:latest,STEDI_API_KEY=cpx-stedi-api-key:latest,DATA_ENCRYPTION_KEY=cpx-data-key:latest"
+  oe_addr=$(oe_ip)
+  if [ -n "$oe_addr" ] && $G secrets describe cpx-openemr-client-secret >/dev/null 2>&1; then
+    # Hosted OpenEMR demo: API over the VPC (self-signed TLS on the private VM), screens via the proxy.
+    practice_env="$practice_env,OPENEMR_BASE_URL=https://$oe_addr,OPENEMR_USERNAME=admin,OPENEMR_TIMEZONE=America/New_York,OPENEMR_VERIFY_TLS=false,OPENEMR_UI_URL=$OE_PUBLIC_URL"
+    practice_secrets="$practice_secrets,OPENEMR_CLIENT_ID=cpx-openemr-client-id:latest,OPENEMR_CLIENT_SECRET=cpx-openemr-client-secret:latest,OPENEMR_PASSWORD=cpx-openemr-admin-password:latest,OPENEMR_FACILITY_ID=cpx-openemr-facility-id:latest"
+  fi
   $G run deploy careplix-studio --region "$REGION" --image "$REGISTRY/api:$TAG" \
-    --service-account "$SA_STUDIO" --add-cloudsql-instances "$conn" \
+    --service-account "$SA_STUDIO" --add-cloudsql-instances "$conn" $VPC_FLAGS \
     --set-env-vars "$common_env,$practice_env,RUN_BACKGROUND=true,IAP_AUDIENCE=/projects/$NUMBER/locations/$REGION/services/careplix-studio" \
     --set-secrets "$secrets,$practice_secrets" --min-instances 1 --max-instances 1 --no-cpu-throttling \
     --timeout 3600 --no-allow-unauthenticated --iap
@@ -155,6 +233,18 @@ deploy() {
     --set-env-vars "CAREPLIX_ENV=labs,LIVEKIT_URL=$livekit_url,CAREPLIX_API_URL=$internal_url,CAREPLIX_API_AUDIENCE=$internal_url,GCP_PROJECT=$PROJECT,VERTEX_LOCATION=$REGION,GEMINI_LIVE_MODEL=$MODEL,CAREPLIX_RUNTIME_BUILD=$TAG" \
     --set-secrets "WORKER_SERVICE_TOKEN=cpx-worker-token:latest,LIVEKIT_API_KEY=cpx-livekit-api-key:latest,LIVEKIT_API_SECRET=cpx-livekit-api-secret:latest"
 
+  # 6. OpenEMR demo screens: nginx in front of the private VM, behind IAP (CarePlix accounts only).
+  if [ -n "$oe_addr" ]; then
+    $G run deploy careplix-openemr --region "$REGION" --image "$REGISTRY/openemr-proxy:$TAG" \
+      --service-account "$SA_OE_PROXY" $VPC_FLAGS --set-env-vars "OPENEMR_UPSTREAM=$oe_addr:80" \
+      --min-instances 0 --max-instances 2 --no-allow-unauthenticated --iap
+    $G run services add-iam-policy-binding careplix-openemr --region "$REGION" \
+      --member "serviceAccount:service-$NUMBER@gcp-sa-iap.iam.gserviceaccount.com" --role roles/run.invoker >/dev/null
+    $G iap web add-iam-policy-binding --resource-type=cloud-run --service careplix-openemr --region "$REGION" \
+      --member "domain:careplix.com" --role roles/iap.httpsResourceAccessor >/dev/null
+    echo "OpenEMR: $OE_PUBLIC_URL (sign in as admin; password in Secret Manager: cpx-openemr-admin-password)"
+  fi
+
   echo "Studio: $(url_of careplix-studio)"
   echo "Webhooks: $webhooks_url (register from Studio → Practice once deployed)"
 }
@@ -162,6 +252,7 @@ deploy() {
 case "${1:-}" in
   setup) setup ;;
   build) build ;;
+  openemr) openemr ;;
   deploy) deploy ;;
-  *) echo "usage: $0 setup|build|deploy" >&2; exit 2 ;;
+  *) echo "usage: $0 setup|build|openemr|deploy" >&2; exit 2 ;;
 esac

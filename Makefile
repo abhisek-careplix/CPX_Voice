@@ -1,4 +1,4 @@
-.PHONY: payer-sandbox connect-livekit connect-nexhealth connect-stedi openemr-up openemr-down openemr-setup setup lint fmt test check api studio worker-dev db-up probe-readiness probe-gemini browser-session web-check
+.PHONY: payer-sandbox connect-livekit connect-nexhealth nexhealth-inventory connect-stedi openemr-up openemr-down openemr-setup setup lint fmt test check api studio worker-dev db-up probe-readiness probe-gemini browser-session web-check
 
 setup:
 	uv sync
@@ -30,6 +30,10 @@ connect-livekit:
 # Prompts for the NexHealth API key (hidden), checks it, picks the practice location, writes .env.
 connect-nexhealth:
 	./scripts/connect-nexhealth.sh
+
+# Lists every practice the NexHealth production key reaches: EHR, sync health, what CarePlix can do.
+nexhealth-inventory:
+	./scripts/nexhealth-inventory.sh
 
 # Local OpenEMR (real EHR) for end-to-end testing: start it, then connect and seed a synthetic clinic.
 openemr-up:

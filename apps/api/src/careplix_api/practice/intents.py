@@ -22,16 +22,17 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from careplix_api.connect.base import CONFIRM_SLA
+from careplix_api.connect.connectors import connector_for
 from careplix_api.db import Database, as_utc, utcnow
 from careplix_api.errors import ApiError
 from careplix_api.integrations.nexhealth import NexHealthClient, NexHealthError
 from careplix_api.models import AuditEvent, PayerConnection, WriteIntent
 from careplix_api.phi import PhiBox
-from careplix_api.practice.connections import audit, ehr_client
+from careplix_api.practice.connections import audit
 from careplix_api.practice.sync import write_status
 from careplix_api.settings import Settings
 
-CONFIRM_SLA = timedelta(hours=2)
 STUCK_SENDING = timedelta(minutes=10)
 
 
@@ -217,6 +218,23 @@ async def execute_approved(
                 intent.last_error = "EHR sync is offline; held until it is back."
                 await session.commit()
                 continue
+            connector = connector_for(conn, settings, transport)
+            if connector.intent_support(intent.kind) == "no":
+                # The catalog says this EHR can't take this write: it never leaves the hub.
+                name = connector.profile.name if connector.profile else "This EHR"
+                intent.state, intent.resolved_at = "manual", utcnow()
+                intent.last_error = f"{name} doesn't accept this write; staff do it in the EHR."
+                session.add(
+                    AuditEvent(
+                        workspace_id=intent.workspace_id,
+                        actor="system:ehr_writer",
+                        action="ehr_write.manual",
+                        target=intent.id,
+                        detail={"kind": intent.kind, "profile": connector.view()["profile"]},
+                    )
+                )
+                await session.commit()
+                continue
             intent.state, intent.attempts, intent.sent_at = "sending", intent.attempts + 1, utcnow()
             await session.commit()  # claim before calling out (no silent duplicate writes)
             await _send(session, conn, intent, settings, transport)
@@ -233,13 +251,10 @@ async def _send(
     transport: httpx.AsyncBaseTransport | None,
 ) -> None:
     spec = KINDS[intent.kind]
-    client = ehr_client(conn, settings, transport)
+    connector = connector_for(conn, settings, transport)
     try:
         payload = PhiBox(settings).open(intent.payload)
-        if getattr(client, "is_openemr", False):
-            data = await client.write(intent.kind, intent, payload)  # straight into the EHR
-        else:
-            data = await spec.send(client, intent, payload)
+        data = await connector.write(intent, payload)
         intent.remote_id = str(data.get("id")) if data.get("id") is not None else None
         intent.foreign_id = data.get("foreign_id")
         intent.state, intent.last_error = "accepted", None
@@ -264,12 +279,12 @@ async def _send(
         intent.last_error, intent.resolved_at = err.message[:200], utcnow()
         ok, status, http_status, error = False, err.status, err.http_status, err.message
     finally:
-        calls = client.calls
-        await client.aclose()
+        calls = connector.calls
+        await connector.aclose()
     await audit(
         session,
         conn,
-        f"nexhealth.write.{intent.kind}",
+        f"{connector.kind}.write.{intent.kind}",
         "write",
         ok=ok,
         status=status,
@@ -319,23 +334,24 @@ async def reconcile(
                 intent.state = "needs_review"
                 intent.last_error = "Send was interrupted; check the chart before retrying."
                 changed += 1
-            elif intent.state == "accepted" and now - sent_at > CONFIRM_SLA:
+            elif intent.state == "accepted":
                 conn = await session.get(PayerConnection, intent.connection_id)
-                client = ehr_client(conn, settings, transport)
+                connector = connector_for(conn, settings, transport)
+                if not connector.confirm_due(intent, now):
+                    continue
                 try:
-                    if getattr(client, "is_openemr", False):
-                        record = await client.read_back(intent.kind, intent)
-                    else:
-                        record = await KINDS[intent.kind].read_back(client, intent)
+                    record = await connector.read_back(intent)
                 except NexHealthError:
                     record = None
                 finally:
-                    await client.aclose()
+                    await connector.aclose()
                 if record and KINDS[intent.kind].in_ehr(record):
                     apply_insertion(intent, "complete", record.get("foreign_id"))
-                else:
+                elif now - sent_at > CONFIRM_SLA:
                     intent.state = "needs_review"
                     intent.last_error = "No EHR confirmation within the expected time."
+                else:
+                    continue
                 changed += 1
         await session.commit()
     return changed
