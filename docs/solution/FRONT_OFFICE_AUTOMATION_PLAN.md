@@ -175,6 +175,11 @@ Readiness key:
 5. **Cancel:** the patient chooses a reason from a fixed list (no free text, so no clinical detail). By default the cancellation goes to **Practice → EHR write queue** for one click (L3 in the EMR design); the agent tells the caller it isn't cancelled until the front desk confirms. With `RECEPTIONIST_CANCEL_MODE=auto` it is cancelled at once, and the freed time is picked up by **backfill** (FO-2) on the next pass.
 6. **Messages:** `leave_message` covers new patients, refills, records, billing and anything else the agent can't do. It works without verification. Messages appear in **Practice → Front desk messages**: the list shows topic, initials and whether a callback is wanted; opening one reveals the text and the caller's number, and that is audited.
 
+**On CarePlix Connect** ([INTEGRATION_HUB_DESIGN.md](INTEGRATION_HUB_DESIGN.md)): the receptionist reaches the EHR only through the connector contract: `available_slots`, `slot_free` and write intents. The capability catalog applies on every call:
+- A cancel the practice's EHR can't take (for example OrthoTrac) becomes a front-desk task; the agent says so.
+- A reschedule on such an EHR is refused before anything is booked, so a patient is never double-booked.
+- On an emulated EHR, bookings are *accepted* on the call and confirmed later, as the real EHR would.
+
 **Safety:**
 - Every EHR change is a write intent: `source = receptionist`, approved by `policy:receptionist-L2`.
 - The slot is re-checked with the EHR immediately before booking. A time taken in the meantime gets "slot_taken" and the agent offers another.

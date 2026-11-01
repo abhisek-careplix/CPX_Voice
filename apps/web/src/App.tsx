@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AudioLines, Bot, Building2, ClipboardCheck, LayoutGrid, ListChecks, LogOut, Phone, PlugZap, ShieldCheck, Stethoscope, CalendarPlus } from "lucide-react";
+import { AudioLines, Bot, Building2, ClipboardCheck, LayoutGrid, ListChecks, LogOut, Phone, PlugZap, ShieldCheck, Stethoscope, CalendarPlus, Network } from "lucide-react";
 import { createContext, useContext, useEffect } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, ApiError, type Me, type WorkspaceSummary } from "./api";
 import AgentEditor from "./pages/AgentEditor";
 import Agents from "./pages/Agents";
 import Backfill from "./pages/Backfill";
+import Hub from "./pages/Hub";
 import CallDetail from "./pages/CallDetail";
 import Calls from "./pages/Calls";
 import Connections from "./pages/Connections";
@@ -134,6 +135,9 @@ function Shell() {
         <NavLink to="/backfill" className="nav-link">
           <CalendarPlus size={18} aria-hidden /> Backfill
         </NavLink>
+        <NavLink to="/hub" className="nav-link">
+          <Network size={18} aria-hidden /> EHR hub
+        </NavLink>
         <div className="nav-section">Administration</div>
         <NavLink to="/connections" className="nav-link">
           <PlugZap size={18} aria-hidden /> Connections
@@ -181,6 +185,7 @@ function Shell() {
           <Route path="/integrations" element={<Integrations />} />
           <Route path="/practice" element={<Practice />} />
           <Route path="/backfill" element={<Backfill />} />
+          <Route path="/hub" element={<Hub />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

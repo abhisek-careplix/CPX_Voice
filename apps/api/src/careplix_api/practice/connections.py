@@ -61,15 +61,6 @@ def openemr_client(
     )
 
 
-def ehr_client(
-    conn: PayerConnection, settings: Settings, transport: httpx.AsyncBaseTransport | None
-):
-    """The client for this practice's EHR connection (NexHealth or a direct OpenEMR)."""
-    if conn.kind == OPENEMR:
-        return openemr_client(conn, settings, transport)
-    return nexhealth_client(conn, settings, transport)
-
-
 def stedi_client(
     conn: PayerConnection, settings: Settings, transport: httpx.AsyncBaseTransport | None
 ) -> stedi.StediClient:

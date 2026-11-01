@@ -14,6 +14,7 @@ Re-running keeps the existing client and only seeds an empty clinic.
 from __future__ import annotations
 
 import datetime as dt
+import os
 import pathlib
 import random
 import re
@@ -24,8 +25,14 @@ import httpx
 
 BASE = "https://localhost:9300"
 API = f"{BASE}/apis/default/api"
+# Local defaults; the hosted demo (infra/gcp/deploy-labs.sh openemr) sets these on its VM.
+ADMIN_PASSWORD = os.environ.get("OPENEMR_ADMIN_PASSWORD", "pass")
+DB_ROOT_PASSWORD = os.environ.get("OPENEMR_DB_ROOT_PASSWORD", "root")
+UI_URL = os.environ.get("OPENEMR_PUBLIC_URL", "http://localhost:8300")
 ENV = pathlib.Path(".env")
-COMPOSE = ["docker", "compose", "-f", "infra/openemr/docker-compose.yml"]
+COMPOSE = ["docker", "compose", "-f", "infra/openemr/docker-compose.yml"] + [
+    arg for extra in os.environ.get("OPENEMR_COMPOSE_EXTRA", "").split() for arg in ("-f", extra)
+]
 TZ = "America/New_York"
 SCOPES = (
     "openid offline_access api:oemr api:fhir user/patient.read user/patient.write "
@@ -80,7 +87,7 @@ def sql(statement: str) -> str:
             "mysql",
             "mariadb",
             "-uroot",
-            "-proot",
+            f"-p{DB_ROOT_PASSWORD}",
             "-N",
             "openemr",
             "-e",
@@ -200,10 +207,10 @@ def main() -> None:
         {
             "OPENEMR_BASE_URL": BASE,
             "OPENEMR_USERNAME": "admin",
-            "OPENEMR_PASSWORD": "pass",
+            "OPENEMR_PASSWORD": ADMIN_PASSWORD,
             "OPENEMR_TIMEZONE": TZ,
             "OPENEMR_VERIFY_TLS": "false",
-            "OPENEMR_UI_URL": "http://localhost:8300",
+            "OPENEMR_UI_URL": UI_URL,
         }
     )
     token = httpx.post(
@@ -216,7 +223,7 @@ def main() -> None:
             "client_secret": secret,
             "user_role": "users",
             "username": "admin",
-            "password": "pass",
+            "password": ADMIN_PASSWORD,
             "scope": SCOPES,
         },
     ).json()["access_token"]
@@ -404,7 +411,7 @@ def main() -> None:
         f"✓ {booked} appointments over {len(days)} days "
         f"({cancelled} cancelled, {asap} on the ASAP list)"
     )
-    print(f"Open {BASE} (admin / pass) → Calendar to see the schedule.")
+    print(f"Open {UI_URL} → Calendar to see the schedule.")
 
 
 if __name__ == "__main__":

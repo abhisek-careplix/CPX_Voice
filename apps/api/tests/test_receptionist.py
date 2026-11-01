@@ -296,3 +296,58 @@ async def test_openemr_free_slots_skip_booked_times_weekends_and_closed_hours():
     assert local[-1] <= monday.replace(hour=16, minute=30) + timedelta(days=1)
     assert all(8 <= t.hour < 17 for t in local)
     await client.aclose()
+
+
+# --- On CarePlix Connect: OpenEMR direct, and OpenEMR emulating another EHR's catalog ---------
+
+ALEX = {"first_name": "Alex", "last_name": "Synth", "date_of_birth": "1980-01-02"}
+
+
+def _openemr_call(tmp_path, emulate=None):
+    from .test_openemr import _client as openemr_client
+    from .test_openemr import _worker as openemr_worker
+
+    c, router = openemr_client(tmp_path)
+    c.__enter__()
+    c.post("/api/auth/dev-login").raise_for_status()
+    if emulate:
+        c.put("/api/practices/emulation", json={"profile": emulate}).raise_for_status()
+    openemr_worker(c)
+    call = _call(c)
+    assert call.ok("find_patient", **ALEX) == {"verified": True}
+    return c, router, call
+
+
+def test_reschedule_on_openemr_through_the_connector(tmp_path):
+    c, router, call = _openemr_call(tmp_path)
+    try:
+        assert "102" in [a["appointment_id"] for a in call.ok("list_appointments")["appointments"]]
+        found = call.ok("find_slots", appointment_id="102")
+        assert found["slots"], found  # computed from clinic hours minus booked visits
+        before = set(router.openemr.appts)
+        result = call.ok("reschedule_appointment", appointment_id="102", slot_id="S1")
+        assert result["state"] == "rescheduled"
+        [new] = set(router.openemr.appts) - before
+        assert router.openemr.appts[new]["pc_pid"] == "1"
+        assert router.openemr.appts["102"]["pc_apptstatus"] == "x"  # kept, marked cancelled
+    finally:
+        c.__exit__(None, None, None)
+
+
+def test_an_ehr_that_cannot_cancel_never_gets_a_half_done_move(tmp_path):
+    # OrthoTrac (via NexHealth) takes bookings but not cancels: the catalog decides.
+    c, router, call = _openemr_call(tmp_path, emulate="nexhealth:orthotrac")
+    try:
+        call.ok("find_slots", appointment_id="102")
+        before = set(router.openemr.appts)
+        moved = call.tool("reschedule_appointment", appointment_id="102", slot_id="S1")
+        assert moved["result"]["error"] == "not_supported_here"
+        assert set(router.openemr.appts) == before  # nothing booked: no double booking
+
+        cancelled = call.ok("cancel_appointment", appointment_id="102", reason="other")
+        assert cancelled["state"] == "front_desk" and "front desk" in cancelled["message"]
+        assert router.openemr.appts["102"]["pc_apptstatus"] == "-"  # the EHR is untouched
+        [task] = [i for i in _db_rows(c, WriteIntent) if i.source == "receptionist"]
+        assert task.state == "manual" and "OrthoTrac" in task.last_error
+    finally:
+        c.__exit__(None, None, None)

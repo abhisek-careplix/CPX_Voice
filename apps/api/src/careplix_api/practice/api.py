@@ -13,6 +13,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from careplix_api.auth import Principal, require
+from careplix_api.connect.catalog import OPERATIONS, PROFILES
+from careplix_api.connect.connectors import connector_for
 from careplix_api.db import as_utc, utcnow
 from careplix_api.errors import ApiError
 from careplix_api.models import (
@@ -30,7 +32,6 @@ from careplix_api.models import (
 from careplix_api.phi import PhiBox, initials
 from careplix_api.practice import backfill, eligibility, intents, receptionist, sync, webhooks
 from careplix_api.practice.connections import CLEARINGHOUSE, EHR_KINDS, OPENEMR, verify
-from careplix_api.practice.openemr import deep_links
 from careplix_api.settings import Settings, get_settings
 from careplix_api.studio_api import Session
 
@@ -193,9 +194,8 @@ async def overview(
             {"id": c.id, "kind": c.kind, "name": c.name, "env": (c.auth_ref or {}).get("env")}
             for c in practices
         ],
-        "links": deep_links((ehr.auth_ref or {}).get("ui_url") or ehr.base_url)
-        if ehr is not None and ehr.kind == OPENEMR
-        else None,
+        "links": connector_for(ehr, settings).links() if ehr is not None else None,
+        "hub": connector_for(ehr, settings).view() if ehr is not None else None,
         "clearinghouse": _conn_view(clearinghouse),
         "location": location,
         "mirror": mirror,
@@ -694,6 +694,85 @@ async def patient_contact(
     await session.commit()
     name = " ".join(x for x in (pii.get("first_name"), pii.get("last_name")) if x)
     return {"name": name or None, "phone": pii.get("phone")}
+
+
+# --- CarePlix Connect: catalog and EHR emulation ------------------------------------------------
+
+
+@router.get("/catalog")
+async def catalog(
+    principal: Principal = Depends(require("view")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """Every EHR profile the hub supports, and how this workspace's connections map onto it."""
+    conns = list(
+        await session.scalars(
+            select(PayerConnection).where(
+                PayerConnection.workspace_id == principal.workspace_id,
+                PayerConnection.kind.in_(EHR_KINDS),
+            )
+        )
+    )
+    connections = []
+    for conn in conns:
+        connector = connector_for(conn, settings)
+        cap = conn.capability or {}
+        connections.append(
+            {
+                **connector.view(),
+                "env": (conn.auth_ref or {}).get("env"),
+                "verified_at": conn.verified_at,
+                "writes_confirmable": cap.get("writes_confirmable"),
+                "support": {op: connector.support(op) for op in OPERATIONS},
+            }
+        )
+    return {
+        "operations": [{"id": op, "label": label} for op, label in OPERATIONS.items()],
+        "profiles": [p.view() for p in PROFILES.values()],
+        "connections": connections,
+    }
+
+
+class EmulationIn(BaseModel):
+    profile: str | None = Field(default=None, max_length=60)
+
+
+@router.put("/emulation")
+async def set_emulation(
+    body: EmulationIn,
+    practice: str | None = None,
+    principal: Principal = Depends(require("admin")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """Run the OpenEMR test clinic as another EHR (its operations and confirmation timing)."""
+    conn = await _conn(session, principal, OPENEMR, practice)
+    if body.profile is not None and (
+        body.profile not in PROFILES or PROFILES[body.profile].path != "nexhealth"
+    ):
+        raise ApiError(422, "unknown_profile", "Choose one of the catalog's NexHealth EHRs.")
+    ref = dict(conn.auth_ref or {})
+    if body.profile:
+        ref["emulate"] = body.profile
+    else:
+        ref.pop("emulate", None)
+    conn.auth_ref = ref
+    session.add(
+        AuditEvent(
+            workspace_id=principal.workspace_id,
+            actor=principal.user_id,
+            action="connect.emulation_set",
+            target=conn.id,
+            detail={"profile": body.profile},
+        )
+    )
+    await session.commit()
+    connector = connector_for(conn, settings)
+    return {
+        **connector.view(),
+        "support": {op: connector.support(op) for op in OPERATIONS},
+    }
 
 
 # --- FO-3 receptionist: messages for the front desk ---------------------------------------------

@@ -21,14 +21,14 @@ const STATE: Record<BackfillOpeningRow["state"], { tone: "green" | "orange" | "r
 
 const EVENT: Record<string, string> = {
   detected: "Cancellation detected",
-  slot_confirmed_free: "NexHealth confirmed the slot is free",
-  slot_not_free: "NexHealth shows the slot is no longer free",
+  slot_confirmed_free: "The EHR confirmed the slot is free",
+  slot_not_free: "The EHR shows the slot is no longer free",
   ranked: "Candidates ranked",
   offer_declined: "Patient declined",
   offer_no_answer: "No answer",
   offer_accepted: "Patient accepted",
   slot_recheck_failed: "Slot re-check failed",
-  booked: "Booked in NexHealth",
+  booked: "Booked in the EHR",
   booking_refused: "Booking refused",
   booking_unknown: "Booking outcome unknown",
   released_later_appointment: "Later appointment released",
@@ -80,7 +80,7 @@ export default function Backfill() {
       <div className="content">
         <Banner tone="blue" title="Front desk mode." icon={PhoneCall}>
           {" "}
-          Outbound calls and texts aren't connected yet, so call each patient in order and record their answer here. "Accepted" books the slot in NexHealth
+          Outbound calls and texts aren't connected yet, so call each patient in order and record their answer here. "Accepted" books the slot in the EHR
           after re-checking that it's still free. Move-ups are booked first, then their later visit is cancelled. The voice agent takes over this list once a
           carrier is connected.
         </Banner>
@@ -95,7 +95,7 @@ export default function Backfill() {
 
         {d && d.active.length === 0 ? (
           <Empty icon={CalendarCheck2} title="No open slots">
-            Cancellations from {Math.round(d.settings.lead_minutes / 60)} hours to {d.settings.horizon_days} days ahead appear here once NexHealth confirms the time is free.
+            Cancellations from {Math.round(d.settings.lead_minutes / 60)} hours to {d.settings.horizon_days} days ahead appear here once the EHR confirms the time is free.
           </Empty>
         ) : (
           d?.active.map((o) => <OpeningCard key={o.id} o={o} onDone={refresh} />)
@@ -111,7 +111,7 @@ export default function Backfill() {
                       {when(o.start, o.timezone)} · {o.type ?? "Visit"} · {o.provider ?? "Provider"}
                     </div>
                     <div className="row-sub">
-                      {o.state === "filled" ? `Filled ${timeAgo(o.filled_at)} · NexHealth appointment ${o.filled_appointment_id}` : (o.state_reason ?? "")}
+                      {o.state === "filled" ? `Filled ${timeAgo(o.filled_at)} · EHR appointment ${o.filled_appointment_id}` : (o.state_reason ?? "")}
                     </div>
                   </div>
                   <Pill tone={STATE[o.state].tone}>{STATE[o.state].label}</Pill>
@@ -147,7 +147,7 @@ function OpeningCard({ o, onDone }: { o: BackfillOpeningRow; onDone: () => void 
     mutationFn: ({ id, outcome }: { id: string; outcome: "accepted" | "declined" | "no_answer" }) =>
       api.post<BackfillOpeningRow>(`/practices/backfill/offers/${id}`, { outcome }),
     onSuccess: (r) => {
-      toast(r.state === "filled" ? "Booked in NexHealth" : r.state === "taken" ? "That time was just taken" : STATE[r.state].label);
+      toast(r.state === "filled" ? "Booked in the EHR" : r.state === "taken" ? "That time was just taken" : STATE[r.state].label);
       onDone();
     },
   });

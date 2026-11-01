@@ -68,6 +68,7 @@ const APPOINTMENT_OUTCOME: Record<string, string> = {
   slot_taken: "time was just taken",
   failed: "refused by the EHR",
   needs_staff: "needs the front desk",
+  front_desk: "this EHR needs the front desk to do it",
 };
 
 function timelineText(e: CallEvent): string | null {

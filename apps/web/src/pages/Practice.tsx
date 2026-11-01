@@ -401,6 +401,7 @@ const INTENT_TONE: Record<WriteIntentRow["state"], "green" | "orange" | "red" | 
   accepted: "green",
   written: "green",
   needs_review: "red",
+  manual: "orange",
   rejected: "gray",
   failed: "red",
 };
@@ -497,7 +498,7 @@ function WriteQueue({ intents, isAdmin, onDone }: { intents: WriteIntentRow[]; i
   const decide = useMutation({
     mutationFn: ({ id, decision }: { id: string; decision: "approve" | "reject" }) => api.post<WriteIntentRow>(`/practices/intents/${id}/${decision}`),
     onSuccess: (r) => {
-      toast(r.state === "accepted" ? "Accepted by NexHealth" : r.state === "written" ? "Written to the EHR" : `Write ${r.state.replace("_", " ")}`);
+      toast(r.state === "accepted" ? "Accepted by the EHR" : r.state === "manual" ? "This EHR can't take that write: staff task created" : r.state === "written" ? "Written to the EHR" : `Write ${r.state.replace("_", " ")}`);
       onDone();
     },
   });
