@@ -398,3 +398,50 @@ class EligibilityCheck(IdMixin, Base):
     reused_from: Mapped[str | None] = mapped_column(String(36))
     created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
     completed_at: Mapped[datetime | None] = mapped_column()
+
+
+class BackfillOpening(IdMixin, Base):
+    """A cancelled slot worth refilling (FO-2). One per cancelled appointment."""
+
+    __tablename__ = "backfill_openings"
+    __table_args__ = (UniqueConstraint("connection_id", "source_appointment_ref"),)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    connection_id: Mapped[str] = mapped_column(ForeignKey("payer_connections.id"))
+    source_appointment_ref: Mapped[str] = mapped_column(String(40))
+    source_patient_ref: Mapped[str | None] = mapped_column(String(40))
+    provider_ref: Mapped[str | None] = mapped_column(String(40))
+    operatory_ref: Mapped[str | None] = mapped_column(String(40))
+    appointment_type_ref: Mapped[str | None] = mapped_column(String(40))
+    starts_at: Mapped[datetime] = mapped_column(index=True)
+    minutes: Mapped[int] = mapped_column(Integer, default=30)
+    timezone: Mapped[str | None] = mapped_column(String(40))
+    # open | booking | filled | needs_review | taken | expired | closed | no_candidates
+    state: Mapped[str] = mapped_column(String(16), default="open")
+    state_reason: Mapped[str | None] = mapped_column(String(200))
+    filled_patient_ref: Mapped[str | None] = mapped_column(String(40))
+    filled_appointment_ref: Mapped[str | None] = mapped_column(String(40))
+    book_intent_id: Mapped[str | None] = mapped_column(String(36))
+    release_intent_id: Mapped[str | None] = mapped_column(String(36))
+    timeline: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    detected_at: Mapped[datetime] = mapped_column(default=utcnow)
+    filled_at: Mapped[datetime | None] = mapped_column()
+
+
+class BackfillOffer(IdMixin, Base):
+    """A ranked candidate for an opening and what happened when they were offered it."""
+
+    __tablename__ = "backfill_offers"
+    __table_args__ = (UniqueConstraint("opening_id", "patient_ref"),)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    opening_id: Mapped[str] = mapped_column(ForeignKey("backfill_openings.id"), index=True)
+    patient_ref: Mapped[str] = mapped_column(String(40))
+    rank: Mapped[int] = mapped_column(Integer)
+    tier: Mapped[str] = mapped_column(String(16))  # asap | move_up | recent_cancel
+    score: Mapped[int] = mapped_column(Integer, default=0)
+    current_appointment_ref: Mapped[str | None] = mapped_column(String(40))  # move-ups release this
+    reasons: Mapped[list[str]] = mapped_column(JSON, default=list)
+    channel: Mapped[str] = mapped_column(String(10), default="staff")  # staff | voice | sms
+    # queued | accepted | declined | no_answer | booked | failed | superseded
+    state: Mapped[str] = mapped_column(String(12), default="queued")
+    responded_by: Mapped[str | None] = mapped_column(String(36))
+    responded_at: Mapped[datetime | None] = mapped_column()

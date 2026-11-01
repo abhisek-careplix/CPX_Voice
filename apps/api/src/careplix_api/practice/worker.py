@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from careplix_api.db import Database, utcnow
 from careplix_api.models import PayerConnection, WebhookEvent, WriteIntent
-from careplix_api.practice import eligibility, intents, sync
+from careplix_api.practice import backfill, eligibility, intents, sync
 from careplix_api.practice.connections import EHR
 from careplix_api.practice.records import parse_dt
 from careplix_api.settings import Settings
@@ -115,6 +115,17 @@ class PracticeWorker:
             report["eligibility_run"] = await eligibility.run_pending(
                 self.db, self.settings, transport
             )
+        if self.settings.backfill_enabled:
+            # After eligibility, so candidate ranking sees this pass's coverage results.
+            report["backfill_opened"] = 0
+            for conn_id in await self._connections():
+                async with self.db.sessions() as session:
+                    conn = await session.get(PayerConnection, conn_id)
+                    await backfill.expire(session, conn, self.settings)
+                    report["backfill_opened"] += await backfill.detect(
+                        session, conn, self.settings, transport
+                    )
+                    await session.commit()
         return report
 
     async def run_forever(self, interval_s: float = 5.0) -> None:

@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     webhook_public_url: str = ""
     practice_sync_interval_s: float = 900.0  # incremental sync cadence; 0 disables
     eligibility_autopilot: bool = True
+    # FO-2 cancellation backfill: slots starting sooner than the lead time aren't worth offering;
+    # far-future ones fill through normal scheduling.
+    backfill_enabled: bool = True
+    backfill_lead_minutes: int = 120
+    backfill_horizon_days: int = 14
+    contact_hours: str = "08:00-20:00"  # practice-local window for patient outreach
 
     # Release D calling policy (FR05, SEC12): only approved synthetic test destinations.
     approved_test_destinations: str = ""

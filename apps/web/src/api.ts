@@ -498,3 +498,45 @@ export interface Huddle {
   appointments: HuddleRow[];
   counts: { scheduled: number; cancelled: number; verified_active: number; needs_attention: number };
 }
+
+// ---------- FO-2 cancellation backfill ----------
+
+export interface BackfillOfferRow {
+  id: string;
+  rank: number;
+  tier: "asap" | "move_up" | "recent_cancel";
+  score: number;
+  patient_id: string;
+  patient: string;
+  current_appointment_id: string | null;
+  current_start: string | null;
+  reasons: string[];
+  state: "queued" | "accepted" | "declined" | "no_answer" | "booked" | "failed" | "superseded";
+  responded_at: string | null;
+}
+
+export interface BackfillOpeningRow {
+  id: string;
+  state: "open" | "booking" | "filled" | "needs_review" | "taken" | "expired" | "closed" | "no_candidates";
+  state_reason: string | null;
+  start: string;
+  minutes: number;
+  timezone: string | null;
+  provider: string | null;
+  type: string | null;
+  source_appointment_id: string;
+  within_contact_hours: boolean;
+  next_offer_id: string | null;
+  filled_appointment_id: string | null;
+  detected_at: string;
+  filled_at: string | null;
+  timeline: { at: string; event: string; [k: string]: unknown }[];
+  offers: BackfillOfferRow[];
+}
+
+export interface BackfillBoard {
+  settings: { lead_minutes: number; horizon_days: number; contact_hours: string; enabled: boolean };
+  metrics: { states: Record<string, number>; fill_rate: number | null; median_minutes_to_fill: number | null; visit_minutes_recovered: number };
+  active: BackfillOpeningRow[];
+  recent: BackfillOpeningRow[];
+}

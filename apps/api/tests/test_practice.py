@@ -55,6 +55,13 @@ class FakeNexHealth:
                 "bio": {"date_of_birth": "1975-05-06"},
                 "updated_at": _iso(-timedelta(days=2)),
             },
+            4: {
+                "id": 4,
+                "first_name": "Max",
+                "last_name": "Cole",
+                "bio": {"cell_phone_number": "5550104"},
+                "updated_at": _iso(-timedelta(days=1)),
+            },
             3: {
                 "id": 3,
                 "first_name": "Ana",
@@ -94,7 +101,11 @@ class FakeNexHealth:
             502: self._appt(502, 2, timedelta(hours=20), sooner=True),
             503: self._appt(503, 3, timedelta(days=5)),
             504: self._appt(504, 2, timedelta(days=3), cancelled=True),
+            506: self._appt(506, 4, timedelta(days=8), sooner=True),
         }
+        self.booked: list[dict] = []
+        self.book_error: str | None = None
+        self.taken: set[str] = set()  # start times NexHealth no longer reports free
 
     @staticmethod
     def _appt(i, patient, delta, note=None, sooner=False, cancelled=False):
@@ -178,7 +189,7 @@ class FakeNexHealth:
             return self._list(request, list(self.patients.values()))
         if path == "/insurance_coverages":
             return self._list(request, list(self.coverages.values()))
-        if path == "/appointments":
+        if path == "/appointments" and request.method == "GET":
             if not (q.get("start") and q.get("end")):
                 return httpx.Response(400, json={"error": ["start and end are required"]})
             return self._list(request, list(self.appointments.values()))
@@ -188,7 +199,24 @@ class FakeNexHealth:
             return httpx.Response(200, json={"data": []})
         if path in ("/working_hours", "/document_types", "/patient_recalls"):
             return httpx.Response(200, json={"data": []})
+        if path == "/available_slots":
+            free = [
+                a["start_time"]
+                for a in self.appointments.values()
+                if a["cancelled"] and a["start_time"] not in self.taken
+            ]
+            slots = [{"time": t, "operatory_id": 30, "provider_id": 10} for t in free]
+            return httpx.Response(200, json={"data": [{"lid": 100, "pid": 10, "slots": slots}]})
+        if path == "/appointments" and request.method == "POST":
+            if self.book_error:
+                return httpx.Response(400, json={"error": [self.book_error]})
+            appt = {**body["appt"], "id": 900 + len(self.booked), "foreign_id": None}
+            self.booked.append(appt)
+            return httpx.Response(201, json={"data": {"appt": appt}})
         parts = path.strip("/").split("/")
+        if parts[0] == "appointments" and len(parts) == 2 and request.method == "PATCH":
+            self.appointments[int(parts[1])]["cancelled"] = body["appt"]["cancelled"]
+            return httpx.Response(200, json={"data": {"appt": self.appointments[int(parts[1])]}})
         if parts[0] == "appointments" and len(parts) == 2:
             return httpx.Response(200, json={"data": self.appointments[int(parts[1])]})
         if parts[0] == "patients" and len(parts) == 3 and parts[2] == "alerts":
@@ -376,7 +404,7 @@ async def test_client_follows_cursors_and_reuses_one_token():
     rows, pages = await client.list_all("/patients", {"location_id": 100})
     await client.list_all("/insurance_coverages", {"location_id": 100})
     await client.aclose()
-    assert [r["id"] for r in rows] == [1, 2, 3] and pages == 2
+    assert sorted(r["id"] for r in rows) == [1, 2, 3, 4] and pages == 2
     assert fake.auths == 1  # cached bearer token
     assert client.calls == 1 + 2 + 1  # auth + two patient pages + one coverage page (cost meter)
 
@@ -396,9 +424,9 @@ def test_first_pass_mirrors_the_practice_and_seals_patient_identifiers(tmp_path)
             "provider": 1,
             "appointment_type": 1,
             "insurance_plan": 1,
-            "patient": 3,
+            "patient": 4,
             "coverage": 2,
-            "appointment": 5,
+            "appointment": 6,
         }
         assert overview["location"]["name"] == "Main"
         records = _db_rows(c, EhrRecord)

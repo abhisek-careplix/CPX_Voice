@@ -17,6 +17,8 @@ from careplix_api.db import as_utc, utcnow
 from careplix_api.errors import ApiError
 from careplix_api.models import (
     AuditEvent,
+    BackfillOffer,
+    BackfillOpening,
     EhrRecord,
     EligibilityCheck,
     PayerConnection,
@@ -25,7 +27,7 @@ from careplix_api.models import (
     WriteIntent,
 )
 from careplix_api.phi import PhiBox, initials
-from careplix_api.practice import eligibility, intents, sync, webhooks
+from careplix_api.practice import backfill, eligibility, intents, sync, webhooks
 from careplix_api.practice.connections import CLEARINGHOUSE, EHR, verify
 from careplix_api.settings import Settings, get_settings
 from careplix_api.studio_api import Session
@@ -491,3 +493,166 @@ async def decide_intent(
         await intents.execute_approved(request.app.state.db, settings, _transport(request))
         await session.refresh(intent)
     return intents.view(intent)
+
+
+# --- FO-2 cancellation backfill ---------------------------------------------------------------
+
+
+async def _labels(
+    session: AsyncSession, conn: PayerConnection, settings: Settings
+) -> dict[str, Any]:
+    box = PhiBox(settings)
+    labels: dict[str, dict[str, Any]] = {
+        "providers": {},
+        "types": {},
+        "patients": {},
+        "appointments": {},
+    }
+    for rec in await session.scalars(
+        select(EhrRecord).where(
+            EhrRecord.connection_id == conn.id,
+            EhrRecord.resource.in_(("provider", "appointment_type", "patient", "appointment")),
+        )
+    ):
+        if rec.resource == "provider":
+            labels["providers"][rec.source_id] = rec.attrs.get("name")
+        elif rec.resource == "appointment_type":
+            labels["types"][rec.source_id] = rec.attrs.get("name")
+        elif rec.resource == "patient":
+            labels["patients"][rec.source_id] = initials(box.open(rec.pii))
+        else:
+            labels["appointments"][rec.source_id] = as_utc(rec.starts_at)
+    return labels
+
+
+@router.get("/backfill")
+async def backfill_board(
+    principal: Principal = Depends(require("view")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    conn = await _conn(session, principal)
+    openings = list(
+        await session.scalars(
+            select(BackfillOpening)
+            .where(BackfillOpening.connection_id == conn.id)
+            .order_by(BackfillOpening.starts_at)
+        )
+    )
+    offers: dict[str, list[BackfillOffer]] = {}
+    for offer in await session.scalars(
+        select(BackfillOffer).where(BackfillOffer.opening_id.in_([o.id for o in openings] or ["-"]))
+    ):
+        offers.setdefault(offer.opening_id, []).append(offer)
+    labels = await _labels(session, conn, settings)
+    states = Counter(o.state for o in openings)
+    filled = [o for o in openings if o.state == "filled" and o.filled_at]
+    waits = sorted(
+        (as_utc(o.filled_at) - as_utc(o.detected_at)).total_seconds() / 60 for o in filled
+    )
+    resolved = states["filled"] + states["expired"]
+    active = [
+        o for o in openings if o.state in ("open", "booking", "needs_review", "no_candidates")
+    ]
+    recent = sorted(
+        (o for o in openings if o not in active), key=lambda o: o.detected_at, reverse=True
+    )[:20]
+    return {
+        "settings": {
+            "lead_minutes": settings.backfill_lead_minutes,
+            "horizon_days": settings.backfill_horizon_days,
+            "contact_hours": settings.contact_hours,
+            "enabled": settings.backfill_enabled,
+        },
+        "metrics": {
+            "states": dict(states),
+            "fill_rate": round(states["filled"] / resolved, 2) if resolved else None,
+            "median_minutes_to_fill": round(waits[len(waits) // 2]) if waits else None,
+            "visit_minutes_recovered": sum(o.minutes for o in filled),
+        },
+        "active": [
+            backfill.opening_view(o, offers.get(o.id, []), labels, settings) for o in active
+        ],
+        "recent": [
+            backfill.opening_view(o, offers.get(o.id, []), labels, settings) for o in recent
+        ],
+    }
+
+
+@router.post("/backfill/scan")
+async def backfill_scan(
+    request: Request,
+    principal: Principal = Depends(require("admin")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    conn = await _conn(session, principal)
+    expired = await backfill.expire(session, conn, settings)
+    opened = await backfill.detect(session, conn, settings, _transport(request))
+    await session.commit()
+    return {"opened": opened, "expired": expired}
+
+
+class OfferOutcome(BaseModel):
+    outcome: Literal["accepted", "declined", "no_answer"]
+
+
+@router.post("/backfill/offers/{offer_id}")
+async def backfill_respond(
+    offer_id: str,
+    body: OfferOutcome,
+    request: Request,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    offer = await session.get(BackfillOffer, offer_id)
+    if offer is None or offer.workspace_id != principal.workspace_id:
+        raise ApiError(404, "not_found", "Offer not found.")
+    opening = await backfill.respond(
+        request.app.state.db,
+        session,
+        offer,
+        body.outcome,
+        principal.user_id,
+        settings,
+        _transport(request),
+    )
+    conn = await session.get(PayerConnection, opening.connection_id)
+    offers = list(
+        await session.scalars(select(BackfillOffer).where(BackfillOffer.opening_id == opening.id))
+    )
+    return backfill.opening_view(opening, offers, await _labels(session, conn, settings), settings)
+
+
+@router.get("/patients/{patient_id}/contact")
+async def patient_contact(
+    patient_id: str,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """Reveal the name and phone needed to call a patient. Every reveal is audited."""
+    conn = await _conn(session, principal)
+    patient = await session.scalar(
+        select(EhrRecord).where(
+            EhrRecord.connection_id == conn.id,
+            EhrRecord.resource == "patient",
+            EhrRecord.source_id == patient_id,
+        )
+    )
+    if patient is None:
+        raise ApiError(404, "not_found", "Patient not found in the practice mirror.")
+    pii = PhiBox(settings).open(patient.pii)
+    session.add(
+        AuditEvent(
+            workspace_id=principal.workspace_id,
+            actor=principal.user_id,
+            action="phi.contact_viewed",
+            target=f"patient:{patient_id}",
+            detail={"purpose": "backfill_outreach"},
+        )
+    )
+    await session.commit()
+    name = " ".join(x for x in (pii.get("first_name"), pii.get("last_name")) if x)
+    return {"name": name or None, "phone": pii.get("phone")}

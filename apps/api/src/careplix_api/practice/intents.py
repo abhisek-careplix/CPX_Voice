@@ -40,6 +40,11 @@ class WriteKind:
     level: str
     target_resource: str
     insertion_event: str | None  # NexHealth event that proves the EHR has the record
+    confirm_by_read: bool = False  # otherwise prove it by reading the record back
+
+    @property
+    def confirmable(self) -> bool:
+        return bool(self.insertion_event or self.confirm_by_read)
 
     async def send(
         self, client: NexHealthClient, intent: WriteIntent, payload: dict[str, Any]
@@ -50,6 +55,9 @@ class WriteKind:
         self, client: NexHealthClient, intent: WriteIntent
     ) -> dict[str, Any] | None:
         return None
+
+    def in_ehr(self, record: dict[str, Any]) -> bool:
+        return bool(record.get("foreign_id"))
 
 
 class PatientAlert(WriteKind):
@@ -65,9 +73,47 @@ class PatientAlert(WriteKind):
         return await client.get(f"/patients/{intent.target_source_id}/alerts/{intent.remote_id}")
 
 
+class BookAppointment(WriteKind):
+    """POST /appointments. ``appointment_insertion.complete`` proves the EHR has it."""
+
+    async def send(self, client, intent, payload):
+        body = await client.request(
+            "POST",
+            "/appointments",
+            params={"location_id": payload["location_id"], "notify_patient": "false"},
+            json={
+                "appt": {k: v for k, v in payload.items() if k != "location_id" and v is not None}
+            },
+        )
+        return (body.get("data") or {}).get("appt") or {}
+
+    async def read_back(self, client, intent):
+        return await client.get(f"/appointments/{intent.remote_id}")
+
+
+class CancelAppointment(WriteKind):
+    """PATCH cancelled=true: the one appointment edit every NexHealth EHR supports."""
+
+    async def send(self, client, intent, payload):
+        body = await client.request(
+            "PATCH", f"/appointments/{intent.target_source_id}", json={"appt": {"cancelled": True}}
+        )
+        appt = (body.get("data") or {}).get("appt") or {}
+        # The appointment already exists in the EHR; its id is the one we changed.
+        return {**appt, "id": appt.get("id") or intent.target_source_id, "foreign_id": None}
+
+    async def read_back(self, client, intent):
+        return await client.get(f"/appointments/{intent.target_source_id}")
+
+    def in_ehr(self, record):
+        return record.get("cancelled") is True and bool(record.get("foreign_id"))
+
+
 KINDS: dict[str, WriteKind] = {
     # Alerts have no documented insertion event: confirmation stays "not_reported".
     "patient_alert": PatientAlert("L2", "patient", None),
+    "appointment_book": BookAppointment("L2", "patient", "appointment_insertion"),
+    "appointment_cancel": CancelAppointment("L2", "appointment", None, confirm_by_read=True),
 }
 
 
@@ -149,17 +195,17 @@ async def decide(
 
 
 async def execute_approved(
-    db: Database, settings: Settings, transport: httpx.AsyncBaseTransport | None = None
+    db: Database,
+    settings: Settings,
+    transport: httpx.AsyncBaseTransport | None = None,
+    only: list[str] | None = None,
 ) -> int:
     """Send approved intents, one transaction per intent around the external call."""
     async with db.sessions() as session:
-        ids = list(
-            await session.scalars(
-                select(WriteIntent.id)
-                .where(WriteIntent.state == "approved")
-                .order_by(WriteIntent.approved_at)
-            )
-        )
+        query = select(WriteIntent.id).where(WriteIntent.state == "approved")
+        if only is not None:
+            query = query.where(WriteIntent.id.in_(only))
+        ids = list(await session.scalars(query.order_by(WriteIntent.approved_at)))
     sent = 0
     for intent_id in ids:
         async with db.sessions() as session:
@@ -193,7 +239,13 @@ async def _send(
         intent.remote_id = str(data.get("id")) if data.get("id") is not None else None
         intent.foreign_id = data.get("foreign_id")
         intent.state, intent.last_error = "accepted", None
-        intent.confirmation = "pending" if spec.insertion_event else "not_reported"
+        if not spec.confirmable:
+            intent.confirmation = "not_reported"
+        elif not (conn.capability or {}).get("writes_confirmable", True):
+            # Sandbox demo location: no sync, so the EHR can never confirm. Say so; don't wait.
+            intent.confirmation = "no_sync"
+        else:
+            intent.confirmation = "pending"
         if intent.foreign_id:
             intent.state, intent.confirmation, intent.resolved_at = (
                 "written",
@@ -272,8 +324,8 @@ async def reconcile(
                     record = None
                 finally:
                     await client.aclose()
-                if record and record.get("foreign_id"):
-                    apply_insertion(intent, "complete", record["foreign_id"])
+                if record and KINDS[intent.kind].in_ehr(record):
+                    apply_insertion(intent, "complete", record.get("foreign_id"))
                 else:
                     intent.state = "needs_review"
                     intent.last_error = "No EHR confirmation within the expected time."
