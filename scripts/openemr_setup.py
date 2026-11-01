@@ -166,8 +166,35 @@ def brand() -> None:
     print("✓ Branded as CarePlix EHR (powered by OpenEMR)")
 
 
+def module() -> None:
+    """Register and enable the CarePlix Connector (as Administration → Modules → Install)."""
+    directory = "oe-module-careplix"
+    mounted = subprocess.run(
+        [*COMPOSE, "exec", "-T", "openemr", "test", "-f",
+         f"/var/www/localhost/htdocs/openemr/interface/modules/custom_modules/{directory}/openemr.bootstrap.php"],
+    ).returncode == 0  # fmt: skip
+    if not mounted:
+        sys.exit("✗ The CarePlix module isn't mounted; run make openemr-up first")
+    if sql(f"SELECT COUNT(*) FROM modules WHERE mod_directory='{directory}'") == "0":
+        sql(
+            "INSERT INTO modules SET mod_name='CarePlix Connector', mod_active=1, "
+            f"mod_ui_name='CarePlix Connector', mod_directory='{directory}', type=0, sql_run=1, "
+            "mod_description='Appointment status updates for CarePlix Voice', directory='', "
+            "sql_version='', acl_version='', date=NOW()"
+        )
+        mod_id = sql(f"SELECT mod_id FROM modules WHERE mod_directory='{directory}'")
+        section = sql("SELECT COALESCE(MAX(section_id), 0) + 1 FROM module_acl_sections")
+        sql(
+            "INSERT INTO module_acl_sections VALUES "
+            f"({section}, 'CarePlix Connector', 0, '{directory}', {mod_id})"
+        )
+    sql(f"UPDATE modules SET mod_active=1 WHERE mod_directory='{directory}'")
+    print("✓ Enabled the CarePlix Connector module (appointment status updates)")
+
+
 def main() -> None:
     brand()
+    module()
     cid, secret = client()
     env_set(
         {

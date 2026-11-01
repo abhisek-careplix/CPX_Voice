@@ -21,7 +21,8 @@ def _local(days: int, hour: int, minute: int = 0) -> tuple[str, str]:
 
 
 class FakeOpenEmr:
-    def __init__(self):
+    def __init__(self, connector: bool = True):
+        self.connector = connector  # the CarePlix Connector module is installed
         self.calls: list[tuple[str, str]] = []
         self.next_eid = 300
         self.messages: list[dict] = []
@@ -179,6 +180,27 @@ class FakeOpenEmr:
                 "pid": parts[1],
             }
             return httpx.Response(200, json={"id": int(eid)})
+        if parts[0] == "patient" and parts[2:3] == ["appointment"] and method == "PUT":
+            if not self.connector:
+                return httpx.Response(404)  # core OpenEMR has no appointment update route
+            headers = {"X-CarePlix-Connector": "1.0.0"}
+            body = json.loads(request.content)
+            appt = self.appts.get(parts[3])
+            if not appt or appt["pc_pid"] != parts[1]:
+                return httpx.Response(404, headers=headers, json={"error": "not found"})
+            previous = appt["pc_apptstatus"]
+            appt["pc_apptstatus"] = body["pc_apptstatus"]
+            if body.get("comment"):
+                appt["pc_hometext"] += f" — {body['comment']}"
+            return httpx.Response(
+                200,
+                headers=headers,
+                json={
+                    "pc_eid": int(parts[3]),
+                    "pc_apptstatus": appt["pc_apptstatus"],
+                    "previous_status": previous,
+                },  # fmt: skip
+            )
         if parts[0] == "patient" and parts[2:3] == ["appointment"] and method == "DELETE":
             self.appts.pop(parts[3], None)
             return httpx.Response(200, json={"message": "record deleted"})
@@ -189,8 +211,8 @@ class FakeOpenEmr:
 
 
 class Router(httpx.AsyncBaseTransport):
-    def __init__(self):
-        self.openemr, self.stedi = FakeOpenEmr(), FakeStedi()
+    def __init__(self, connector: bool = True):
+        self.openemr, self.stedi = FakeOpenEmr(connector), FakeStedi()
         self._oe, self._st = httpx.MockTransport(self.openemr), httpx.MockTransport(self.stedi)
 
     async def handle_async_request(self, request):
@@ -198,7 +220,7 @@ class Router(httpx.AsyncBaseTransport):
         return await target.handle_async_request(request)
 
 
-def _client(tmp_path):
+def _client(tmp_path, connector: bool = True):
     settings = make_settings(
         tmp_path,
         openemr_base_url="https://openemr.test",
@@ -212,7 +234,7 @@ def _client(tmp_path):
         run_background=False,
         payer_sandbox_url="",
     )
-    router = Router()
+    router = Router(connector)
     return TestClient(
         create_app(settings, FakeGateway(settings), integration_transport=router)
     ), router
@@ -294,7 +316,14 @@ def test_backfill_books_into_openemr_and_releases_the_later_visit(tmp_path):
             router.openemr.appts["101"]["pc_eventDate"],
             router.openemr.appts["101"]["pc_startTime"][:5],
         )
-        assert "102" not in router.openemr.appts  # the ASAP patient's later visit was released
+        # The ASAP patient's later visit was released through the connector module: it stays on
+        # the calendar as "x Canceled", with the reason (no patient details) in its note.
+        released = router.openemr.appts["102"]
+        assert released["pc_apptstatus"] == "x"
+        assert released["pc_hometext"].endswith(
+            "Cancelled by CarePlix: Backfill: patient moved to an earlier slot"
+        )
+        assert ("DELETE", "/apis/default/api/patient/1/appointment/102") not in router.openemr.calls
         writes = {
             (i["kind"], i["state"], i["confirmation"])
             for i in c.get("/api/practices/intents").json()
@@ -304,6 +333,28 @@ def test_backfill_books_into_openemr_and_releases_the_later_visit(tmp_path):
             ("appointment_book", "written", "ehr_written"),
             ("appointment_cancel", "written", "ehr_written"),
         }
+
+
+def test_without_the_connector_module_release_falls_back_to_delete(tmp_path):
+    c, router = _client(tmp_path, connector=False)
+    with c:
+        c.post("/api/auth/dev-login")
+        assert (
+            c.post("/api/practices/verify", params={"kind": "openemr"}).json()["capability"][
+                "connector_module"
+            ]
+            is None
+        )
+        _worker(c)
+        _worker(c)
+        [opening] = c.get("/api/practices/backfill").json()["active"]
+        top = opening["offers"][0]
+        result = c.post(
+            f"/api/practices/backfill/offers/{top['id']}", json={"outcome": "accepted"}
+        ).json()
+        assert result["state"] == "filled"
+        assert "102" not in router.openemr.appts
+        assert {i["state"] for i in c.get("/api/practices/intents").json()} == {"written"}
 
 
 def test_a_provider_conflict_means_the_slot_is_not_free(tmp_path):

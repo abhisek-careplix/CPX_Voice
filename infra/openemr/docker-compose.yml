@@ -34,6 +34,8 @@ services:
       OPENEMR_SETTING_site_addr_oath: "https://localhost:9300"
     volumes:
       - openemr-sites:/var/www/localhost/htdocs/openemr/sites
+      # CarePlix Connector module (adds the appointment status update the core API lacks).
+      - ./modules/oe-module-careplix:/var/www/localhost/htdocs/openemr/interface/modules/custom_modules/oe-module-careplix:ro
     depends_on:
       mysql:
         condition: service_healthy

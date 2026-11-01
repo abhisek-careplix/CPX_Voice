@@ -3,8 +3,11 @@
 What OpenEMR 7.0.3's APIs offer, verified against the running container on 31 Oct 2026:
 - OAuth2 password grant for the integration user; tokens last 1 h with a refresh token.
 - Standard API: patients, patient insurance, practitioners, facility, appointments (create, read,
-  delete), patient messages (create). There is no appointment update, so "cancel" deletes the
-  event; staff cancellations in the OpenEMR calendar arrive as status ``x``/``%``.
+  delete), patient messages (create). There is no appointment update; the CarePlix Connector
+  module (infra/openemr/modules/oe-module-careplix) adds ``PUT /patient/{pid}/appointment/{eid}``
+  for status changes, so "cancel" sets ``x`` and the visit stays on the calendar. Without the
+  module, cancel falls back to deleting the event. Staff cancellations in the OpenEMR calendar
+  arrive as status ``x``/``%``.
 - ``GET/POST /insurance_company`` is broken in 7.0.3, so insurers (name, payer ID) come from FHIR
   ``Organization`` (type ``ins``) and patient insurance links to them by ``insureruuid``.
 - Appointment times are clinic-local; this adapter converts them with the practice time zone.
@@ -71,6 +74,7 @@ class OpenEmrClient:
         self.username = username
         self._creds = (client_id, client_secret, username, password)
         self._token: tuple[str, float, str | None] | None = None
+        self._connector: str | None = None
         self.calls = 0
         self._http = httpx.AsyncClient(timeout=30, verify=verify_tls, transport=transport)
 
@@ -139,7 +143,10 @@ class OpenEmrClient:
             body = {}
         if response.status_code >= 400:
             detail = (
-                body.get("validationErrors") or body.get("error_description") or body.get("message")
+                body.get("validationErrors")
+                or body.get("error_description")
+                or body.get("message")
+                or body.get("error")
                 if isinstance(body, dict)
                 else None
             )
@@ -270,10 +277,20 @@ class OpenEmrClient:
             eid = str((eid[0] if isinstance(eid, list) else eid) or "")
             return {"id": eid, "foreign_id": eid or None}
         if kind == "appointment_cancel":
-            # OpenEMR's API has no appointment update; deleting is the only cancel it offers.
-            await self.request(
-                "DELETE", f"/patient/{payload['patient_id']}/appointment/{intent.target_source_id}"
-            )
+            path = f"/patient/{payload['patient_id']}/appointment/{intent.target_source_id}"
+            if await self.connector():
+                # The visit stays on the calendar as "x Canceled", with the reason in its note.
+                await self.request(
+                    "PUT",
+                    path,
+                    json={
+                        "pc_apptstatus": "x",
+                        "comment": f"Cancelled by CarePlix: {intent.reason}",
+                    },
+                )
+            else:
+                # Without the connector module, deleting is the only cancel the API offers.
+                await self.request("DELETE", path)
             return {
                 "id": intent.target_source_id,
                 "foreign_id": intent.target_source_id,
@@ -281,13 +298,33 @@ class OpenEmrClient:
             }
         raise OpenEmrError("http", f"OpenEMR adapter does not support {kind}")
 
+    async def connector(self) -> str | None:
+        """The CarePlix Connector module's version, or ``None`` when it isn't installed.
+
+        Asks for a status change on appointment 0, which never exists: the module answers 404
+        with its version header, while core OpenEMR has no such route (404, no header).
+        """
+        if self._connector is None:
+            self.calls += 1
+            try:
+                response = await self._http.put(
+                    f"{self.base_url}/apis/default/api/patient/0/appointment/0",
+                    json={"pc_apptstatus": "-"},
+                    headers={"Authorization": f"Bearer {await self._bearer()}"},
+                )
+            except httpx.HTTPError as exc:
+                raise OpenEmrError("network", type(exc).__name__) from None
+            self._connector = response.headers.get("x-careplix-connector") or ""
+        return self._connector or None
+
     async def read_back(self, kind: str, intent: Any) -> dict[str, Any] | None:
         if kind == "appointment_book":
             appt = await self.appointment(intent.remote_id)
             return {"foreign_id": intent.remote_id} if appt else None
         if kind == "appointment_cancel":
-            gone = await self.appointment(intent.target_source_id) is None
-            return {"foreign_id": intent.target_source_id, "cancelled": True} if gone else None
+            appt = await self.appointment(intent.target_source_id)
+            done = appt is None or appt.get("pc_apptstatus") in CANCELLED
+            return {"foreign_id": intent.target_source_id, "cancelled": True} if done else None
         return {"foreign_id": intent.remote_id}
 
 
@@ -613,6 +650,10 @@ async def probe(
                     "http_status": err.http_status,
                     "error": err.message[:120],
                 }
+        try:
+            connector = await client.connector()
+        except OpenEmrError:
+            connector = None
     finally:
         calls = client.calls
         await client.aclose()
@@ -632,9 +673,15 @@ async def probe(
             }
         ],
         "writes_confirmable": True,
+        "connector_module": connector,
         "writes": {
             "appointments": "POST /patient/{pid}/appointment (written immediately)",
-            "appointment_cancel": "DELETE /patient/{pid}/appointment/{eid} (no update API)",
+            "appointment_cancel": (
+                f"PUT /patient/{{pid}}/appointment/{{eid}} → x (CarePlix Connector {connector})"
+                if connector
+                else "DELETE /patient/{pid}/appointment/{eid} (install the CarePlix Connector "
+                "module to cancel by status instead)"
+            ),
             "patient_messages": "POST /patient/{pid}/message (chart message)",
             "patients": "POST /patient",
             "insurance": "POST /patient/{puuid}/insurance",
