@@ -28,7 +28,8 @@ from careplix_api.models import (
 )
 from careplix_api.phi import PhiBox, initials
 from careplix_api.practice import backfill, eligibility, intents, sync, webhooks
-from careplix_api.practice.connections import CLEARINGHOUSE, EHR, verify
+from careplix_api.practice.connections import CLEARINGHOUSE, EHR_KINDS, OPENEMR, verify
+from careplix_api.practice.openemr import deep_links
 from careplix_api.settings import Settings, get_settings
 from careplix_api.studio_api import Session
 
@@ -39,21 +40,35 @@ def _transport(request: Request):
     return getattr(request.app.state, "integration_transport", None)
 
 
-async def _conn(session: AsyncSession, principal: Principal, kind: str = EHR) -> PayerConnection:
-    conn = await session.scalar(
-        select(PayerConnection).where(
-            PayerConnection.workspace_id == principal.workspace_id, PayerConnection.kind == kind
+async def _conn(
+    session: AsyncSession,
+    principal: Principal,
+    kind: str | None = None,
+    practice: str | None = None,
+) -> PayerConnection:
+    """The clearinghouse, or the selected practice (default: OpenEMR, then NexHealth)."""
+    kinds = (kind,) if kind else EHR_KINDS
+    rows = list(
+        await session.scalars(
+            select(PayerConnection).where(
+                PayerConnection.workspace_id == principal.workspace_id,
+                PayerConnection.kind.in_(kinds),
+            )
         )
     )
-    if conn is None:
-        what = "NexHealth" if kind == EHR else "Stedi"
-        script = "connect-nexhealth" if kind == EHR else "connect-stedi"
-        raise ApiError(
-            404,
-            "not_connected",
-            f"{what} is not connected. Run make {script}, then restart the API.",
-        )
-    return conn
+    if practice:
+        rows = [c for c in rows if c.id == practice]
+    rows.sort(key=lambda c: kinds.index(c.kind) if c.kind in kinds else 99)
+    if not rows:
+        if kind == CLEARINGHOUSE:
+            message = "Stedi is not connected. Run make connect-stedi, then restart the API."
+        else:
+            message = (
+                "No practice EHR is connected. Run make openemr-setup or make connect-nexhealth, "
+                "then restart the API."
+            )
+        raise ApiError(404, "not_connected", message)
+    return rows[0]
 
 
 def _conn_view(conn: PayerConnection | None) -> dict[str, Any] | None:
@@ -81,20 +96,25 @@ def _conn_view(conn: PayerConnection | None) -> dict[str, Any] | None:
 
 @router.get("")
 async def overview(
+    practice: str | None = None,
     principal: Principal = Depends(require("view")),
     session: AsyncSession = Session,
     settings: Settings = Depends(get_settings),
 ):
     ws = principal.workspace_id
-    conns = {
-        c.kind: c
-        for c in await session.scalars(
+    practices = list(
+        await session.scalars(
             select(PayerConnection).where(
-                PayerConnection.workspace_id == ws, PayerConnection.kind.in_((EHR, CLEARINGHOUSE))
+                PayerConnection.workspace_id == ws, PayerConnection.kind.in_(EHR_KINDS)
             )
         )
-    }
-    ehr = conns.get(EHR)
+    )
+    clearinghouse = await session.scalar(
+        select(PayerConnection).where(
+            PayerConnection.workspace_id == ws, PayerConnection.kind == CLEARINGHOUSE
+        )
+    )
+    ehr = await _conn(session, principal, practice=practice) if practices else None
     mirror: dict[str, int] = {}
     cursors: list[dict[str, Any]] = []
     location = None
@@ -135,7 +155,7 @@ async def overview(
             (
                 await session.execute(
                     select(EligibilityCheck.state, func.count())
-                    .where(EligibilityCheck.workspace_id == ws)
+                    .where(EligibilityCheck.ehr_connection_id == (ehr.id if ehr else "-"))
                     .group_by(EligibilityCheck.state)
                 )
             ).all()
@@ -145,7 +165,8 @@ async def overview(
         (c.summary or {}).get("coverage")
         for c in await session.scalars(
             select(EligibilityCheck).where(
-                EligibilityCheck.workspace_id == ws, EligibilityCheck.state == "done"
+                EligibilityCheck.ehr_connection_id == (ehr.id if ehr else "-"),
+                EligibilityCheck.state == "done",
             )
         )
     )
@@ -160,14 +181,21 @@ async def overview(
     recent_intents = list(
         await session.scalars(
             select(WriteIntent)
-            .where(WriteIntent.workspace_id == ws)
+            .where(WriteIntent.connection_id == (ehr.id if ehr else "-"))
             .order_by(WriteIntent.created_at.desc())
             .limit(30)
         )
     )
     return {
         "ehr": _conn_view(ehr),
-        "clearinghouse": _conn_view(conns.get(CLEARINGHOUSE)),
+        "practices": [
+            {"id": c.id, "kind": c.kind, "name": c.name, "env": (c.auth_ref or {}).get("env")}
+            for c in practices
+        ],
+        "links": deep_links((ehr.auth_ref or {}).get("ui_url") or ehr.base_url)
+        if ehr is not None and ehr.kind == OPENEMR
+        else None,
+        "clearinghouse": _conn_view(clearinghouse),
         "location": location,
         "mirror": mirror,
         "cursors": cursors,
@@ -190,12 +218,13 @@ async def overview(
 @router.post("/verify")
 async def verify_connection(
     request: Request,
-    kind: Literal["nexhealth", "stedi"] = "nexhealth",
+    kind: Literal["nexhealth", "openemr", "stedi"] | None = None,
+    practice: str | None = None,
     principal: Principal = Depends(require("admin")),
     session: AsyncSession = Session,
     settings: Settings = Depends(get_settings),
 ):
-    conn = await _conn(session, principal, kind)
+    conn = await _conn(session, principal, kind, practice)
     result = await verify(session, conn, settings, _transport(request))
     await session.commit()
     return result
@@ -205,11 +234,12 @@ async def verify_connection(
 async def sync_now(
     request: Request,
     full: bool = False,
+    practice: str | None = None,
     principal: Principal = Depends(require("admin")),
     session: AsyncSession = Session,
     settings: Settings = Depends(get_settings),
 ):
-    conn = await _conn(session, principal)
+    conn = await _conn(session, principal, practice=practice)
     report = await sync.sync_practice(session, conn, settings, _transport(request), full=full)
     queued = await eligibility.schedule(session, conn) if settings.eligibility_autopilot else 0
     session.add(
@@ -228,11 +258,12 @@ async def sync_now(
 @router.post("/webhooks/register")
 async def register_webhooks(
     request: Request,
+    practice: str | None = None,
     principal: Principal = Depends(require("admin")),
     session: AsyncSession = Session,
     settings: Settings = Depends(get_settings),
 ):
-    conn = await _conn(session, principal)
+    conn = await _conn(session, principal, practice=practice)
     result = await webhooks.register(session, conn, settings, _transport(request))
     await session.commit()
     return result
@@ -275,12 +306,13 @@ def _flags(
 async def huddle(
     day: date | None = Query(default=None, alias="date"),
     days: int = Query(default=1, ge=1, le=14),
+    practice: str | None = None,
     principal: Principal = Depends(require("view")),
     session: AsyncSession = Session,
     settings: Settings = Depends(get_settings),
 ):
     """The front desk's day: each visit with its insurance, eligibility result and flags."""
-    conn = await _conn(session, principal)
+    conn = await _conn(session, principal, practice=practice)
     sample = list(
         await session.scalars(
             select(EhrRecord)
@@ -395,11 +427,12 @@ async def huddle(
 async def check_now(
     appointment_id: str,
     request: Request,
+    practice: str | None = None,
     principal: Principal = Depends(require("start_task")),
     session: AsyncSession = Session,
     settings: Settings = Depends(get_settings),
 ):
-    conn = await _conn(session, principal)
+    conn = await _conn(session, principal, practice=practice)
     appt = await session.scalar(
         select(EhrRecord).where(
             EhrRecord.connection_id == conn.id,
@@ -445,11 +478,12 @@ async def list_intents(
 @router.post("/intents")
 async def propose_intent(
     body: IntentIn,
+    practice: str | None = None,
     principal: Principal = Depends(require("start_task")),
     session: AsyncSession = Session,
     settings: Settings = Depends(get_settings),
 ):
-    conn = await _conn(session, principal)
+    conn = await _conn(session, principal, practice=practice)
     patient = await session.scalar(
         select(EhrRecord).where(
             EhrRecord.connection_id == conn.id,
@@ -527,11 +561,12 @@ async def _labels(
 
 @router.get("/backfill")
 async def backfill_board(
+    practice: str | None = None,
     principal: Principal = Depends(require("view")),
     session: AsyncSession = Session,
     settings: Settings = Depends(get_settings),
 ):
-    conn = await _conn(session, principal)
+    conn = await _conn(session, principal, practice=practice)
     openings = list(
         await session.scalars(
             select(BackfillOpening)
@@ -582,11 +617,12 @@ async def backfill_board(
 @router.post("/backfill/scan")
 async def backfill_scan(
     request: Request,
+    practice: str | None = None,
     principal: Principal = Depends(require("admin")),
     session: AsyncSession = Session,
     settings: Settings = Depends(get_settings),
 ):
-    conn = await _conn(session, principal)
+    conn = await _conn(session, principal, practice=practice)
     expired = await backfill.expire(session, conn, settings)
     opened = await backfill.detect(session, conn, settings, _transport(request))
     await session.commit()
@@ -628,12 +664,13 @@ async def backfill_respond(
 @router.get("/patients/{patient_id}/contact")
 async def patient_contact(
     patient_id: str,
+    practice: str | None = None,
     principal: Principal = Depends(require("start_task")),
     session: AsyncSession = Session,
     settings: Settings = Depends(get_settings),
 ):
     """Reveal the name and phone needed to call a patient. Every reveal is audited."""
-    conn = await _conn(session, principal)
+    conn = await _conn(session, principal, practice=practice)
     patient = await session.scalar(
         select(EhrRecord).where(
             EhrRecord.connection_id == conn.id,

@@ -89,6 +89,10 @@ async def sync_practice(
     full: bool = False,
 ) -> dict[str, Any]:
     """One sync pass. Per-resource failures are recorded and never stop the other resources."""
+    if conn.kind == "openemr":
+        from careplix_api.practice import openemr
+
+        return await openemr.sync_practice(session, conn, settings, transport, full=full)
     box, client = PhiBox(settings), nexhealth_client(conn, settings, transport)
     report: dict[str, Any] = {"full": full, "resources": {}, "transitions": []}
     try:
@@ -219,6 +223,10 @@ async def probe(
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> dict[str, Any]:
     """Live capability map for this location: what reads answer, sync health, documented writes."""
+    if conn.kind == "openemr":
+        from careplix_api.practice import openemr
+
+        return await openemr.probe(session, conn, settings, transport)
     client = nexhealth_client(conn, settings, transport)
     loc_id = location_id(conn)
     started = time.perf_counter()
@@ -311,6 +319,8 @@ async def refresh_sync_status(
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> list[dict[str, Any]]:
     """Cheap re-read of sync health (one call), used when NexHealth reports a status change."""
+    if conn.kind != "nexhealth":
+        return (conn.capability or {}).get("sync") or []
     client = nexhealth_client(conn, settings, transport)
     try:
         syncs = await client.get("/sync_status", {"location_ids[]": location_id(conn)}) or []

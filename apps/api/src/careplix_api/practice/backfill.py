@@ -34,7 +34,7 @@ from careplix_api.models import (
     PayerConnection,
 )
 from careplix_api.practice import intents
-from careplix_api.practice.connections import audit, location_id, nexhealth_client
+from careplix_api.practice.connections import audit, ehr_client, location_id
 from careplix_api.practice.records import parse_dt
 from careplix_api.settings import Settings
 
@@ -73,6 +73,8 @@ async def free_operatory(
 
     ``None`` means the time is no longer bookable: rebooked, blocked or outside working hours.
     """
+    if getattr(client, "is_openemr", False):
+        return await client.slot_free(opening)
     start = as_utc(opening.starts_at)
     local_day = start.astimezone(zone(opening.timezone)).date().isoformat()
     params: dict[str, Any] = {
@@ -290,7 +292,7 @@ async def detect(
     ][:limit]
     if not freed:
         return 0
-    client = nexhealth_client(conn, settings, transport)
+    client = ehr_client(conn, settings, transport)
     opened = 0
     try:
         for appt in freed:
@@ -389,7 +391,7 @@ async def respond(
     conn = await session.get(PayerConnection, opening.connection_id)
     await session.commit()
 
-    client = nexhealth_client(conn, settings, transport)
+    client = ehr_client(conn, settings, transport)
     try:
         operatory = await free_operatory(client, conn, opening)
     except NexHealthError as err:
@@ -461,7 +463,7 @@ async def respond(
                 settings,
                 kind="appointment_cancel",
                 target_source_id=offer.current_appointment_ref,
-                payload={"cancelled": True},
+                payload={"cancelled": True, "patient_id": int(offer.patient_ref)},
                 reason="Backfill: patient moved to an earlier slot",
                 source="backfill",
                 requested_by=actor,

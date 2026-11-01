@@ -405,7 +405,7 @@ export interface IntegrationsOverview {
 
 export interface PracticeConnection {
   id: string;
-  kind: "nexhealth" | "stedi";
+  kind: "nexhealth" | "openemr" | "stedi";
   name: string;
   env: string | null;
   subdomain?: string | null;
@@ -444,6 +444,8 @@ export interface WriteIntentRow {
 
 export interface PracticeOverview {
   ehr: PracticeConnection | null;
+  practices: { id: string; kind: string; name: string; env: string | null }[];
+  links: { calendar: string; patient: string; home: string } | null;
   clearinghouse: PracticeConnection | null;
   location: { name: string; institution_name: string; emrs: string[] } | null;
   mirror: Record<string, number>;

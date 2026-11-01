@@ -1,0 +1,42 @@
+# Local OpenEMR (ONC-certified, open-source EHR) for end-to-end practice-layer testing.
+# Synthetic data only. Bound to 127.0.0.1; the credentials below are local-development defaults.
+#
+#   make openemr-up      # first start installs the database (≈ 3–6 min)
+#   open https://localhost:9300   (admin / pass; accept the self-signed certificate)
+services:
+  mysql:
+    image: mariadb:11.4
+    command: ["mariadbd", "--character-set-server=utf8mb4"]
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - openemr-db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      retries: 30
+  openemr:
+    image: openemr/openemr:7.0.3
+    ports:
+      - "127.0.0.1:8300:80"
+      - "127.0.0.1:9300:443"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_ROOT_PASS: root
+      MYSQL_USER: openemr
+      MYSQL_PASS: openemr
+      OE_USER: admin
+      OE_PASS: pass
+      # APIs CarePlix uses: standard REST + FHIR, OAuth2 password grant for the integration user.
+      OPENEMR_SETTING_rest_api: "1"
+      OPENEMR_SETTING_rest_fhir_api: "1"
+      OPENEMR_SETTING_oauth_password_grant: "3"
+      OPENEMR_SETTING_site_addr_oath: "https://localhost:9300"
+    volumes:
+      - openemr-sites:/var/www/localhost/htdocs/openemr/sites
+    depends_on:
+      mysql:
+        condition: service_healthy
+volumes:
+  openemr-db:
+  openemr-sites:

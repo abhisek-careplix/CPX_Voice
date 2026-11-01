@@ -52,6 +52,17 @@ class Settings(BaseSettings):
     nexhealth_subdomain: str = ""
     nexhealth_institution_id: str = ""
     nexhealth_location_id: str = ""
+    # Local OpenEMR (infra/openemr, scripts/openemr_setup.py): a real EHR for end-to-end testing.
+    openemr_base_url: str = ""
+    openemr_client_id: str = ""
+    openemr_client_secret: SecretStr = SecretStr("")
+    openemr_username: str = ""
+    openemr_password: SecretStr = SecretStr("")
+    openemr_timezone: str = "America/New_York"
+    openemr_verify_tls: bool = True  # the local container uses a self-signed certificate
+    openemr_facility_id: str = ""
+    openemr_ui_url: str = ""  # where staff open OpenEMR screens; defaults to the API base URL
+    openemr_sync_interval_s: float = 30.0  # local and free, so cancellations show up quickly
     # Clearinghouse via Stedi. Set by scripts/connect-stedi.sh.
     stedi_api_key: SecretStr = SecretStr("")
     stedi_env: str = "test"  # test (mock payers only) | production
@@ -95,6 +106,10 @@ class Settings(BaseSettings):
     @property
     def nexhealth_configured(self) -> bool:
         return bool(self.nexhealth_api_key.get_secret_value() and self.nexhealth_subdomain)
+
+    @property
+    def openemr_configured(self) -> bool:
+        return bool(self.openemr_base_url and self.openemr_client_id and self.openemr_username)
 
     @property
     def stedi_configured(self) -> bool:

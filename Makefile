@@ -1,4 +1,4 @@
-.PHONY: payer-sandbox connect-livekit connect-nexhealth connect-stedi setup lint fmt test check api studio worker-dev db-up probe-readiness probe-gemini browser-session web-check
+.PHONY: payer-sandbox connect-livekit connect-nexhealth connect-stedi openemr-up openemr-down openemr-setup setup lint fmt test check api studio worker-dev db-up probe-readiness probe-gemini browser-session web-check
 
 setup:
 	uv sync
@@ -30,6 +30,16 @@ connect-livekit:
 # Prompts for the NexHealth API key (hidden), checks it, picks the practice location, writes .env.
 connect-nexhealth:
 	./scripts/connect-nexhealth.sh
+
+# Local OpenEMR (real EHR) for end-to-end testing: start it, then connect and seed a synthetic clinic.
+openemr-up:
+	docker compose -f infra/openemr/docker-compose.yml up -d
+
+openemr-down:
+	docker compose -f infra/openemr/docker-compose.yml down
+
+openemr-setup:
+	uv run python scripts/openemr_setup.py
 
 # Prompts for the Stedi API key (hidden), checks it and runs Stedi's free mock eligibility check.
 connect-stedi:

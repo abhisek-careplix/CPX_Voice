@@ -151,7 +151,7 @@ async def verify_connection(
     settings: Any = None,
 ) -> dict[str, Any]:
     """A connection is verified only by a live read plus a test operation."""
-    if conn.kind in ("nexhealth", "stedi"):
+    if conn.kind in ("nexhealth", "openemr", "stedi"):
         from careplix_api.practice.connections import verify
 
         return await verify(session, conn, settings, transport)

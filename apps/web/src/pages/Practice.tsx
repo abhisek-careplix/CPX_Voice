@@ -9,6 +9,7 @@ import {
   Database,
   FilePenLine,
   RefreshCw,
+  ExternalLink,
   ShieldCheck,
   Stethoscope,
   XCircle,
@@ -16,6 +17,7 @@ import {
 import { useState } from "react";
 import { api, ApiError, type EligibilityView, type Huddle, type HuddleRow, type PracticeConnection, type PracticeOverview, type WriteIntentRow } from "../api";
 import { useCan } from "../App";
+import { PRACTICE_LABEL, usePractice, withPractice } from "../practice";
 import { Banner, Card, Empty, Pill, Segmented, Sheet, Toolbar, timeAgo, useToast } from "../ui";
 
 type Range = "today" | "tomorrow" | "week";
@@ -54,33 +56,35 @@ export default function Practice() {
   const toast = useToast();
   const [range, setRange] = useState<Range>("week");
   const [alertFor, setAlertFor] = useState<HuddleRow | null>(null);
-  const overview = useQuery({ queryKey: ["practice"], queryFn: () => api.get<PracticeOverview>("/practices"), refetchInterval: 5000 });
-  const tz = useQuery({ queryKey: ["practice-huddle", "today"], queryFn: () => api.get<Huddle>("/practices/huddle?days=1"), enabled: !!overview.data?.ehr }).data?.timezone;
+  const [practice, setPractice] = usePractice();
+  const at = (path: string) => withPractice(path, practice);
+  const overview = useQuery({ queryKey: ["practice", practice], queryFn: () => api.get<PracticeOverview>(at("/practices")), refetchInterval: 5000 });
+  const tz = useQuery({ queryKey: ["practice-huddle", practice, "today"], queryFn: () => api.get<Huddle>(at("/practices/huddle?days=1")), enabled: !!overview.data?.ehr }).data?.timezone;
   const params = rangeParams(range, tz);
   const query = new URLSearchParams({ days: String(params.days), ...(params.date ? { date: params.date } : {}) });
   const huddle = useQuery({
-    queryKey: ["practice-huddle", range, params.date],
-    queryFn: () => api.get<Huddle>(`/practices/huddle?${query}`),
+    queryKey: ["practice-huddle", practice, range, params.date],
+    queryFn: () => api.get<Huddle>(at(`/practices/huddle?${query}`)),
     enabled: !!overview.data?.ehr,
     refetchInterval: 5000,
   });
   const refresh = () => qc.invalidateQueries({ queryKey: ["practice"] }).then(() => qc.invalidateQueries({ queryKey: ["practice-huddle"] }));
   const sync = useMutation({
-    mutationFn: (full: boolean) => api.post<{ api_calls: number; eligibility_queued: number }>(`/practices/sync?full=${full}`),
+    mutationFn: (full: boolean) => api.post<{ api_calls: number; eligibility_queued: number }>(at(`/practices/sync?full=${full}`)),
     onSuccess: (r) => {
-      toast(`Synced · ${r.api_calls} NexHealth calls · ${r.eligibility_queued} eligibility checks queued`);
+      toast(`Synced · ${r.api_calls} EHR API calls · ${r.eligibility_queued} eligibility checks queued`);
       refresh();
     },
   });
   const verify = useMutation({
-    mutationFn: (kind: "nexhealth" | "stedi") => api.post<{ ok: boolean; error?: string }>(`/practices/verify?kind=${kind}`),
+    mutationFn: (kind: "nexhealth" | "openemr" | "stedi") => api.post<{ ok: boolean; error?: string }>(at(`/practices/verify?kind=${kind}`)),
     onSuccess: (r) => {
       toast(r.ok ? "Verified with a live check" : `Verification failed: ${r.error ?? ""}`);
       refresh();
     },
   });
   const check = useMutation({
-    mutationFn: (id: string) => api.post<EligibilityView>(`/practices/appointments/${id}/eligibility`),
+    mutationFn: (id: string) => api.post<EligibilityView>(at(`/practices/appointments/${id}/eligibility`)),
     onSuccess: (r) => {
       toast(r.state === "done" ? `Coverage ${r.summary?.coverage}${r.mock ? " (mock payer)" : ""}` : r.reason ?? r.state);
       refresh();
@@ -96,7 +100,8 @@ export default function Practice() {
         <Toolbar eyebrow="Front office" title="Practice" />
         <div className="content">
           <Empty icon={Stethoscope} title="No practice connected">
-            Run <code className="mono">make connect-nexhealth</code> (and <code className="mono">make connect-stedi</code>), then restart the API.
+            Run <code className="mono">make openemr-setup</code> or <code className="mono">make connect-nexhealth</code> (and{" "}
+            <code className="mono">make connect-stedi</code>), then restart the API.
           </Empty>
         </div>
       </>
@@ -111,6 +116,19 @@ export default function Practice() {
         title={d?.location?.name ?? "Practice"}
         actions={
           <>
+            {d && d.practices.length > 1 && (
+              <Segmented
+                label="Practice"
+                value={d.ehr?.id ?? ""}
+                onChange={setPractice}
+                options={d.practices.map((p) => ({ value: p.id, label: PRACTICE_LABEL[p.kind] ?? p.name }))}
+              />
+            )}
+            {d?.links && (
+              <a className="btn btn-secondary" href={d.links.home} target="_blank" rel="noreferrer">
+                <ExternalLink size={15} aria-hidden /> Open OpenEMR
+              </a>
+            )}
             <button className="btn btn-secondary" onClick={refresh}>
               <RefreshCw size={15} aria-hidden /> Refresh
             </button>
@@ -123,6 +141,14 @@ export default function Practice() {
         }
       />
       <div className="content">
+        {d?.ehr?.kind === "openemr" && (
+          <Banner tone="green" title="Connected directly to OpenEMR." icon={ShieldCheck}>
+            {" "}
+            A real EHR running locally with a synthetic clinic. Every write lands in the chart immediately, and changes staff make in OpenEMR appear here within
+            about 30 seconds.
+            {d.clearinghouse?.env === "test" && " Eligibility uses Stedi test mode, labelled Mock."}
+          </Banner>
+        )}
         {d?.ehr?.env === "sandbox" && (
           <Banner tone="purple" title="NexHealth sandbox: demo practice data." icon={ShieldCheck}>
             {" "}
@@ -167,6 +193,7 @@ export default function Practice() {
                     key={a.id}
                     a={a}
                     tz={h.timezone}
+                    chart={d?.links && a.patient_id ? d.links.patient.replace("{pid}", a.patient_id) : null}
                     canRun={canRun}
                     checking={check.isPending && check.variables === a.id}
                     onCheck={() => check.mutate(a.id)}
@@ -180,7 +207,7 @@ export default function Practice() {
           <div style={{ display: "grid", gap: 20 }}>
             <ConnectionsCard d={d} isAdmin={isAdmin} verifying={verify.isPending} onVerify={(k) => verify.mutate(k)} />
             <WriteQueue intents={d?.intents ?? []} isAdmin={isAdmin} onDone={refresh} />
-            <Card title="Practice mirror" subtitle={`Allow-listed fields only; patient identifiers encrypted. ${d?.api_calls_total ?? 0} NexHealth calls so far.`}>
+            <Card title="Practice mirror" subtitle={`Allow-listed fields only; patient identifiers encrypted. ${d?.api_calls_total ?? 0} EHR API calls so far.`}>
               <ul className="list">
                 {Object.entries(RESOURCE_LABEL).map(([key, label]) => {
                   const cursor = d?.cursors.find((c) => c.resource === key);
@@ -239,7 +266,7 @@ function EligibilityPill({ e, status }: { e: EligibilityView | null; status: str
   return <Pill tone="orange" icon={AlertTriangle}>{s?.coverage ?? "Unknown"}</Pill>;
 }
 
-function HuddleItem({ a, tz, canRun, checking, onCheck, onAlert }: { a: HuddleRow; tz: string; canRun: boolean; checking: boolean; onCheck: () => void; onAlert: () => void }) {
+function HuddleItem({ a, tz, chart, canRun, checking, onCheck, onAlert }: { a: HuddleRow; tz: string; chart?: string | null; canRun: boolean; checking: boolean; onCheck: () => void; onAlert: () => void }) {
   const time = new Intl.DateTimeFormat(undefined, { timeZone: tz, weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date(a.start));
   const s = a.eligibility?.summary;
   const muted = a.status === "cancelled" || a.status === "deleted";
@@ -287,13 +314,18 @@ function HuddleItem({ a, tz, canRun, checking, onCheck, onAlert }: { a: HuddleRo
               <FilePenLine size={16} />
             </button>
           )}
+          {chart && (
+            <a className="btn btn-plain btn-icon" href={chart} target="_blank" rel="noreferrer" aria-label="Open chart in OpenEMR" title="Open chart in OpenEMR">
+              <ExternalLink size={16} />
+            </a>
+          )}
         </div>
       )}
     </li>
   );
 }
 
-function ConnectionsCard({ d, isAdmin, verifying, onVerify }: { d?: PracticeOverview; isAdmin: boolean; verifying: boolean; onVerify: (k: "nexhealth" | "stedi") => void }) {
+function ConnectionsCard({ d, isAdmin, verifying, onVerify }: { d?: PracticeOverview; isAdmin: boolean; verifying: boolean; onVerify: (k: "nexhealth" | "openemr" | "stedi") => void }) {
   return (
     <Card title="Connections" subtitle="Each is trusted only after a live check.">
       <ul className="list">
@@ -323,7 +355,7 @@ function ConnectionRow({ c, isAdmin, verifying, onVerify }: { c: PracticeConnect
     <li className="list-row" style={{ alignItems: "flex-start", paddingTop: 12, paddingBottom: 12 }}>
       <div className="row-main">
         <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
-          <span style={{ fontWeight: 600 }}>{c.kind === "nexhealth" ? "NexHealth" : "Stedi"}</span>
+          <span style={{ fontWeight: 600 }}>{{ nexhealth: "NexHealth", openemr: "OpenEMR", stedi: "Stedi" }[c.kind]}</span>
           <span className="chip">{c.env}</span>
           {c.verified_at ? (
             <Pill tone="green" icon={ShieldCheck}>
@@ -336,7 +368,7 @@ function ConnectionRow({ c, isAdmin, verifying, onVerify }: { c: PracticeConnect
           )}
         </div>
         <div className="row-sub" style={{ marginTop: 4 }}>
-          {c.kind === "nexhealth" ? (
+          {c.kind !== "stedi" ? (
             <>
               {cap.emrs?.length ? `EHR ${cap.emrs.join(", ")} · ` : ""}
               {reads.length ? `${reads.filter((r) => r.ok).length}/${reads.length} reads answer · ` : ""}
@@ -417,9 +449,10 @@ function WriteQueue({ intents, isAdmin, onDone }: { intents: WriteIntentRow[]; i
 
 function AlertSheet({ row, onClose, onDone }: { row: HuddleRow; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
+  const [practice] = usePractice();
   const [note, setNote] = useState("");
   const save = useMutation({
-    mutationFn: () => api.post<WriteIntentRow>("/practices/intents", { kind: "patient_alert", patient_id: row.patient_id, note }),
+    mutationFn: () => api.post<WriteIntentRow>(withPractice("/practices/intents", practice), { kind: "patient_alert", patient_id: row.patient_id, note }),
     onSuccess: () => {
       toast("Chart alert proposed. Approve it in the EHR write queue.");
       onDone();

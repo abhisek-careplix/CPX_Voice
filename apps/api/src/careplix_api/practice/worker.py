@@ -12,7 +12,7 @@ from sqlalchemy import select
 from careplix_api.db import Database, utcnow
 from careplix_api.models import PayerConnection, WebhookEvent, WriteIntent
 from careplix_api.practice import backfill, eligibility, intents, sync
-from careplix_api.practice.connections import EHR
+from careplix_api.practice.connections import EHR_KINDS, OPENEMR
 from careplix_api.practice.records import parse_dt
 from careplix_api.settings import Settings
 
@@ -28,7 +28,7 @@ class PracticeWorker:
             return list(
                 await session.scalars(
                     select(PayerConnection.id).where(
-                        PayerConnection.kind == EHR, PayerConnection.enabled.is_(True)
+                        PayerConnection.kind.in_(EHR_KINDS), PayerConnection.enabled.is_(True)
                     )
                 )
             )
@@ -86,7 +86,11 @@ class PracticeWorker:
         last = parse_dt(((conn.capability or {}).get("last_sync") or {}).get("at"))
         if last is None:
             return True, True
-        interval = self.settings.practice_sync_interval_s
+        interval = (
+            self.settings.openemr_sync_interval_s
+            if conn.kind == OPENEMR
+            else self.settings.practice_sync_interval_s
+        )
         return bool(interval) and utcnow() - last >= timedelta(seconds=interval), False
 
     async def run_once(self) -> dict[str, Any]:

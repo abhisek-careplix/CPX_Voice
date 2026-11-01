@@ -27,7 +27,7 @@ from careplix_api.errors import ApiError
 from careplix_api.integrations.nexhealth import NexHealthClient, NexHealthError
 from careplix_api.models import AuditEvent, PayerConnection, WriteIntent
 from careplix_api.phi import PhiBox
-from careplix_api.practice.connections import audit, nexhealth_client
+from careplix_api.practice.connections import audit, ehr_client
 from careplix_api.practice.sync import write_status
 from careplix_api.settings import Settings
 
@@ -233,9 +233,13 @@ async def _send(
     transport: httpx.AsyncBaseTransport | None,
 ) -> None:
     spec = KINDS[intent.kind]
-    client = nexhealth_client(conn, settings, transport)
+    client = ehr_client(conn, settings, transport)
     try:
-        data = await spec.send(client, intent, PhiBox(settings).open(intent.payload))
+        payload = PhiBox(settings).open(intent.payload)
+        if getattr(client, "is_openemr", False):
+            data = await client.write(intent.kind, intent, payload)  # straight into the EHR
+        else:
+            data = await spec.send(client, intent, payload)
         intent.remote_id = str(data.get("id")) if data.get("id") is not None else None
         intent.foreign_id = data.get("foreign_id")
         intent.state, intent.last_error = "accepted", None
@@ -317,9 +321,12 @@ async def reconcile(
                 changed += 1
             elif intent.state == "accepted" and now - sent_at > CONFIRM_SLA:
                 conn = await session.get(PayerConnection, intent.connection_id)
-                client = nexhealth_client(conn, settings, transport)
+                client = ehr_client(conn, settings, transport)
                 try:
-                    record = await KINDS[intent.kind].read_back(client, intent)
+                    if getattr(client, "is_openemr", False):
+                        record = await client.read_back(intent.kind, intent)
+                    else:
+                        record = await KINDS[intent.kind].read_back(client, intent)
                 except NexHealthError:
                     record = None
                 finally:

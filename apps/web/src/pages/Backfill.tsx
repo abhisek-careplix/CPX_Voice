@@ -3,6 +3,7 @@ import { CalendarCheck2, CalendarPlus, CheckCircle2, CircleDashed, Clock, Eye, G
 import { useState } from "react";
 import { api, ApiError, type BackfillBoard, type BackfillOfferRow, type BackfillOpeningRow } from "../api";
 import { useCan } from "../App";
+import { usePractice, withPractice } from "../practice";
 import { Banner, Card, Empty, Pill, Toolbar, timeAgo, useToast } from "../ui";
 
 const TIER: Record<BackfillOfferRow["tier"], string> = { asap: "Wants sooner", move_up: "Move-up", recent_cancel: "Recent cancel" };
@@ -44,10 +45,11 @@ export default function Backfill() {
   const isAdmin = useCan("admin");
   const qc = useQueryClient();
   const toast = useToast();
-  const board = useQuery({ queryKey: ["backfill"], queryFn: () => api.get<BackfillBoard>("/practices/backfill"), refetchInterval: 5000 });
+  const [practice] = usePractice();
+  const board = useQuery({ queryKey: ["backfill", practice], queryFn: () => api.get<BackfillBoard>(withPractice("/practices/backfill", practice)), refetchInterval: 5000 });
   const refresh = () => qc.invalidateQueries({ queryKey: ["backfill"] });
   const scan = useMutation({
-    mutationFn: () => api.post<{ opened: number; expired: number }>("/practices/backfill/scan"),
+    mutationFn: () => api.post<{ opened: number; expired: number }>(withPractice("/practices/backfill/scan", practice)),
     onSuccess: (r) => {
       toast(`${r.opened} new opening${r.opened === 1 ? "" : "s"} · ${r.expired} closed or expired`);
       refresh();

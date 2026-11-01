@@ -1,4 +1,4 @@
-"""Practice connections: NexHealth (EHR) and Stedi (clearinghouse) as workspace connections.
+"""Practice connections: EHRs (NexHealth, OpenEMR) and Stedi (clearinghouse) per workspace.
 
 Both reuse ``PayerConnection`` so they appear in the Integrations audit, and their keys are
 referenced by setting name (``auth_ref.key_env``) like every other connection: never stored.
@@ -20,7 +20,8 @@ from careplix_api.integrations.nexhealth import NexHealthClient, NexHealthError
 from careplix_api.models import IntegrationCall, PayerConnection, Workspace
 from careplix_api.settings import Settings
 
-EHR, CLEARINGHOUSE = "nexhealth", "stedi"
+EHR, OPENEMR, CLEARINGHOUSE = "nexhealth", "openemr", "stedi"
+EHR_KINDS = (OPENEMR, EHR)  # preference order when a workspace has more than one practice
 
 
 def secret(settings: Settings, ref: dict[str, Any] | None) -> str:
@@ -40,6 +41,33 @@ def nexhealth_client(
         (conn.auth_ref or {})["subdomain"],
         transport=transport,
     )
+
+
+def openemr_client(
+    conn: PayerConnection, settings: Settings, transport: httpx.AsyncBaseTransport | None
+):
+    from careplix_api.practice.openemr import OpenEmrClient
+
+    ref = conn.auth_ref or {}
+    return OpenEmrClient(
+        conn.base_url,
+        client_id=ref["client_id"],
+        client_secret=secret(settings, ref),
+        username=ref["username"],
+        password=secret(settings, {"key_env": ref.get("password_env", "")}),
+        timezone=ref.get("timezone") or "UTC",
+        verify_tls=ref.get("verify_tls", True),
+        transport=transport,
+    )
+
+
+def ehr_client(
+    conn: PayerConnection, settings: Settings, transport: httpx.AsyncBaseTransport | None
+):
+    """The client for this practice's EHR connection (NexHealth or a direct OpenEMR)."""
+    if conn.kind == OPENEMR:
+        return openemr_client(conn, settings, transport)
+    return nexhealth_client(conn, settings, transport)
 
 
 def stedi_client(
@@ -107,6 +135,26 @@ async def ensure_practice_connections(session: AsyncSession, settings: Settings)
                 settings.nexhealth_env == "sandbox",
             )
         )
+    if settings.openemr_configured:
+        wanted.append(
+            (
+                OPENEMR,
+                "OpenEMR · local clinic",
+                settings.openemr_base_url,
+                {
+                    "key_env": "OPENEMR_CLIENT_SECRET",
+                    "password_env": "OPENEMR_PASSWORD",
+                    "client_id": settings.openemr_client_id,
+                    "username": settings.openemr_username,
+                    "timezone": settings.openemr_timezone,
+                    "verify_tls": settings.openemr_verify_tls,
+                    "location_id": settings.openemr_facility_id,
+                    "ui_url": settings.openemr_ui_url or settings.openemr_base_url,
+                    "env": "local",
+                },
+                True,
+            )
+        )
     if settings.stedi_configured:
         wanted.append(
             (
@@ -131,8 +179,10 @@ async def ensure_practice_connections(session: AsyncSession, settings: Settings)
                         name=name,
                         kind=kind,
                         base_url=url,
-                        ig_version="nexhealth-v3" if kind == EHR else "stedi-2026-06-01",
-                        auth_type="api_key",
+                        ig_version={EHR: "nexhealth-v3", OPENEMR: "openemr-7"}.get(
+                            kind, "stedi-2026-06-01"
+                        ),
+                        auth_type="oauth_password" if kind == OPENEMR else "api_key",
                         auth_ref=ref,
                         payer_names=["*"],
                         synthetic=synthetic,
