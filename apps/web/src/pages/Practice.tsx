@@ -8,6 +8,8 @@ import {
   CircleDashed,
   Database,
   FilePenLine,
+  MessageSquareText,
+  PhoneCall,
   RefreshCw,
   ExternalLink,
   ShieldCheck,
@@ -15,7 +17,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useState } from "react";
-import { api, ApiError, type EligibilityView, type Huddle, type HuddleRow, type PracticeConnection, type PracticeOverview, type WriteIntentRow } from "../api";
+import { api, ApiError, type EligibilityView, type FrontDeskMessage, type Huddle, type HuddleRow, type PracticeConnection, type PracticeOverview, type WriteIntentRow } from "../api";
 import { useCan } from "../App";
 import { PRACTICE_LABEL, usePractice, withPractice } from "../practice";
 import { Banner, Card, Empty, Pill, Segmented, Sheet, Toolbar, timeAgo, useToast } from "../ui";
@@ -206,6 +208,7 @@ export default function Practice() {
 
           <div style={{ display: "grid", gap: 20 }}>
             <ConnectionsCard d={d} isAdmin={isAdmin} verifying={verify.isPending} onVerify={(k) => verify.mutate(k)} />
+            <FrontDeskMessages canRun={canRun} />
             <WriteQueue intents={d?.intents ?? []} isAdmin={isAdmin} onDone={refresh} />
             <Card title="Practice mirror" subtitle={`Allow-listed fields only; patient identifiers encrypted. ${d?.api_calls_total ?? 0} EHR API calls so far.`}>
               <ul className="list">
@@ -402,6 +405,93 @@ const INTENT_TONE: Record<WriteIntentRow["state"], "green" | "orange" | "red" | 
   failed: "red",
 };
 
+const KIND_LABEL: Record<string, string> = {
+  patient_alert: "Chart alert",
+  appointment_book: "Book appointment",
+  appointment_cancel: "Cancel appointment",
+};
+
+const TOPIC_LABEL: Record<FrontDeskMessage["topic"], string> = {
+  refill: "Refill request",
+  records: "Records request",
+  billing: "Billing question",
+  scheduling: "Scheduling",
+  new_patient: "New patient",
+  insurance: "Insurance",
+  other: "Message",
+};
+
+function FrontDeskMessages({ canRun }: { canRun: boolean }) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const messages = useQuery({ queryKey: ["front-desk-messages"], queryFn: () => api.get<FrontDeskMessage[]>("/practices/messages"), refetchInterval: 15000 });
+  const [open, setOpen] = useState<FrontDeskMessage | null>(null);
+  const reveal = useMutation({
+    mutationFn: (id: string) => api.get<FrontDeskMessage>(`/practices/messages/${id}`),
+    onSuccess: setOpen,
+    onError: (e) => toast(e instanceof ApiError ? e.message : "Could not open the message"),
+  });
+  const done = useMutation({
+    mutationFn: (id: string) => api.post<FrontDeskMessage>(`/practices/messages/${id}/done`),
+    onSuccess: () => {
+      setOpen(null);
+      toast("Marked as handled");
+      qc.invalidateQueries({ queryKey: ["front-desk-messages"] });
+    },
+  });
+  const rows = messages.data ?? [];
+  return (
+    <Card title="Front desk messages" subtitle="Taken by the receptionist on calls. Opening a message is logged.">
+      {rows.length === 0 ? (
+        <div className="card-pad small muted">No open messages.</div>
+      ) : (
+        <ul className="list">
+          {rows.slice(0, 8).map((m) => (
+            <li className="list-row" key={m.id}>
+              <div className="row-icon" style={{ background: m.callback_requested ? "#ff9500" : "#8e8e93" }}>
+                {m.callback_requested ? <PhoneCall size={16} /> : <MessageSquareText size={16} />}
+              </div>
+              <div className="row-main">
+                <div className="row-title">{TOPIC_LABEL[m.topic]}</div>
+                <div className="row-sub">
+                  {m.verified ? `Verified patient ${m.patient ?? ""}` : "Caller not verified"} · {m.callback_requested ? "wants a callback" : "no callback"} · {timeAgo(m.created_at)}
+                </div>
+              </div>
+              {canRun && (
+                <button className="btn btn-secondary" onClick={() => reveal.mutate(m.id)} disabled={reveal.isPending}>
+                  Open
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {open && (
+        <Sheet
+          title={TOPIC_LABEL[open.topic]}
+          subtitle={`Reference ${open.reference} · ${timeAgo(open.created_at)}`}
+          onClose={() => setOpen(null)}
+          footer={
+            <button className="btn btn-primary" onClick={() => done.mutate(open.id)} disabled={done.isPending || open.state === "done"}>
+              {open.state === "done" ? "Handled" : "Mark handled"}
+            </button>
+          }
+        >
+          <div style={{ display: "grid", gap: 12 }}>
+            <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{open.message}</p>
+            <div className="small muted">
+              {open.verified ? `Verified patient ${open.patient ?? ""} (ID ${open.patient_id})` : `Not verified${open.caller_name ? ` · says they are ${open.caller_name}` : ""}`}
+              {open.caller_phone ? ` · called from ${open.caller_phone}` : ""}
+              {open.callback_requested ? " · wants a callback" : ""}
+            </div>
+            {!open.verified && <Banner tone="orange" title="Unverified caller">Confirm who they are before discussing anything about a patient.</Banner>}
+          </div>
+        </Sheet>
+      )}
+    </Card>
+  );
+}
+
 function WriteQueue({ intents, isAdmin, onDone }: { intents: WriteIntentRow[]; isAdmin: boolean; onDone: () => void }) {
   const toast = useToast();
   const decide = useMutation({
@@ -420,7 +510,15 @@ function WriteQueue({ intents, isAdmin, onDone }: { intents: WriteIntentRow[]; i
           {intents.slice(0, 8).map((i) => (
             <li className="list-row" key={i.id} style={{ alignItems: "flex-start", paddingTop: 12, paddingBottom: 12 }}>
               <div className="row-main">
-                <div className="row-title">{i.kind === "patient_alert" ? "Chart alert" : i.kind}</div>
+                <div className="row-title">
+                  {KIND_LABEL[i.kind] ?? i.kind}
+                  {i.source === "receptionist" && (
+                    <span className="small muted" style={{ fontWeight: 400 }}>
+                      {" "}
+                      · from a call
+                    </span>
+                  )}
+                </div>
                 <div className="row-sub">
                   {i.reason} · {timeAgo(i.created_at)}
                   {i.confirmation === "not_reported" ? " · EHR confirmation not reported for this kind" : ""}

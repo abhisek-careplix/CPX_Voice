@@ -22,9 +22,16 @@ def test_schema_is_valid_and_namespaced(name):
 def test_tool_registry_loads_and_gates_pilot_tools():
     tools = contracts.tool_registry()
     assert set(contracts.demo_tools()) == {
+        "book_appointment",
+        "cancel_appointment",
         "end_call",
+        "find_patient",
+        "find_slots",
         "get_assigned_context",
+        "leave_message",
+        "list_appointments",
         "record_finding",
+        "reschedule_appointment",
         "send_dtmf",
         "set_call_state",
         "verify_caller",

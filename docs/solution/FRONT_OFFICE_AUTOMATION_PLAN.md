@@ -150,7 +150,7 @@ Readiness key:
 | **FO-0 Foundation** | NexHealth + Stedi adapters; encrypted practice mirror; sync (full + incremental); webhook ingest; write intents; capability probe; Studio **Practice** page | ✅ sandbox |
 | **FO-1 Eligibility autopilot** (B1, B5, D4) | Batch at booking, 72 h and 24 h; plan → Stedi payer mapping; results on the appointment; huddle sheet | ✅ mock payers. In test mode, demo patients are mapped to Stedi's mock members and labelled *mock*. |
 | **FO-2 Backfill engine** (C) | Cancellation detection, ranking, slot lock, re-check, booking, move-up, timeline, metrics | ✅ engine; outreach through Browser Test / approved numbers |
-| **FO-3 AI receptionist on the EHR** (A1, A5) | Voice tools: `find_patient`, `find_slots`, `book`, `reschedule`, `cancel`, `leave_message` over NexHealth | ✅ inbound number live |
+| **FO-3 AI receptionist on the EHR** (A1, A5) | Voice tools: `find_patient`, `list_appointments`, `find_slots`, `book_appointment`, `reschedule_appointment`, `cancel_appointment`, `leave_message` over NexHealth and OpenEMR. **Built:** see §5 | ✅ inbound number live; Browser Test on a synthetic practice |
 | **FO-4 Outreach channel** (D1, E1, E2, B2, B6, A2, A3) | Twilio or Telnyx SIP trunk + SMS, consent store, contact rules, campaigns | Needs the carrier decision + 10DLC |
 | **FO-5 Forms and intake** (D2, D3, A4) | Form schemas and responses, coverage create, patient update | Needs NexHealth beta access |
 
@@ -159,3 +159,33 @@ Readiness key:
 2. **NexHealth:** request v3.1 beta partner access (forms, coverage create, patient update) and confirm the webhook signing method.
 3. **Stedi:** a production key when ready, for discovery, MBI lookup, COB and batch eligibility.
 4. **A pilot practice** on athena, eCW, ModMed or NextGen Office, to validate medical-EHR writes.
+
+
+---
+
+## 5. FO-3 as built: the AI receptionist
+
+**Template:** *Front desk receptionist* (`front-desk-receptionist`, agent "Riley"). It is an inbound template, so it answers a connected number. It can also be tried with **Browser Test**, and the demo workspace seeds it as a draft agent.
+
+**Call flow:**
+1. Greet → why are you calling? Emergencies → "hang up and call 911". No clinical advice.
+2. **Verify** with `find_patient` (first name, last name, date of birth against the encrypted mirror). Exactly one active match passes. Two people with the same name and birth date do not pass, because they can't be told apart by voice. The caller gets two tries. The result never says whether someone is a patient. Nothing about appointments is read or changed before verification.
+3. **Book:** `find_slots` asks the EHR for open times (NexHealth `available_slots`; OpenEMR clinic hours minus booked visits). It offers up to six, at most two per day, as `S1`, `S2`… `book_appointment` accepts only those ids, so the model can't invent a time or book for someone else.
+4. **Reschedule:** `find_slots(appointment_id)` keeps the visit type and provider. The new time is booked first; the old visit is released only once the booking is accepted. A failed booking never releases anything.
+5. **Cancel:** the patient chooses a reason from a fixed list (no free text, so no clinical detail). By default the cancellation goes to **Practice → EHR write queue** for one click (L3 in the EMR design); the agent tells the caller it isn't cancelled until the front desk confirms. With `RECEPTIONIST_CANCEL_MODE=auto` it is cancelled at once, and the freed time is picked up by **backfill** (FO-2) on the next pass.
+6. **Messages:** `leave_message` covers new patients, refills, records, billing and anything else the agent can't do. It works without verification. Messages appear in **Practice → Front desk messages**: the list shows topic, initials and whether a callback is wanted; opening one reveals the text and the caller's number, and that is audited.
+
+**Safety:**
+- Every EHR change is a write intent: `source = receptionist`, approved by `policy:receptionist-L2`.
+- The slot is re-checked with the EHR immediately before booking. A time taken in the meantime gets "slot_taken" and the agent offers another.
+- At most 3 changes and 3 messages per call.
+- Write tools claim their call id before calling the EHR, so a worker retry can't book twice. An unexpected error ends as "outcome unknown, front desk to check", never as a second attempt.
+- A Browser Test can write only to a synthetic practice (local OpenEMR, NexHealth sandbox). Against a production practice, writes are refused.
+- The call timeline shows outcomes ("Booking: booked in the EHR"), never names or times.
+
+**Try it:** `make openemr-up && make openemr-setup`, start the API and Studio, publish *Riley Front Desk*, then use **Browser Test** as one of the synthetic patients. Or connect a number to it in **Connections → Inbound**.
+
+**Next:**
+- New-patient registration on the call (NexHealth `POST /patients`; OpenEMR also needs sex at birth), which today goes to a message.
+- SMS confirmation after booking (FO-4).
+- Handoff to a person (`request_handoff`, release P).

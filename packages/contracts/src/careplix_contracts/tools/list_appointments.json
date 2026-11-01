@@ -1,0 +1,31 @@
+{
+  "name": "list_appointments",
+  "version": "1.0.0",
+  "description": "List the verified patient's upcoming appointments (time, provider, visit type). Only works after find_patient passed.",
+  "classification": "read",
+  "execution": "api",
+  "allowed_roles": [
+    "agent_runtime"
+  ],
+  "timeout_ms": 3000,
+  "idempotency": "naturally_idempotent",
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "result_schema": {
+    "type": "object",
+    "required": [
+      "appointments"
+    ],
+    "properties": {
+      "appointments": {
+        "type": "array"
+      }
+    }
+  },
+  "owner": "front-office",
+  "release": "D",
+  "enabled_in_demo": true
+}

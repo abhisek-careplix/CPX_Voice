@@ -49,6 +49,27 @@ const STATE_TEXT: Record<string, string> = {
   Failed: "Call could not connect",
 };
 
+const QUIET_TOOLS = new Set([
+  "record_finding",
+  "set_call_state",
+  "find_patient",
+  "book_appointment",
+  "reschedule_appointment",
+  "cancel_appointment",
+  "leave_message",
+]);
+
+const APPOINTMENT_OUTCOME: Record<string, string> = {
+  booked: "booked in the EHR",
+  rescheduled: "moved in the EHR",
+  cancelled: "cancelled in the EHR",
+  requested: "sent to the front desk to approve",
+  pending: "waiting for the EHR",
+  slot_taken: "time was just taken",
+  failed: "refused by the EHR",
+  needs_staff: "needs the front desk",
+};
+
 function timelineText(e: CallEvent): string | null {
   const p = e.payload as Record<string, string>;
   switch (e.type) {
@@ -59,13 +80,27 @@ function timelineText(e: CallEvent): string | null {
     case "worker.claimed":
       return "Agent joined";
     case "tool.succeeded":
-      // Substate changes and findings have their own, clearer timeline entries.
-      if (p.tool === "record_finding" || p.tool === "set_call_state") return null;
+      // These have their own, clearer timeline entries.
+      if (QUIET_TOOLS.has(p.tool)) return null;
       return p.tool === "send_dtmf" ? "Pressed keypad digits" : humanize(p.tool);
     case "tool.rejected":
       return `Blocked: ${humanize(p.tool)} (${p.rejection_code?.replace(/_/g, " ")})`;
     case "case.linked":
       return `Caller verified · ${p.case_ref}`;
+    case "patient.verified":
+      return "Caller verified as a patient";
+    case "patient.verification_failed":
+      return "Caller could not be verified";
+    case "appointment.booking":
+      return `Booking: ${APPOINTMENT_OUTCOME[p.outcome] ?? p.outcome}`;
+    case "appointment.reschedule":
+      return `Reschedule: ${APPOINTMENT_OUTCOME[p.outcome] ?? p.outcome}`;
+    case "appointment.cancel":
+      return `Cancellation: ${APPOINTMENT_OUTCOME[p.outcome] ?? p.outcome}`;
+    case "message.left":
+      return "Message left for the front desk";
+    case "tool.unknown":
+      return `${humanize(p.tool)}: outcome unknown, front desk to check`;
     case "budget.exceeded":
       return "Call time limit reached";
     case "model.error":

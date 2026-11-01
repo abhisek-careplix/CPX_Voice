@@ -1,0 +1,64 @@
+{
+  "name": "reschedule_appointment",
+  "version": "1.0.0",
+  "description": "Move the verified patient's existing appointment to a time returned by find_slots. The new time is booked first; the old one is released only after that succeeds. Confirm both times with the caller before calling.",
+  "classification": "write",
+  "execution": "api",
+  "allowed_roles": [
+    "agent_runtime"
+  ],
+  "timeout_ms": 25000,
+  "idempotency": "keyed",
+  "limits": {
+    "max_writes_per_call": 3
+  },
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "appointment_id",
+      "slot_id"
+    ],
+    "properties": {
+      "appointment_id": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,40}$",
+        "description": "An appointment_id returned by list_appointments."
+      },
+      "slot_id": {
+        "type": "string",
+        "pattern": "^S[0-9]{1,3}$",
+        "description": "A slot_id returned by find_slots on this call."
+      }
+    }
+  },
+  "result_schema": {
+    "type": "object",
+    "required": [
+      "state"
+    ],
+    "properties": {
+      "state": {
+        "enum": [
+          "booked",
+          "rescheduled",
+          "cancelled",
+          "requested",
+          "pending",
+          "slot_taken",
+          "failed",
+          "needs_staff"
+        ]
+      },
+      "when": {
+        "type": "string"
+      },
+      "message": {
+        "type": "string"
+      }
+    }
+  },
+  "owner": "front-office",
+  "release": "D",
+  "enabled_in_demo": true
+}

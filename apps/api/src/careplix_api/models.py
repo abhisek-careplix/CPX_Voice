@@ -162,6 +162,9 @@ class CallAttempt(IdMixin, Base):
     ended_at: Mapped[datetime | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
     next_event_seq: Mapped[int] = mapped_column(Integer, default=1)
+    # FO-3 receptionist state for this call: practice connection, verified patient reference,
+    # verification tries and the slots offered (ids only; no names or dates of birth).
+    front_desk: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
 
 class CallEvent(Base):
@@ -445,3 +448,24 @@ class BackfillOffer(IdMixin, Base):
     state: Mapped[str] = mapped_column(String(12), default="queued")
     responded_by: Mapped[str | None] = mapped_column(String(36))
     responded_at: Mapped[datetime | None] = mapped_column()
+
+
+class FrontDeskMessage(IdMixin, Base):
+    """A message the receptionist took for the front desk (FO-3 A1/A5).
+
+    The text and any caller name or number are sealed: callers say anything. Topic, state and
+    references stay readable so the queue can be filtered without opening a message.
+    """
+
+    __tablename__ = "front_desk_messages"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    connection_id: Mapped[str | None] = mapped_column(ForeignKey("payer_connections.id"))
+    attempt_id: Mapped[str | None] = mapped_column(ForeignKey("call_attempts.id"), index=True)
+    patient_ref: Mapped[str | None] = mapped_column(String(40))  # set only when verified
+    topic: Mapped[str] = mapped_column(String(20))
+    callback_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    body: Mapped[str | None] = mapped_column(Text)  # sealed {message, caller_name, caller_phone}
+    state: Mapped[str] = mapped_column(String(10), default="open")  # open | done
+    handled_by: Mapped[str | None] = mapped_column(String(36))
+    handled_at: Mapped[datetime | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)

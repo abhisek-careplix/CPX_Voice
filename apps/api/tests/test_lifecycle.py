@@ -37,7 +37,11 @@ def _browser_attempt(client, use="published"):
 
 def test_seeded_agents_start_as_drafts(client):
     agents = client.get("/api/agents").json()
-    assert {a["template"]["id"] for a in agents} == {"auth-status", "inbound-enquiry"}
+    assert {a["template"]["id"] for a in agents} == {
+        "auth-status",
+        "inbound-enquiry",
+        "front-desk-receptionist",
+    }
     assert all(a["draft"] and a["current"] is None for a in agents)
 
 

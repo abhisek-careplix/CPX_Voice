@@ -69,7 +69,11 @@ class CallRuntime:
         async def call(raw_arguments: dict[str, Any], context: RunContext) -> Any:
             evidence = self.reporter.evidence_window() if name == "record_finding" else []
             response = await self.plane.tool(
-                name, context.function_call.call_id, raw_arguments, evidence
+                name,
+                context.function_call.call_id,
+                raw_arguments,
+                evidence,
+                spec.get("timeout_ms"),
             )
             if response["state"] != "succeeded":
                 # The model sees the refusal and continues; it cannot work around it (SEC06).

@@ -50,6 +50,9 @@ async def seed(session: AsyncSession, settings: Settings) -> None:
         await agents_service.create_agent(
             session, principal, settings, "Avery Inbound", "inbound-enquiry"
         )
+        await agents_service.create_agent(
+            session, principal, settings, "Riley Front Desk", "front-desk-receptionist"
+        )
     await session.commit()
 
 

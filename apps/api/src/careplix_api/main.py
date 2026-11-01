@@ -84,6 +84,9 @@ def create_app(
         yield
         for loop in loops:
             loop.cancel()
+        # Let each loop finish cancelling before the database closes under it; a loop cancelled
+        # mid-query would otherwise wait forever on a connection that's gone.
+        await asyncio.gather(*loops, return_exceptions=True)
         await app.state.runner.aclose()
         await app.state.db.dispose()
 

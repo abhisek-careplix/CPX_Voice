@@ -90,12 +90,21 @@ class ToolIn(BaseModel):
 
 @router.post("/attempts/{attempt_id}/tools/{name}")
 async def run_tool(
-    name: str, body: ToolIn, request: Request, grant: AttemptGrant = Depends(require_attempt_token)
+    name: str,
+    body: ToolIn,
+    request: Request,
+    grant: AttemptGrant = Depends(require_attempt_token),
+    settings: Settings = Depends(get_settings),
 ):
     async with request.app.state.db.sessions() as session:
         attempt = await _attempt(session, grant)
+        env = tools_service.ToolEnv(
+            settings,
+            request.app.state.db,
+            getattr(request.app.state, "integration_transport", None),
+        )
         result = await tools_service.execute(
-            session, attempt, name, body.call_id, body.arguments, body.evidence_segment_ids
+            session, attempt, name, body.call_id, body.arguments, body.evidence_segment_ids, env
         )
         await session.commit()
         return result

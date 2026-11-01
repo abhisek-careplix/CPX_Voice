@@ -21,13 +21,14 @@ from careplix_api.models import (
     BackfillOpening,
     EhrRecord,
     EligibilityCheck,
+    FrontDeskMessage,
     PayerConnection,
     SyncCursor,
     WebhookEvent,
     WriteIntent,
 )
 from careplix_api.phi import PhiBox, initials
-from careplix_api.practice import backfill, eligibility, intents, sync, webhooks
+from careplix_api.practice import backfill, eligibility, intents, receptionist, sync, webhooks
 from careplix_api.practice.connections import CLEARINGHOUSE, EHR_KINDS, OPENEMR, verify
 from careplix_api.practice.openemr import deep_links
 from careplix_api.settings import Settings, get_settings
@@ -693,3 +694,109 @@ async def patient_contact(
     await session.commit()
     name = " ".join(x for x in (pii.get("first_name"), pii.get("last_name")) if x)
     return {"name": name or None, "phone": pii.get("phone")}
+
+
+# --- FO-3 receptionist: messages for the front desk ---------------------------------------------
+
+
+async def _message(
+    session: AsyncSession, principal: Principal, message_id: str
+) -> FrontDeskMessage:
+    message = await session.get(FrontDeskMessage, message_id)
+    if message is None or message.workspace_id != principal.workspace_id:
+        raise ApiError(404, "not_found", "Message not found.")
+    return message
+
+
+async def _patient_initials(
+    session: AsyncSession, messages: list[FrontDeskMessage], settings: Settings
+) -> dict[str, str]:
+    refs = {(m.connection_id, m.patient_ref) for m in messages if m.patient_ref}
+    if not refs:
+        return {}
+    box = PhiBox(settings)
+    out: dict[str, str] = {}
+    for rec in await session.scalars(
+        select(EhrRecord).where(
+            EhrRecord.resource == "patient",
+            EhrRecord.connection_id.in_({c for c, _ in refs}),
+            EhrRecord.source_id.in_({p for _, p in refs}),
+        )
+    ):
+        out[rec.source_id] = initials(box.open(rec.pii))
+    return out
+
+
+@router.get("/messages")
+async def list_messages(
+    state: Literal["open", "done", "all"] = "open",
+    principal: Principal = Depends(require("view")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """The queue shows topic, initials and whether a callback is wanted; text opens on demand."""
+    query = select(FrontDeskMessage).where(FrontDeskMessage.workspace_id == principal.workspace_id)
+    if state != "all":
+        query = query.where(FrontDeskMessage.state == state)
+    rows = list(
+        await session.scalars(query.order_by(FrontDeskMessage.created_at.desc()).limit(100))
+    )
+    labels = await _patient_initials(session, rows, settings)
+    box = PhiBox(settings)
+    out = []
+    for m in rows:
+        view = receptionist.message_view(m, box, labels)
+        for sealed in ("message", "caller_name", "caller_phone"):
+            view[sealed] = None
+        out.append(view)
+    return out
+
+
+@router.get("/messages/{message_id}")
+async def open_message(
+    message_id: str,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """Reveal a message's text and callback details. Every reveal is audited."""
+    message = await _message(session, principal, message_id)
+    labels = await _patient_initials(session, [message], settings)
+    session.add(
+        AuditEvent(
+            workspace_id=principal.workspace_id,
+            actor=principal.user_id,
+            action="phi.message_viewed",
+            target=f"front_desk_message:{message.id}",
+            detail={"topic": message.topic},
+        )
+    )
+    await session.commit()
+    return receptionist.message_view(message, PhiBox(settings), labels)
+
+
+@router.post("/messages/{message_id}/done")
+async def message_done(
+    message_id: str,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    message = await _message(session, principal, message_id)
+    if message.state != "done":
+        message.state, message.handled_by, message.handled_at = "done", principal.user_id, utcnow()
+        session.add(
+            AuditEvent(
+                workspace_id=principal.workspace_id,
+                actor=principal.user_id,
+                action="front_desk_message.done",
+                target=message.id,
+                detail={"topic": message.topic},
+            )
+        )
+        await session.commit()
+    labels = await _patient_initials(session, [message], settings)
+    view = receptionist.message_view(message, PhiBox(settings), labels)
+    for sealed in ("message", "caller_name", "caller_phone"):
+        view[sealed] = None
+    return view

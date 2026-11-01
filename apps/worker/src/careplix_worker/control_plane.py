@@ -108,15 +108,24 @@ class ControlPlane:
         return {"Authorization": f"Bearer {self._attempt_token}"}
 
     async def tool(
-        self, name: str, call_id: str, arguments: dict[str, Any], evidence: list[str]
+        self,
+        name: str,
+        call_id: str,
+        arguments: dict[str, Any],
+        evidence: list[str],
+        timeout_ms: int | None = None,
     ) -> dict[str, Any]:
         body = {"call_id": call_id, "arguments": arguments, "evidence_segment_ids": evidence}
+        # EHR tools (find_slots, book_appointment…) can take longer than the 8 s default; give
+        # them their registry timeout plus a margin for the API's own work.
+        timeout = httpx.Timeout(max(8.0, (timeout_ms or 0) / 1000 + 5), connect=4.0)
         for attempt in range(3):
             try:
                 response = await self._http.post(
                     f"/internal/attempts/{self.attempt_id}/tools/{name}",
                     json=body,
                     headers=self._auth(),
+                    timeout=timeout,
                 )
                 if response.status_code < 500:
                     response.raise_for_status()

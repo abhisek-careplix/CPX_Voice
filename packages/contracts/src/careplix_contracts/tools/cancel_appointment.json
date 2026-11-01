@@ -1,0 +1,70 @@
+{
+  "name": "cancel_appointment",
+  "version": "1.0.0",
+  "description": "Cancel one of the verified patient's upcoming appointments after they confirm which one. Offer to reschedule first. Depending on the practice's policy the cancellation is made at once or sent to the front desk to confirm; say exactly what the result says.",
+  "classification": "write",
+  "execution": "api",
+  "allowed_roles": [
+    "agent_runtime"
+  ],
+  "timeout_ms": 20000,
+  "idempotency": "keyed",
+  "limits": {
+    "max_writes_per_call": 3
+  },
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "appointment_id",
+      "reason"
+    ],
+    "properties": {
+      "appointment_id": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,40}$",
+        "description": "An appointment_id returned by list_appointments."
+      },
+      "reason": {
+        "enum": [
+          "schedule_conflict",
+          "transportation",
+          "cost",
+          "no_longer_needed",
+          "other"
+        ],
+        "description": "Never record medical details as the reason.",
+        "type": "string"
+      }
+    }
+  },
+  "result_schema": {
+    "type": "object",
+    "required": [
+      "state"
+    ],
+    "properties": {
+      "state": {
+        "enum": [
+          "booked",
+          "rescheduled",
+          "cancelled",
+          "requested",
+          "pending",
+          "slot_taken",
+          "failed",
+          "needs_staff"
+        ]
+      },
+      "when": {
+        "type": "string"
+      },
+      "message": {
+        "type": "string"
+      }
+    }
+  },
+  "owner": "front-office",
+  "release": "D",
+  "enabled_in_demo": true
+}

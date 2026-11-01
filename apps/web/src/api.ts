@@ -442,6 +442,23 @@ export interface WriteIntentRow {
   resolved_at: string | null;
 }
 
+export interface FrontDeskMessage {
+  id: string;
+  reference: string;
+  topic: "refill" | "records" | "billing" | "scheduling" | "new_patient" | "insurance" | "other";
+  callback_requested: boolean;
+  verified: boolean;
+  patient_id: string | null;
+  patient: string | null;
+  caller_name: string | null;
+  caller_phone: string | null;
+  message: string | null; // null in the list; opened (and audited) on demand
+  attempt_id: string | null;
+  state: "open" | "done";
+  created_at: string;
+  handled_at: string | null;
+}
+
 export interface PracticeOverview {
   ehr: PracticeConnection | null;
   practices: { id: string; kind: string; name: string; env: string | null }[];
