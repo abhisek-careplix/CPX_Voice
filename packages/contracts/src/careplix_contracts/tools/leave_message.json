@@ -1,0 +1,70 @@
+{
+  "name": "leave_message",
+  "version": "1.0.0",
+  "description": "Leave a message for the front desk: refill or records requests, billing questions, new patients who want to register, or anything you cannot do on this call. Works without verification. Keep it short and administrative; do not ask for or record symptoms.",
+  "classification": "write",
+  "execution": "api",
+  "allowed_roles": [
+    "agent_runtime"
+  ],
+  "timeout_ms": 3000,
+  "idempotency": "keyed",
+  "limits": {
+    "max_messages_per_call": 3
+  },
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "topic",
+      "message",
+      "callback_requested"
+    ],
+    "properties": {
+      "topic": {
+        "enum": [
+          "refill",
+          "records",
+          "billing",
+          "scheduling",
+          "new_patient",
+          "insurance",
+          "other"
+        ],
+        "type": "string"
+      },
+      "message": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 600
+      },
+      "callback_requested": {
+        "type": "boolean"
+      },
+      "caller_name": {
+        "type": "string",
+        "maxLength": 80,
+        "description": "Only when the caller is not verified."
+      }
+    }
+  },
+  "result_schema": {
+    "type": "object",
+    "required": [
+      "state"
+    ],
+    "properties": {
+      "state": {
+        "enum": [
+          "recorded"
+        ]
+      },
+      "reference": {
+        "type": "string"
+      }
+    }
+  },
+  "owner": "front-office",
+  "release": "D",
+  "enabled_in_demo": true
+}

@@ -233,6 +233,41 @@ class OpenEmrClient:
                 return None
         return ""
 
+    async def free_slots(
+        self, start: datetime, end: datetime, minutes: int, providers: list[str]
+    ) -> list[tuple[datetime, str, str]]:
+        """Weekday times inside clinic hours where the provider has nothing booked.
+
+        Same rule as ``slot_free``, so a time offered here passes the re-check before booking.
+        Returns ``(start_utc, provider_ref, operatory_ref)`` in time order.
+        """
+        busy: dict[str, list[tuple[datetime, datetime]]] = {}
+        for appt in await self.appointments():
+            if appt.get("pc_apptstatus") in CANCELLED:
+                continue
+            s = self.to_utc(appt.get("pc_eventDate"), appt.get("pc_startTime"))
+            e = self.to_utc(appt.get("pc_eventDate"), appt.get("pc_endTime"))
+            if s and e:
+                busy.setdefault(str(appt.get("pc_aid")), []).append((s, e))
+        step = timedelta(minutes=max(15, min(minutes, 30)))
+        length = timedelta(minutes=minutes)
+        out: list[tuple[datetime, str, str]] = []
+        day = start.astimezone(self.tz).date()
+        while day <= end.astimezone(self.tz).date():
+            if day.weekday() < 5:
+                open_at = datetime(day.year, day.month, day.day, CLINIC_HOURS[0], tzinfo=self.tz)
+                close_at = datetime(day.year, day.month, day.day, CLINIC_HOURS[1], tzinfo=self.tz)
+                moment = open_at
+                while moment + length <= close_at:
+                    at = moment.astimezone(UTC)
+                    if start <= at <= end:
+                        for pid in providers:
+                            if not any(s < at + length and at < e for s, e in busy.get(pid, [])):
+                                out.append((at, pid, ""))
+                    moment += step
+            day += timedelta(days=1)
+        return out
+
     async def write(self, kind: str, intent: Any, payload: dict[str, Any]) -> dict[str, Any]:
         if kind == "patient_alert":
             body = await self.request(

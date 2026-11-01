@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:careplix:voice:front_desk_outcome",
+  "title": "Front desk call outcome",
+  "description": "Output schema for template front-desk-receptionist (FO-3). The appointment action is what the EHR write reached, not what the caller asked for.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["attempt_id", "caller_intent", "verification_result", "appointment_action"],
+  "properties": {
+    "attempt_id": {"type": "string"},
+    "caller_intent": {"type": ["string", "null"], "maxLength": 200},
+    "verification_result": {"enum": ["passed", "failed", "not_needed"]},
+    "appointment_action": {"enum": ["booked", "rescheduled", "cancelled", "cancel_requested", "none"]},
+    "write_intent_ids": {"type": "array", "items": {"type": "string"}},
+    "follow_up_request": {"type": ["string", "null"], "maxLength": 600},
+    "message_ids": {"type": "array", "items": {"type": "string"}}
+  }
+}

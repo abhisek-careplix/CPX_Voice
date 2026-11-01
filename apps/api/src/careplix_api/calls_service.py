@@ -551,6 +551,7 @@ def _model_tool(tool: dict[str, Any]) -> dict[str, Any]:
         "description": tool["description"],
         "parameters": model_safe_schema(schema),
         "execution": tool["execution"],
+        "timeout_ms": tool["timeout_ms"],
     }
 
 

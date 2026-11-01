@@ -1,0 +1,63 @@
+{
+  "name": "find_slots",
+  "version": "1.0.0",
+  "description": "Find open appointment times in the practice's schedule. Give the visit type the caller needs (or appointment_id when rescheduling, to keep the same visit type and provider). If the visit type is unclear, call without it and the result lists the visit types to choose from. Offer the caller two or three of the returned times; never invent a time.",
+  "classification": "read",
+  "execution": "api",
+  "allowed_roles": [
+    "agent_runtime"
+  ],
+  "timeout_ms": 15000,
+  "idempotency": "naturally_idempotent",
+  "limits": {
+    "max_calls_per_call": 8
+  },
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "visit_type": {
+        "type": "string",
+        "maxLength": 60,
+        "description": "Visit type name, e.g. Follow-up."
+      },
+      "provider": {
+        "type": "string",
+        "maxLength": 60,
+        "description": "Provider the caller asked for, by name. Leave out for any provider."
+      },
+      "earliest_date": {
+        "type": "string",
+        "format": "date",
+        "description": "First day the caller can come in."
+      },
+      "part_of_day": {
+        "enum": [
+          "any",
+          "morning",
+          "afternoon"
+        ],
+        "type": "string"
+      },
+      "appointment_id": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,40}$",
+        "description": "An appointment_id returned by list_appointments."
+      }
+    }
+  },
+  "result_schema": {
+    "type": "object",
+    "properties": {
+      "slots": {
+        "type": "array"
+      },
+      "visit_types": {
+        "type": "array"
+      }
+    }
+  },
+  "owner": "front-office",
+  "release": "D",
+  "enabled_in_demo": true
+}

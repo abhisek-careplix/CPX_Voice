@@ -18,6 +18,7 @@ import careplix_contracts as contracts
 from careplix_api import events, templates
 from careplix_api.calls_service import ACTIVE_STATES
 from careplix_api.db import as_utc, utcnow
+from careplix_api.errors import Rejected
 from careplix_api.models import (
     AgentVersion,
     AuditEvent,
@@ -28,16 +29,14 @@ from careplix_api.models import (
     ToolExecution,
     TranscriptSegment,
 )
+from careplix_api.practice import receptionist
+from careplix_api.practice.receptionist import ToolEnv
 
 SUBSTATES = {"ivr": "IVR", "hold": "Hold", "conversation": "Conversation"}
 DTMF_COOLDOWN_S = 1.5
 DTMF_MAX_PER_CALL = 40
 
-
-class Rejected(Exception):
-    def __init__(self, code: str, message: str):
-        super().__init__(message)
-        self.code, self.message = code, message
+__all__ = ["Rejected", "ToolEnv", "execute"]
 
 
 async def execute(
@@ -47,6 +46,7 @@ async def execute(
     call_id: str,
     arguments: dict[str, Any],
     evidence_segment_ids: list[str] | None = None,
+    env: ToolEnv | None = None,
 ) -> dict[str, Any]:
     existing = await session.scalar(
         select(ToolExecution).where(
@@ -86,9 +86,35 @@ async def execute(
         if attempt.state not in ACTIVE_STATES:
             raise Rejected("attempt_not_active", "The call is no longer active.")
         handler = _HANDLERS[name]
-        execution.result = await handler(
-            session, attempt, version, arguments, evidence_segment_ids or []
-        )
+        claimed = tool["classification"] == "write" and name in receptionist.HANDLERS
+        if claimed:
+            # EHR writes take seconds. Claim the call id first, so a retry that arrives while
+            # this one is still running finds it instead of writing a second time (FR11).
+            session.add(execution)
+            await session.commit()
+        try:
+            execution.result = await handler(
+                session, attempt, version, arguments, evidence_segment_ids or [], env
+            )
+        except Rejected:
+            raise
+        except Exception:
+            if not claimed:
+                raise
+            # Never leave a claimed write "running" forever: say the outcome is unknown, and
+            # the write queue (needs_review) is where a person settles it.
+            await session.rollback()
+            execution.state = "Unknown"
+            execution.result = {
+                "state": "needs_staff",
+                "message": "The outcome isn't confirmed. Tell the caller the front desk will "
+                "check and call back.",
+            }
+            session.add(execution)
+            await events.append(
+                session, attempt, "tool.unknown", "api", {"tool": name[:40], "call_id": call_id}
+            )
+            return _response(execution)
         execution.state = "Succeeded"
     except Rejected as rejection:
         execution.state = "Rejected"
@@ -119,13 +145,18 @@ async def execute(
 
 
 def _response(execution: ToolExecution) -> dict[str, Any]:
+    if execution.state == "Authorized":
+        return {
+            "state": "running",
+            "result": {"message": "Still working on that request. Wait a moment, then check."},
+        }
     return {"state": execution.state.lower(), "result": execution.result or {}}
 
 
 # --- Handlers ------------------------------------------------------------------------------------
 
 
-async def _get_assigned_context(session, attempt, version, args, _evidence):
+async def _get_assigned_context(session, attempt, version, args, _evidence, _env=None):
     if attempt.case_id is None:
         raise Rejected("no_case_bound", "No case is linked to this call yet.")
     case = await session.get(Case, attempt.case_id)
@@ -135,7 +166,7 @@ async def _get_assigned_context(session, attempt, version, args, _evidence):
     return {"values": values, "refused": [f for f in args["fields"] if f not in values]}
 
 
-async def _verify_caller(session, attempt, _version, args, _evidence):
+async def _verify_caller(session, attempt, _version, args, _evidence, _env=None):
     tries = await session.scalar(
         select(func.count())
         .select_from(ToolExecution)
@@ -166,7 +197,7 @@ async def _verify_caller(session, attempt, _version, args, _evidence):
     return {"verified": True}
 
 
-async def _record_finding(session, attempt, version, args, evidence):
+async def _record_finding(session, attempt, version, args, evidence, _env=None):
     template = templates.get_template(version.config["task"]["template_id"])
     field = args["field"]
     if field not in template["output_fields"]:
@@ -218,7 +249,7 @@ async def _record_finding(session, attempt, version, args, evidence):
     return {"finding_id": finding.id, "status": status}
 
 
-async def _set_call_state(session, attempt, _version, args, _evidence):
+async def _set_call_state(session, attempt, _version, args, _evidence, _env=None):
     substate = SUBSTATES[args["substate"]]
     if attempt.substate != substate:
         previous, attempt.substate = attempt.substate, substate
@@ -228,7 +259,7 @@ async def _set_call_state(session, attempt, _version, args, _evidence):
     return {"substate": substate}
 
 
-async def _send_dtmf(session, attempt, _version, args, _evidence):
+async def _send_dtmf(session, attempt, _version, args, _evidence, _env=None):
     previous = list(
         await session.scalars(
             select(ToolExecution)
@@ -247,7 +278,7 @@ async def _send_dtmf(session, attempt, _version, args, _evidence):
     return {"digits": args["digits"], "execute": True}
 
 
-async def _end_call(session, attempt, _version, args, _evidence):
+async def _end_call(session, attempt, _version, args, _evidence, _env=None):
     if attempt.state != "Ending":
         await events.set_state(session, attempt, "Ending", "api", reason=args["reason"])
     return {"state": "ending"}
@@ -260,4 +291,5 @@ _HANDLERS = {
     "set_call_state": _set_call_state,
     "send_dtmf": _send_dtmf,
     "end_call": _end_call,
+    **receptionist.HANDLERS,
 }

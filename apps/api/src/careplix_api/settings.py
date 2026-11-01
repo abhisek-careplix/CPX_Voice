@@ -83,6 +83,12 @@ class Settings(BaseSettings):
     backfill_lead_minutes: int = 120
     backfill_horizon_days: int = 14
     contact_hours: str = "08:00-20:00"  # practice-local window for patient outreach
+    # FO-3 receptionist. Patient-requested bookings and reschedules are L2 (automatic). A plain
+    # cancellation is L3 in the EMR design, so by default it waits for one click in the write
+    # queue; "auto" cancels at once (and the freed slot goes straight to backfill).
+    receptionist_cancel_mode: str = "approval"  # approval | auto
+    receptionist_lead_minutes: int = 60  # earliest bookable time from now
+    receptionist_search_days: int = 14
 
     # Release D calling policy (FR05, SEC12): only approved synthetic test destinations.
     approved_test_destinations: str = ""

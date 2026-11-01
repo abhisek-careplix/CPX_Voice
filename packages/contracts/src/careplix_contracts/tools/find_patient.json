@@ -1,0 +1,54 @@
+{
+  "name": "find_patient",
+  "version": "1.0.0",
+  "description": "Verify the caller as a patient of the practice before discussing or changing any appointment. Ask for their first name, last name and date of birth, then call this. The result only says whether verification passed; it never reveals whether a person is a patient. Two attempts per call.",
+  "classification": "read",
+  "execution": "api",
+  "allowed_roles": [
+    "agent_runtime"
+  ],
+  "timeout_ms": 5000,
+  "idempotency": "naturally_idempotent",
+  "limits": {
+    "max_attempts_per_call": 2
+  },
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "first_name",
+      "last_name",
+      "date_of_birth"
+    ],
+    "properties": {
+      "first_name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 60
+      },
+      "last_name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 60
+      },
+      "date_of_birth": {
+        "type": "string",
+        "format": "date"
+      }
+    }
+  },
+  "result_schema": {
+    "type": "object",
+    "required": [
+      "verified"
+    ],
+    "properties": {
+      "verified": {
+        "type": "boolean"
+      }
+    }
+  },
+  "owner": "front-office",
+  "release": "D",
+  "enabled_in_demo": true
+}
