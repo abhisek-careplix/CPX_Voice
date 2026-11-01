@@ -1,4 +1,4 @@
-.PHONY: payer-sandbox connect-livekit setup lint fmt test check api studio worker-dev db-up probe-readiness probe-gemini browser-session web-check
+.PHONY: payer-sandbox connect-livekit connect-nexhealth connect-stedi setup lint fmt test check api studio worker-dev db-up probe-readiness probe-gemini browser-session web-check
 
 setup:
 	uv sync
@@ -26,6 +26,14 @@ db-up:
 # Prompts for LiveKit URL, key and secret (hidden), writes .env and checks the connection.
 connect-livekit:
 	./scripts/connect-livekit.sh
+
+# Prompts for the NexHealth API key (hidden), checks it, picks the practice location, writes .env.
+connect-nexhealth:
+	./scripts/connect-nexhealth.sh
+
+# Prompts for the Stedi API key (hidden), checks it and runs Stedi's free mock eligibility check.
+connect-stedi:
+	./scripts/connect-stedi.sh
 
 # Settings load .env automatically when present.
 api:
