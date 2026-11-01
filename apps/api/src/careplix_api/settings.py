@@ -44,6 +44,29 @@ class Settings(BaseSettings):
     studio_dist: str = ""  # path to the built Studio (apps/web/dist) to serve at /
     run_background: bool = True  # reconciler, dial runner and integration worker
 
+    # Practice EHR via NexHealth (docs/solution/EMR_LAYER_SOLUTION_DESIGN.md). Set by
+    # scripts/connect-nexhealth.sh; an empty key leaves the practice layer off.
+    nexhealth_api_key: SecretStr = SecretStr("")
+    nexhealth_env: str = "sandbox"  # sandbox | production
+    nexhealth_base_url: str = "https://nexhealth.info"
+    nexhealth_subdomain: str = ""
+    nexhealth_institution_id: str = ""
+    nexhealth_location_id: str = ""
+    # Clearinghouse via Stedi. Set by scripts/connect-stedi.sh.
+    stedi_api_key: SecretStr = SecretStr("")
+    stedi_env: str = "test"  # test (mock payers only) | production
+    stedi_base_url: str = "https://healthcare.us.stedi.com"
+    stedi_webhook_secret: SecretStr = SecretStr("")  # Standard Webhooks secret (whsec_…)
+    # Billing provider sent on eligibility checks (practice NPI). Test mode uses Stedi's mock NPI.
+    practice_npi: str = ""
+    practice_name: str = "CarePlix Practice"
+    # Encrypts patient identifiers in the practice mirror (Fernet key). Dev derives one.
+    data_encryption_key: SecretStr = SecretStr("")
+    # Public base URL of the webhook ingress (careplix-webhooks); empty means webhooks are off.
+    webhook_public_url: str = ""
+    practice_sync_interval_s: float = 900.0  # incremental sync cadence; 0 disables
+    eligibility_autopilot: bool = True
+
     # Release D calling policy (FR05, SEC12): only approved synthetic test destinations.
     approved_test_destinations: str = ""
     max_concurrent_calls: int = 1
@@ -62,6 +85,14 @@ class Settings(BaseSettings):
         return bool(
             self.livekit_url and self.livekit_api_key and self.livekit_api_secret.get_secret_value()
         )
+
+    @property
+    def nexhealth_configured(self) -> bool:
+        return bool(self.nexhealth_api_key.get_secret_value() and self.nexhealth_subdomain)
+
+    @property
+    def stedi_configured(self) -> bool:
+        return bool(self.stedi_api_key.get_secret_value())
 
     @property
     def approved_destinations(self) -> set[str]:

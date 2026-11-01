@@ -18,6 +18,10 @@ from careplix_api.db import Database
 from careplix_api.errors import ApiError
 from careplix_api.integrations.service import IntegrationWorker
 from careplix_api.livekit_gateway import LiveKitGateway
+from careplix_api.practice import api as practice_api
+from careplix_api.practice import webhooks as practice_webhooks
+from careplix_api.practice.connections import ensure_practice_connections
+from careplix_api.practice.worker import PracticeWorker
 from careplix_api.settings import Settings, get_settings
 from careplix_common import safe_logging
 from careplix_common.gemini import probe_live
@@ -59,14 +63,20 @@ def create_app(
                 await seed.ensure_dev_integrations(session, settings)
             async with app.state.db.sessions() as session:
                 await seed.ensure_reference_connections(session)
+        async with app.state.db.sessions() as session:
+            await ensure_practice_connections(session, settings)
         app.state.integration_worker = IntegrationWorker(
             app.state.db, lambda: app.state.integration_transport
+        )
+        app.state.practice_worker = PracticeWorker(
+            app.state.db, settings, lambda: app.state.integration_transport
         )
         # One service runs the background loops; others (e.g. the worker-facing internal API) don't.
         loops = (
             [
                 asyncio.create_task(app.state.runner.reconcile_forever()),
                 asyncio.create_task(app.state.integration_worker.run_forever()),
+                asyncio.create_task(app.state.practice_worker.run_forever()),
             ]
             if settings.run_background
             else []
@@ -117,7 +127,11 @@ def create_app(
     app.include_router(studio_api.router, prefix="/api")
     app.include_router(connections_api.router, prefix="/api")
     app.include_router(integrations_api.router, prefix="/api")
+    app.include_router(practice_api.router, prefix="/api")
     app.include_router(internal_api.router)
+    if settings.is_dev:
+        # Local webhook testing; in the cloud the public ingress is its own service (no IAP).
+        app.include_router(practice_webhooks.router)
     if settings.studio_dist:
         _mount_studio(app, settings.studio_dist)
     return app
@@ -135,7 +149,7 @@ def _mount_studio(app: FastAPI, dist: str) -> None:
 
     @app.get("/{path:path}", include_in_schema=False)
     async def studio(path: str):
-        if path.startswith(("api/", "internal/")):
+        if path.startswith(("api/", "internal/", "webhooks/")):
             raise StarletteHTTPException(404)
         candidate = root / path
         if path and candidate.is_file() and root in candidate.resolve().parents:

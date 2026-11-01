@@ -14,6 +14,7 @@ from careplix_api.errors import ApiError
 from careplix_api.integrations import pas
 from careplix_api.integrations import service as integration_service
 from careplix_api.models import AuditEvent, IntegrationCall, PayerConnection, Task
+from careplix_api.settings import Settings, get_settings
 from careplix_api.studio_api import Session
 
 router = APIRouter(prefix="/integrations")
@@ -180,9 +181,10 @@ async def verify(
     principal: Principal = Depends(admin),
     session: AsyncSession = Session,
     t=Depends(transport),
+    settings: Settings = Depends(get_settings),
 ):
     conn = await _connection(session, principal, connection_id)
-    result = await integration_service.verify_connection(session, conn, t)
+    result = await integration_service.verify_connection(session, conn, t, settings)
     await session.commit()
     return {**result, "connection": _connection_view(conn)}
 

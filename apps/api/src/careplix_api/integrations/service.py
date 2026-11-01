@@ -145,9 +145,16 @@ async def inquire(
 
 
 async def verify_connection(
-    session: AsyncSession, conn: PayerConnection, transport: httpx.AsyncBaseTransport | None = None
+    session: AsyncSession,
+    conn: PayerConnection,
+    transport: httpx.AsyncBaseTransport | None = None,
+    settings: Any = None,
 ) -> dict[str, Any]:
     """A connection is verified only by a live read plus a test operation."""
+    if conn.kind in ("nexhealth", "stedi"):
+        from careplix_api.practice.connections import verify
+
+        return await verify(session, conn, settings, transport)
     if conn.kind in reference.REFERENCE_SYSTEMS:
         return await _verify_reference(session, conn, transport)
     client = client_for(conn, transport)

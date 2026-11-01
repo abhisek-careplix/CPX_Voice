@@ -282,3 +282,119 @@ class IntegrationCall(IdMixin, Base):
     summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     error: Mapped[str | None] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+
+
+# --- Practice layer (docs/solution/EMR_LAYER_SOLUTION_DESIGN.md §2) ------------------------------
+
+
+class EhrRecord(IdMixin, Base):
+    """Practice mirror: only the fields a playbook uses, keyed by the EHR source record.
+
+    ``attrs`` holds identifiers, codes and timestamps; patient identifiers live only in ``pii``,
+    sealed by :class:`careplix_api.phi.PhiBox`.
+    """
+
+    __tablename__ = "ehr_records"
+    __table_args__ = (UniqueConstraint("connection_id", "resource", "source_id"),)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    connection_id: Mapped[str] = mapped_column(ForeignKey("payer_connections.id"), index=True)
+    # location|provider|appointment_type|patient|insurance_plan|coverage|appointment
+    resource: Mapped[str] = mapped_column(String(30))
+    source_id: Mapped[str] = mapped_column(String(40))
+    patient_ref: Mapped[str | None] = mapped_column(String(40), index=True)
+    starts_at: Mapped[datetime | None] = mapped_column(index=True)
+    status: Mapped[str | None] = mapped_column(String(20))
+    attrs: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    pii: Mapped[str | None] = mapped_column(Text)
+    source_updated_at: Mapped[datetime | None] = mapped_column()
+    synced_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class SyncCursor(IdMixin, Base):
+    __tablename__ = "sync_cursors"
+    __table_args__ = (UniqueConstraint("connection_id", "resource"),)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    connection_id: Mapped[str] = mapped_column(ForeignKey("payer_connections.id"))
+    resource: Mapped[str] = mapped_column(String(30))
+    high_water: Mapped[datetime | None] = mapped_column()  # newest source updated_at seen
+    last_full_at: Mapped[datetime | None] = mapped_column()
+    last_run_at: Mapped[datetime | None] = mapped_column()
+    rows: Mapped[int] = mapped_column(Integer, default=0)
+    api_calls: Mapped[int] = mapped_column(Integer, default=0)  # cumulative, for the cost meter
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(String(200))
+
+
+class WebhookEvent(IdMixin, Base):
+    """A verified webhook delivery. Stores identifiers only; the record is re-read from source."""
+
+    __tablename__ = "webhook_events"
+    __table_args__ = (UniqueConstraint("provider", "delivery_key"),)
+    workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    connection_id: Mapped[str | None] = mapped_column(String(36))
+    provider: Mapped[str] = mapped_column(String(20))  # nexhealth|stedi
+    delivery_key: Mapped[str] = mapped_column(String(80))
+    event_name: Mapped[str] = mapped_column(String(80))
+    resource_type: Mapped[str | None] = mapped_column(String(40))
+    resource_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    received_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+    processed_at: Mapped[datetime | None] = mapped_column()
+    outcome: Mapped[str | None] = mapped_column(String(30))
+    error: Mapped[str | None] = mapped_column(String(200))
+
+
+class WriteIntent(IdMixin, Base):
+    """Every EHR write: proposed → approved → sent → accepted → written (or needs review).
+
+    A NexHealth 2xx only means *accepted*; the EHR has the record once an insertion webhook or a
+    read-back shows its ``foreign_id`` (EMR design §2.4). NexHealth never retries a failed write.
+    """
+
+    __tablename__ = "write_intents"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    connection_id: Mapped[str] = mapped_column(ForeignKey("payer_connections.id"))
+    kind: Mapped[str] = mapped_column(String(30))  # patient_alert | …
+    level: Mapped[str] = mapped_column(String(4))  # L2 non-financial | L3 financial/payer-facing
+    target_resource: Mapped[str] = mapped_column(String(30))
+    target_source_id: Mapped[str] = mapped_column(String(40))
+    payload: Mapped[str | None] = mapped_column(Text)  # sealed: free text may carry PHI
+    payload_hash: Mapped[str] = mapped_column(String(80))
+    reason: Mapped[str] = mapped_column(String(200))  # why, without patient details
+    source: Mapped[str] = mapped_column(String(40))  # manual | eligibility | backfill | …
+    # proposed|approved|sending|accepted|written|needs_review|rejected|failed
+    state: Mapped[str] = mapped_column(String(16), default="proposed")
+    confirmation: Mapped[str | None] = mapped_column(String(20))  # pending|ehr_written|not_reported
+    requested_by: Mapped[str] = mapped_column(String(36))
+    approved_by: Mapped[str | None] = mapped_column(String(36))
+    approved_at: Mapped[datetime | None] = mapped_column()
+    remote_id: Mapped[str | None] = mapped_column(String(40))
+    foreign_id: Mapped[str | None] = mapped_column(String(80))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(String(200))
+    sent_at: Mapped[datetime | None] = mapped_column()
+    resolved_at: Mapped[datetime | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class EligibilityCheck(IdMixin, Base):
+    """One eligibility verification for an appointment (FO-1). Summary holds outcomes only."""
+
+    __tablename__ = "eligibility_checks"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    ehr_connection_id: Mapped[str] = mapped_column(ForeignKey("payer_connections.id"))
+    clearinghouse_connection_id: Mapped[str | None] = mapped_column(String(36))
+    appointment_ref: Mapped[str] = mapped_column(String(40), index=True)
+    patient_ref: Mapped[str | None] = mapped_column(String(40), index=True)
+    coverage_ref: Mapped[str | None] = mapped_column(String(40))
+    trigger: Mapped[str] = mapped_column(String(12))  # booking|t72|t24|manual
+    state: Mapped[str] = mapped_column(String(10), default="pending")  # pending|done|failed|skipped
+    mock: Mapped[bool] = mapped_column(Boolean, default=False)
+    payer_id: Mapped[str | None] = mapped_column(String(20))
+    summary: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    reason: Mapped[str | None] = mapped_column(String(200))
+    stedi_ref: Mapped[str | None] = mapped_column(String(80))
+    integration_call_id: Mapped[str | None] = mapped_column(String(36))
+    reused_from: Mapped[str | None] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+    completed_at: Mapped[datetime | None] = mapped_column()

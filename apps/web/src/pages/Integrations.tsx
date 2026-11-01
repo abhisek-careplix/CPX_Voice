@@ -146,8 +146,8 @@ function ConnectionRow({ c, isAdmin, verifying, onVerify, onToggle }: { c: Payer
           {c.base_url}
         </div>
         <div className="row" style={{ flexWrap: "wrap", marginTop: 6 }}>
-          <span className="chip">{c.kind === "pas" ? c.ig_version : "Public reference API"}</span>
-          <span className="chip">{c.auth_type === "none" ? (c.kind === "pas" ? "No auth (sandbox)" : "No auth (public)") : c.auth_type === "google_id_token" ? "Google identity (private)" : "SMART Backend Services"}</span>
+          <span className="chip">{c.kind === "pas" ? c.ig_version : c.kind === "nexhealth" ? "EHR via NexHealth" : c.kind === "stedi" ? "Clearinghouse (X12)" : "Public reference API"}</span>
+          <span className="chip">{c.auth_type === "none" ? (c.kind === "pas" ? "No auth (sandbox)" : "No auth (public)") : c.auth_type === "google_id_token" ? "Google identity (private)" : c.auth_type === "api_key" ? "API key (server secret)" : "SMART Backend Services"}</span>
           <span className="chip">Payers: {c.payer_names.includes("*") ? "all" : c.payer_names.join(", ")}</span>
           {c.capability?.operations?.map((op) => (
             <span className="chip mono" key={op}>

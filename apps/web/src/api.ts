@@ -370,7 +370,7 @@ export interface PayerConnection {
   kind: string;
   base_url: string;
   ig_version: string;
-  auth_type: "none" | "smart_backend" | "google_id_token";
+  auth_type: "none" | "smart_backend" | "google_id_token" | "api_key";
   auth_ref: Record<string, string>;
   payer_names: string[];
   synthetic: boolean;
@@ -399,4 +399,102 @@ export interface IntegrationsOverview {
   connections: PayerConnection[];
   recent_calls: IntegrationCallRow[];
   supported: { kind: string; ig_version: string; operations: string[]; status: string }[];
+}
+
+// ---------- Practice layer (NexHealth + Stedi) ----------
+
+export interface PracticeConnection {
+  id: string;
+  kind: "nexhealth" | "stedi";
+  name: string;
+  env: string | null;
+  subdomain?: string | null;
+  location_id?: string | null;
+  enabled: boolean;
+  verified_at: string | null;
+  last_error: string | null;
+  capability: {
+    location?: { id: string; name: string } | null;
+    emrs?: string[];
+    reads?: Record<string, { ok: boolean; has_data?: boolean; http_status?: number; error?: string }>;
+    sync?: { emr: string | null; read_status: string | null; write_status: string | null }[];
+    writes_confirmable?: boolean;
+    writes?: Record<string, string>;
+    last_sync?: { at: string; full: boolean; api_calls: number };
+    probed_at?: string;
+  } | null;
+  webhook: { registered: boolean; events: string[] };
+}
+
+export interface WriteIntentRow {
+  id: string;
+  kind: string;
+  level: string;
+  target_resource: string;
+  target_id: string;
+  reason: string;
+  source: string;
+  state: "proposed" | "approved" | "sending" | "accepted" | "written" | "needs_review" | "rejected" | "failed";
+  confirmation: string | null;
+  remote_id: string | null;
+  last_error: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export interface PracticeOverview {
+  ehr: PracticeConnection | null;
+  clearinghouse: PracticeConnection | null;
+  location: { name: string; institution_name: string; emrs: string[] } | null;
+  mirror: Record<string, number>;
+  cursors: { resource: string; rows: number; api_calls: number; last_run_at: string | null; last_error: string | null }[];
+  api_calls_total: number;
+  webhooks: { public_url_set: boolean; received: number; pending: number; last_at: string | null };
+  eligibility: { autopilot: boolean; states: Record<string, number>; coverage: Record<string, number> };
+  intents: WriteIntentRow[];
+}
+
+export interface EligibilitySummary {
+  coverage: "active" | "inactive" | "unknown" | "error" | "none_on_file";
+  plan?: string | null;
+  ehr_plan?: string;
+  office_copay?: string | null;
+  office_coinsurance_pct?: string | null;
+  deductible?: { total: string | null; remaining: string | null };
+  out_of_pocket?: { total: string | null; remaining: string | null };
+  auth_required_services?: string[];
+  payer?: string | null;
+  mock?: boolean;
+}
+
+export interface EligibilityView {
+  id: string;
+  trigger: string;
+  state: "pending" | "done" | "failed" | "skipped";
+  mock: boolean;
+  summary: EligibilitySummary | null;
+  reason: string | null;
+  reused: boolean;
+  completed_at: string | null;
+}
+
+export interface HuddleRow {
+  id: string;
+  start: string;
+  status: string;
+  provider: string | null;
+  type: string | null;
+  patient_id: string | null;
+  patient: string;
+  coverage: { plan: string | null; payer_id: string | null; priority: number | null; insurance_type: string | null } | null;
+  eligibility: EligibilityView | null;
+  flags: string[];
+}
+
+export interface Huddle {
+  date: string;
+  days: number;
+  timezone: string;
+  appointments: HuddleRow[];
+  counts: { scheduled: number; cancelled: number; verified_active: number; needs_attention: number };
 }
