@@ -1,0 +1,4 @@
+# What `gcloud builds submit` uploads: everything git tracks, never .env or local data.
+.git
+.gitignore
+#!include:.gitignore

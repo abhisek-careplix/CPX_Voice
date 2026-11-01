@@ -1,0 +1,20 @@
+# Hosted demo overrides, used on the careplix-labs VM by infra/gcp/deploy-labs.sh openemr:
+#   docker compose -f docker-compose.yml -f docker-compose.cloud.yml --env-file cloud.env up -d
+# The VM has no public IP: staff reach OpenEMR through the IAP-protected careplix-openemr
+# Cloud Run proxy, and the Studio reaches the API over the VPC. Passwords come from cloud.env,
+# written by the deploy script from Secret Manager (never the local-development defaults).
+services:
+  mysql:
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${OPENEMR_DB_ROOT_PASSWORD:?}
+  openemr:
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      MYSQL_ROOT_PASS: ${OPENEMR_DB_ROOT_PASSWORD:?}
+      MYSQL_PASS: ${OPENEMR_DB_PASSWORD:?}
+      OE_PASS: ${OPENEMR_ADMIN_PASSWORD:?}
+      OPENEMR_SETTING_site_addr_oath: ${OPENEMR_PUBLIC_URL:?}
