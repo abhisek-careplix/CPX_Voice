@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AudioLines, Mic, MicOff, PhoneOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { CallBlocked } from "./CallBlocked";
 import { api, ApiError, type BrowserSession, type CallDetail, type Template } from "./api";
 import { FindingsChecklist, Transcript, useCallEvents } from "./live";
 import { AttemptPill, Banner, Card, duration, Sheet, useNow } from "./ui";
@@ -57,7 +58,12 @@ export function BrowserTestSheet({ agentId, use, caseId, template, onClose }: { 
       }
       subtitle={session ? `${use === "draft" ? "Draft" : "Published"} v${session.version.number}${session.case_ref ? ` · case ${session.case_ref}` : ""} · real audio through LiveKit and Gemini Live` : "Preparing a sandbox call…"}
     >
-      {start.error && (
+      {start.error && ["capacity_exhausted", "emergency_stop"].includes((start.error as ApiError).code) && (
+        <Banner tone="red" title="Call could not start">
+          <CallBlocked error={start.error} onCleared={() => start.mutate()} />
+        </Banner>
+      )}
+      {start.error && !["capacity_exhausted", "emergency_stop"].includes((start.error as ApiError).code) && (
         <Banner tone="red" title="Call could not start">
           {" "}
           {(start.error as ApiError).message}{" "}

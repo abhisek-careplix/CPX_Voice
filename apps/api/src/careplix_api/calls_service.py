@@ -13,7 +13,7 @@ import re
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import careplix_contracts as contracts
@@ -74,16 +74,27 @@ async def _workspace_guard(session: AsyncSession, principal: Principal) -> None:
 
 
 async def _capacity_guard(session: AsyncSession, workspace_id: str, settings: Settings) -> None:
-    active = await session.scalar(
-        select(func.count())
-        .select_from(CallAttempt)
-        .where(CallAttempt.workspace_id == workspace_id, CallAttempt.state.in_(ACTIVE_STATES))
+    active = list(
+        await session.scalars(
+            select(CallAttempt)
+            .where(CallAttempt.workspace_id == workspace_id, CallAttempt.state.in_(ACTIVE_STATES))
+            .order_by(CallAttempt.created_at)
+        )
     )
-    if active >= settings.max_concurrent_calls:
+    if len(active) >= settings.max_concurrent_calls:
+        # Name the call that holds the slot, so the Studio can open or end it: a session that
+        # went quiet otherwise blocks every new call until the reconciler's limits expire.
+        blocking = active[0]
         raise ApiError(
             409,
             "capacity_exhausted",
             "Another call is in progress. This workspace runs one call at a time.",
+            {
+                "attempt_id": blocking.id,
+                "state": blocking.state,
+                "direction": blocking.direction,
+                "started_at": as_utc(blocking.created_at).isoformat(),
+            },
         )
 
 

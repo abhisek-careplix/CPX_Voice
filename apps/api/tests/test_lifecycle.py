@@ -211,13 +211,20 @@ def test_attempt_token_is_bound_to_its_attempt(client):
 
 
 def test_one_active_call_per_workspace(client):
-    _browser_attempt(client)
+    first = _browser_attempt(client)
     agent = _agent(client, "auth-status")
     response = client.post(
         "/api/browser-sessions", json={"agent_id": agent["id"], "use": "published"}
     )
     assert response.status_code == 409
-    assert response.json()["error"]["code"] == "capacity_exhausted"
+    error = response.json()["error"]
+    assert error["code"] == "capacity_exhausted"
+    # The refusal names the call holding the slot, so the Studio can offer to end it.
+    assert error["detail"]["attempt_id"] == first["attempt_id"]
+    assert error["detail"]["direction"] == "browser" and error["detail"]["started_at"]
+    client.post(f"/api/calls/{first['attempt_id']}/end").raise_for_status()
+    retry = client.post("/api/browser-sessions", json={"agent_id": agent["id"], "use": "published"})
+    assert retry.status_code == 200, retry.text
 
 
 def _task(client, destination=APPROVED):

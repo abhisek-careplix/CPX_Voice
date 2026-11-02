@@ -1435,3 +1435,18 @@ button.list-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* An inline action inside a sentence (e.g. "End that call" in an error). */
+.link-button {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.link-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
