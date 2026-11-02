@@ -20,6 +20,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError, type AgentSummary, type Attempt, type Check as ReadinessCheck, type ConnectionsOverview, type ProbeStatus, type Readiness, type Route } from "../api";
 import { useCan, useMe } from "../App";
+import { CallBlocked } from "../CallBlocked";
 import { AttemptPill, Banner, Card, CheckPill, Empty, Pill, Sheet, Toolbar, timeAgo, useToast } from "../ui";
 
 const REGIONS = ["us-central1", "us-east1", "us-east4", "us-west1", "europe-west1", "europe-west4", "asia-northeast1"];
@@ -626,7 +627,7 @@ function OutboundCard({ o, check, agents, isAdmin, onChange }: { o?: Connections
               <PhoneOutgoing size={15} aria-hidden /> Place test call
             </button>
           </div>
-          {call.error && <div className="field-error" style={{ marginTop: 8 }}>{(call.error as ApiError).message}</div>}
+          {call.error && <CallBlocked error={call.error} onCleared={() => call.reset()} />}
           {a && (
             <div className="row" style={{ marginTop: 12, flexWrap: "wrap" }}>
               <AttemptPill state={a.state} substate={a.substate} />
