@@ -9,10 +9,11 @@ from typing import Any
 
 from sqlalchemy import select
 
+from careplix_api.connect.connectors import connector_for
 from careplix_api.db import Database, utcnow
 from careplix_api.models import PayerConnection, WebhookEvent, WriteIntent
 from careplix_api.practice import backfill, eligibility, intents, sync
-from careplix_api.practice.connections import EHR_KINDS, OPENEMR
+from careplix_api.practice.connections import EHR_KINDS
 from careplix_api.practice.records import parse_dt
 from careplix_api.settings import Settings
 
@@ -86,11 +87,7 @@ class PracticeWorker:
         last = parse_dt(((conn.capability or {}).get("last_sync") or {}).get("at"))
         if last is None:
             return True, True
-        interval = (
-            self.settings.openemr_sync_interval_s
-            if conn.kind == OPENEMR
-            else self.settings.practice_sync_interval_s
-        )
+        interval = connector_for(conn, self.settings).sync_interval_s()
         return bool(interval) and utcnow() - last >= timedelta(seconds=interval), False
 
     async def run_once(self) -> dict[str, Any]:

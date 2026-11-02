@@ -79,6 +79,15 @@ except (urllib.error.URLError, KeyError, ValueError) as exc:
     sys.exit(f"✗ Could not reach NexHealth ({type(exc).__name__}). Nothing was saved.")
 bearer = f"Bearer {token}"
 
+if mode == "production":
+    # A production key reaches real practices and real patients. Until the G4 PHI gate (BAAs in
+    # place), the app keeps syncing the sandbox; the production key only lists practices.
+    save({"NEXHEALTH_PROD_API_KEY": key})
+    print("✓ Production key accepted and saved to .env as NEXHEALTH_PROD_API_KEY.")
+    print("  The app stays on the sandbox key until the G4 PHI gate. To see every practice this key")
+    print("  reaches, its EHR and what CarePlix can automate there, run: make nexhealth-inventory")
+    sys.exit(0)
+
 save({"NEXHEALTH_API_KEY": key, "NEXHEALTH_ENV": mode})
 print("✓ Key accepted and saved to .env (git-ignored, readable only by you).")
 

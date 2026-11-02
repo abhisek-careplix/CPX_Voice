@@ -47,7 +47,8 @@
           "pending",
           "slot_taken",
           "failed",
-          "needs_staff"
+          "needs_staff",
+          "front_desk"
         ]
       },
       "when": {

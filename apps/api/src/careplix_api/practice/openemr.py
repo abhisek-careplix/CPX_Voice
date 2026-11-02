@@ -55,8 +55,6 @@ class OpenEmrError(NexHealthError):
 
 
 class OpenEmrClient:
-    is_openemr = True
-
     def __init__(
         self,
         base_url: str,

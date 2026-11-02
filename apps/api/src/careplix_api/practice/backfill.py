@@ -22,6 +22,8 @@ import httpx
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from careplix_api.connect.base import Connector
+from careplix_api.connect.connectors import connector_for
 from careplix_api.db import Database, as_utc, utcnow
 from careplix_api.errors import ApiError
 from careplix_api.integrations.nexhealth import NexHealthClient, NexHealthError
@@ -34,7 +36,7 @@ from careplix_api.models import (
     PayerConnection,
 )
 from careplix_api.practice import intents
-from careplix_api.practice.connections import audit, ehr_client, location_id
+from careplix_api.practice.connections import audit, location_id
 from careplix_api.practice.records import parse_dt
 from careplix_api.settings import Settings
 
@@ -66,15 +68,18 @@ def _log(opening: BackfillOpening, event: str, **detail: Any) -> None:
     ]
 
 
-async def free_operatory(
-    client: NexHealthClient, conn: PayerConnection, opening: BackfillOpening
-) -> str | None:
-    """The operatory NexHealth reports free at exactly this start (``""`` if none are mapped).
+async def free_operatory(connector: Connector, opening: BackfillOpening) -> str | None:
+    """The operatory free at exactly this start (``""`` if none are mapped).
 
     ``None`` means the time is no longer bookable: rebooked, blocked or outside working hours.
     """
-    if getattr(client, "is_openemr", False):
-        return await client.slot_free(opening)
+    return await connector.slot_free(opening)
+
+
+async def nexhealth_free_operatory(
+    client: NexHealthClient, conn: PayerConnection, opening: BackfillOpening
+) -> str | None:
+    """NexHealth's available slots at exactly this start."""
     start = as_utc(opening.starts_at)
     local_day = start.astimezone(zone(opening.timezone)).date().isoformat()
     params: dict[str, Any] = {
@@ -208,7 +213,7 @@ async def rank_candidates(
 
 
 async def _open(
-    session: AsyncSession, conn: PayerConnection, appt: EhrRecord, client: NexHealthClient
+    session: AsyncSession, conn: PayerConnection, appt: EhrRecord, connector: Connector
 ) -> BackfillOpening:
     kind = await session.scalar(
         select(EhrRecord).where(
@@ -234,7 +239,7 @@ async def _open(
         timezone=appt.attrs.get("timezone"),
         timeline=[],
     )
-    operatory = await free_operatory(client, conn, opening)  # may raise: nothing added yet
+    operatory = await free_operatory(connector, opening)  # may raise: nothing added yet
     session.add(opening)
     _log(opening, "detected", appointment=appt.source_id, status=appt.status)
     if operatory is None:
@@ -292,19 +297,19 @@ async def detect(
     ][:limit]
     if not freed:
         return 0
-    client = ehr_client(conn, settings, transport)
+    connector = connector_for(conn, settings, transport)
     opened = 0
     try:
         for appt in freed:
             try:
-                await _open(session, conn, appt, client)
+                await _open(session, conn, appt, connector)
                 opened += 1
             except NexHealthError as err:
                 # Leave this slot for the next pass; openings already made this pass stand.
                 await audit(
                     session,
                     conn,
-                    "nexhealth.available_slots",
+                    f"{connector.kind}.slot_check",
                     "backfill",
                     ok=False,
                     status=err.status,
@@ -313,8 +318,8 @@ async def detect(
                 )
                 break
     finally:
-        calls = client.calls
-        await client.aclose()
+        calls = connector.calls
+        await connector.aclose()
     await audit(
         session,
         conn,
@@ -391,15 +396,15 @@ async def respond(
     conn = await session.get(PayerConnection, opening.connection_id)
     await session.commit()
 
-    client = ehr_client(conn, settings, transport)
+    connector = connector_for(conn, settings, transport)
     try:
-        operatory = await free_operatory(client, conn, opening)
+        operatory = await free_operatory(connector, opening)
     except NexHealthError as err:
         operatory, error = None, err.message
     else:
         error = None
     finally:
-        await client.aclose()
+        await connector.aclose()
     if operatory is None:
         opening.state = "taken" if error is None else "open"
         opening.state_reason = error or "Someone else took this time before it could be booked."

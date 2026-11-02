@@ -31,6 +31,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from careplix_api import events
+from careplix_api.connect.connectors import connector_for
 from careplix_api.db import Database, as_utc, utcnow
 from careplix_api.errors import Rejected
 from careplix_api.integrations.nexhealth import NexHealthError
@@ -44,8 +45,7 @@ from careplix_api.models import (
 )
 from careplix_api.phi import PhiBox
 from careplix_api.practice import intents
-from careplix_api.practice.backfill import free_operatory
-from careplix_api.practice.connections import EHR_KINDS, audit, ehr_client, location_id
+from careplix_api.practice.connections import EHR_KINDS, audit, location_id
 from careplix_api.settings import Settings
 
 SCHEDULED = ("booked", "confirmed")
@@ -278,43 +278,11 @@ async def _available(
     providers: list[str],
     tz: ZoneInfo,
 ) -> list[tuple[datetime, str, str]]:
-    client = ehr_client(conn, env.settings, env.transport)
+    connector = connector_for(conn, env.settings, env.transport)
     try:
-        if getattr(client, "is_openemr", False):
-            return await client.free_slots(start, end, minutes, providers)
-        first, last = start.astimezone(tz).date(), end.astimezone(tz).date()
-        params: dict[str, Any] = {
-            "start_date": first.isoformat(),  # NexHealth reads dates in the location's time
-            "days": max(1, min((last - first).days + 1, 30)),
-            "lids[]": location_id(conn),
-            "pids[]": providers,
-            "slot_length": minutes,
-            "slot_interval": 15,
-        }
-        body = await client.request("GET", "/available_slots", params)
-        out: list[tuple[datetime, str, str]] = []
-        for entry in body.get("data") or []:
-            for slot in entry.get("slots") or []:
-                at = _parse(slot.get("time"))
-                if at is None or not (start <= at <= end):
-                    continue
-                pid = str(slot.get("provider_id") or entry.get("pid") or "")
-                if providers and pid not in providers:
-                    continue
-                out.append((at, pid, str(slot.get("operatory_id") or "")))
-        return sorted(out)
+        return await connector.available_slots(start, end, minutes, providers, tz)
     finally:
-        await client.aclose()
-
-
-def _parse(value: Any) -> datetime | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+        await connector.aclose()
 
 
 def _spread(
@@ -489,13 +457,13 @@ async def _book(
         operatory_ref=slot.get("operatory_ref"),
         source_appointment_ref=slot.get("exclude"),
     )
-    client = ehr_client(conn, env.settings, env.transport)
+    connector = connector_for(conn, env.settings, env.transport)
     try:
-        operatory = await free_operatory(client, conn, probe)
+        operatory = await connector.slot_free(probe)
     except NexHealthError:
         raise Rejected("schedule_unavailable", "I can't reach the schedule right now.") from None
     finally:
-        await client.aclose()
+        await connector.aclose()
     if operatory is None:
         state["slots"] = {k: v for k, v in state["slots"].items() if k != slot_id}
         _save(attempt, state)
@@ -536,6 +504,8 @@ async def _book(
 def _outcome(intent: WriteIntent) -> str:
     if intent.state in ("accepted", "written"):
         return "booked"
+    if intent.state == "manual":
+        return "front_desk"  # the practice's EHR doesn't take this write (CarePlix Connect catalog)
     if intent.state in ("approved", "proposed"):
         return "pending"  # e.g. held while EHR sync is offline: the front desk will see it
     if intent.state == "failed":
@@ -637,6 +607,14 @@ async def reschedule_appointment(session, attempt, _version, args, _evidence, en
     await _guard_write(session, attempt, conn, env)
     old = await _patient_appointment(session, conn, patient, args["appointment_id"])
     old_id = old.source_id
+    if _support(conn, env, "appointment_cancel") == "no":
+        # Moving a visit is "book the new time, cancel the old one". Where the EHR can't take
+        # a cancel, booking first would leave the patient double-booked: don't start.
+        raise Rejected(
+            "not_supported_here",
+            "This practice's system doesn't let me move visits. Offer to leave a message so "
+            "the front desk can move it.",
+        )
     outcome, book, slot = await _book(
         session, attempt, env, conn, patient, args["slot_id"], "Receptionist: patient rescheduled"
     )
@@ -670,9 +648,13 @@ async def cancel_appointment(session, attempt, _version, args, _evidence, env: T
     conn = await _connection(session, attempt)
     await _guard_write(session, attempt, conn, env)
     appt = await _patient_appointment(session, conn, patient, args["appointment_id"])
-    auto = env.settings.receptionist_cancel_mode == "auto"
+    # Where the EHR can't take a cancel, run it now: the hub turns it into a front-desk task.
+    run = (
+        env.settings.receptionist_cancel_mode == "auto"
+        or _support(conn, env, "appointment_cancel") == "no"
+    )
     reason = f"Receptionist: patient cancelled ({args['reason'].replace('_', ' ')})"
-    intent = await _cancel(session, attempt, env, conn, appt, reason, run=auto)
+    intent = await _cancel(session, attempt, env, conn, appt, reason, run=run)
     tz = await practice_zone(session, conn)
     if intent.state == "proposed":
         outcome = "requested"
@@ -692,8 +674,15 @@ async def cancel_appointment(session, attempt, _version, args, _evidence, env: T
     return result
 
 
+def _support(conn: PayerConnection, env: ToolEnv, kind: str) -> str:
+    """What the CarePlix Connect catalog says this practice's EHR does with a write kind."""
+    return connector_for(conn, env.settings, env.transport).intent_support(kind)
+
+
 def _write_result(outcome: str, when: datetime, tz: ZoneInfo) -> dict[str, Any]:
     messages = {
+        "front_desk": "This practice's system doesn't let CarePlix make this change, so it is "
+        "with the front desk. Tell the caller it isn't done until the front desk confirms.",
         "slot_taken": "That time was just taken. Apologise and offer another time.",
         "pending": "The request is saved and the front desk will confirm it. It is not booked yet.",
         "failed": "The schedule refused that change. Offer another time or a message.",

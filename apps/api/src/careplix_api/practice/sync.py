@@ -88,11 +88,25 @@ async def sync_practice(
     *,
     full: bool = False,
 ) -> dict[str, Any]:
-    """One sync pass. Per-resource failures are recorded and never stop the other resources."""
-    if conn.kind == "openemr":
-        from careplix_api.practice import openemr
+    """One sync pass through the practice's connector."""
+    from careplix_api.connect.connectors import connector_for
 
-        return await openemr.sync_practice(session, conn, settings, transport, full=full)
+    connector = connector_for(conn, settings, transport)
+    try:
+        return await connector.sync(session, full=full)
+    finally:
+        await connector.aclose()
+
+
+async def sync_nexhealth(
+    session: AsyncSession,
+    conn: PayerConnection,
+    settings: Settings,
+    transport: httpx.AsyncBaseTransport | None = None,
+    *,
+    full: bool = False,
+) -> dict[str, Any]:
+    """One NexHealth sync pass. Per-resource failures are recorded and never stop the others."""
     box, client = PhiBox(settings), nexhealth_client(conn, settings, transport)
     report: dict[str, Any] = {"full": full, "resources": {}, "transitions": []}
     try:
@@ -222,11 +236,23 @@ async def probe(
     settings: Settings,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> dict[str, Any]:
-    """Live capability map for this location: what reads answer, sync health, documented writes."""
-    if conn.kind == "openemr":
-        from careplix_api.practice import openemr
+    """Live capability map through the practice's connector."""
+    from careplix_api.connect.connectors import connector_for
 
-        return await openemr.probe(session, conn, settings, transport)
+    connector = connector_for(conn, settings, transport)
+    try:
+        return await connector.probe(session)
+    finally:
+        await connector.aclose()
+
+
+async def probe_nexhealth(
+    session: AsyncSession,
+    conn: PayerConnection,
+    settings: Settings,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> dict[str, Any]:
+    """NexHealth capability map for this location: reads, sync health, documented writes."""
     client = nexhealth_client(conn, settings, transport)
     loc_id = location_id(conn)
     started = time.perf_counter()
@@ -318,14 +344,18 @@ async def refresh_sync_status(
     settings: Settings,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> list[dict[str, Any]]:
-    """Cheap re-read of sync health (one call), used when NexHealth reports a status change."""
-    if conn.kind != "nexhealth":
-        return (conn.capability or {}).get("sync") or []
-    client = nexhealth_client(conn, settings, transport)
+    """Cheap re-read of sync health (one call), used when the EHR reports a status change."""
+    from careplix_api.connect.connectors import connector_for
+
+    connector = connector_for(conn, settings, transport)
     try:
-        syncs = await client.get("/sync_status", {"location_ids[]": location_id(conn)}) or []
+        return await connector.health(session)
     finally:
-        await client.aclose()
+        await connector.aclose()
+
+
+async def refresh_nexhealth_status(conn: PayerConnection, client: Any) -> list[dict[str, Any]]:
+    syncs = await client.get("/sync_status", {"location_ids[]": location_id(conn)}) or []
     sync = [_sync_view(s) for s in syncs]
     conn.capability = {**(conn.capability or {}), "sync": sync, "writes_confirmable": bool(sync)}
     return sync
