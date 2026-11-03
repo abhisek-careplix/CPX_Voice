@@ -24,6 +24,11 @@ class WorkerSettings(BaseSettings):
     vertex_location: str = ""
     gemini_live_model: str = ""
     gemini_voice: str = "Puck"
+    # Sliding-window context compression lets a session outlive Gemini's ~15-minute audio limit
+    # (long payer holds). Switchable without a code change if a model or region rejects it.
+    gemini_context_compression: bool = True
+    # Raise an alarm on the call timeline if the agent hasn't said anything this long after joining.
+    silence_alarm_s: float = 20.0
     # Fallback credential path (BUILD_PLAN R2): restricted service-account JSON held as a LiveKit
     # Cloud agent secret. Empty means Application Default Credentials.
     google_service_account_json: SecretStr = SecretStr("")

@@ -8,7 +8,7 @@ import { BrowserTestSheet } from "../BrowserTest";
 import { CallBlocked } from "../CallBlocked";
 import { Card, Empty, Pill, Toolbar, timeAgo, useToast } from "../ui";
 
-type Category = "healthcare" | "travel" | "pharmacy" | "utilities" | "retail" | "government" | "other";
+type Category = "eligibility" | "claim_status" | "denials" | "prior_auth" | "patient_billing" | "healthcare" | "pharmacy" | "travel" | "utilities" | "retail" | "government" | "other";
 
 interface ScenarioRow {
   id: string;
@@ -45,6 +45,11 @@ interface Scorecard {
 type ScenarioDetail = ScenarioRow & { runs: Scorecard[] };
 
 const CATEGORY_LABEL: Record<Category, string> = {
+  eligibility: "Insurance & benefits",
+  claim_status: "Claim status",
+  denials: "Denials",
+  prior_auth: "Prior authorization",
+  patient_billing: "Patient balances",
   healthcare: "Healthcare",
   travel: "Travel",
   pharmacy: "Pharmacy",
@@ -107,7 +112,7 @@ export default function VoiceStudio() {
           <Card title="Scenarios">
             {rows.length === 0 ? (
               <Empty icon={Sparkles} title="No scenarios yet">
-                Add the example library (airline, payer, pharmacy, subscription) or write your own.
+                Add the RCM library (insurance checks, claim status, denials, prior auth, patient balances) plus an airline showcase, or write your own.
               </Empty>
             ) : (
               <ul className="list">
@@ -185,6 +190,7 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
       onDeleted();
     },
   });
+  const isAdmin = useCan("admin");
   const live = useMutation({
     mutationFn: () => api.post<{ attempt_id: string }>(`/scenarios/${id}/runs`, { mode: "live" }),
     onSuccess: () => {
@@ -192,6 +198,24 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
       qc.invalidateQueries({ queryKey: ["scenario", id] });
     },
   });
+  // Outbound calls only go to approved numbers. An admin can approve this scenario's number here
+  // (recorded in the audit log) instead of switching to Connections.
+  const approveAndCall = useMutation({
+    mutationFn: async () => {
+      const o = await api.get<{ outbound: { approved_destinations: string[] } }>("/connections");
+      const numbers = [...new Set([...o.outbound.approved_destinations, form!.destination!])];
+      await api.put("/connections/outbound", { approved_destinations: numbers });
+      return api.post<{ attempt_id: string }>(`/scenarios/${id}/runs`, { mode: "live" });
+    },
+    onSuccess: () => {
+      live.reset();
+      toast("Number approved. Calling now.");
+      qc.invalidateQueries({ queryKey: ["scenario", id] });
+      qc.invalidateQueries({ queryKey: ["connections"] });
+    },
+    onError: (e) => toast(e instanceof ApiError ? e.message : "Could not approve the number"),
+  });
+  const notApproved = live.error instanceof ApiError && live.error.code === "destination_not_approved";
 
   if (!form) return <Card pad>Loading…</Card>;
   const set = <K extends keyof typeof EMPTY>(k: K, v: (typeof EMPTY)[K]) => setForm({ ...form, [k]: v });
@@ -219,7 +243,19 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
         }
       >
         <div className="card-pad stack" style={{ gap: 14 }}>
-          {live.error && <CallBlocked error={live.error} onCleared={() => live.reset()} />}
+          {live.error && !notApproved && <CallBlocked error={live.error} onCleared={() => live.reset()} />}
+          {notApproved && (
+            <div className="field-error" role="alert">
+              {form.destination} isn't an approved number yet. Calls only go to approved numbers.{" "}
+              {isAdmin ? (
+                <button type="button" className="link-button" disabled={approveAndCall.isPending} onClick={() => approveAndCall.mutate()}>
+                  {approveAndCall.isPending ? "Approving…" : "Approve this number and call"}
+                </button>
+              ) : (
+                "Ask an administrator to approve it under Connections."
+              )}
+            </div>
+          )}
           <div className="row" style={{ gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
             <Field label="Name" flex={2}>
               <input className="input" value={form.name} onChange={(e) => set("name", e.target.value)} disabled={!canEdit} />

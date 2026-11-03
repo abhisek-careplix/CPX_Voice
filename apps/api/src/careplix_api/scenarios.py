@@ -36,98 +36,27 @@ from careplix_api.models import (
     Task,
 )
 from careplix_api.phi import PhiBox
+from careplix_api.scenario_library import LIBRARY
 from careplix_api.settings import Settings
 
 ERRAND = "errand"
-CATEGORIES = ("healthcare", "travel", "pharmacy", "utilities", "retail", "government", "other")
+CATEGORIES = (
+    "eligibility",
+    "claim_status",
+    "denials",
+    "prior_auth",
+    "patient_billing",
+    "healthcare",
+    "pharmacy",
+    "travel",
+    "utilities",
+    "retail",
+    "government",
+    "other",
+)
 
-# Synthetic people and references only. Real errands are entered by their owner.
-EXAMPLES: list[dict[str, Any]] = [
-    {
-        "name": "Move a flight to the next day",
-        "category": "travel",
-        "counterpart": "Airline reservations",
-        "on_behalf_of": "Sam Example (the passenger)",
-        "goal": "Move the passenger's flight on the booking below to the earliest flight the "
-        "next day in the same cabin, if that can be done without a fee.",
-        "facts": {
-            "passenger_name": "Sam Example",
-            "confirmation_code": "QX7P2R",
-            "flight": "UA 1234, Chicago O'Hare to Newark, December 4, 7:05 am",
-        },
-        "limits": [
-            "Do not pay or accept any change fee or fare difference; ask what it would cost.",
-            "Do not cancel the booking.",
-        ],
-        "success_checks": [
-            "New flight number and time confirmed, or the exact fee to change",
-            "Confirmation code read back",
-        ],
-        "rehearsal_script": "Answer as 'Airline reservations'. Ask for the confirmation code and "
-        "name. Offer two flights the next morning; say the 9:10 am one is free and the 7:30 am "
-        "one costs $75. Give the new confirmation as QX7P2R, seat 14C.",
-    },
-    {
-        "name": "Prior authorization status (payer line)",
-        "category": "healthcare",
-        "counterpart": "Health plan provider services",
-        "on_behalf_of": "Northwind Physical Therapy (the provider's office)",
-        "goal": "Find out the status of the prior authorization request below, and what is "
-        "still needed if it is pending.",
-        "facts": {
-            "member_id": "100200300",
-            "patient_name": "Alex Synth",
-            "date_of_birth": "1950-01-01",
-            "provider_npi": "1234567893",
-            "service": "Outpatient physical therapy, 12 visits, CPT 97110",
-        },
-        "limits": ["Do not agree to submit anything new; note what is requested."],
-        "success_checks": [
-            "Status recorded (approved, denied or pending)",
-            "Reference number read back",
-            "Missing documents listed if pending",
-        ],
-        "rehearsal_script": "Answer as a payer representative. Verify member ID and date of "
-        "birth. Say the request is pending clinical review and needs the last two PT progress "
-        "notes; give reference PA-48213.",
-    },
-    {
-        "name": "Pharmacy refill status",
-        "category": "pharmacy",
-        "counterpart": "Neighborhood pharmacy",
-        "on_behalf_of": "Casey Demo (the patient)",
-        "goal": "Ask whether the prescription refill below is ready, and if not, when it will be.",
-        "facts": {
-            "patient_name": "Casey Demo",
-            "date_of_birth": "1954-03-03",
-            "prescription": "Rx 4471902",
-        },
-        "limits": [
-            "Do not discuss or ask about the medicine or its use; ask only about readiness.",
-            "Do not pay or give card details.",
-        ],
-        "success_checks": ["Ready or ready-by time recorded"],
-        "rehearsal_script": "Answer as a pharmacy technician. Ask for name and date of birth. "
-        "Say it will be ready tomorrow after 2 pm because the doctor needs to approve the refill.",
-    },
-    {
-        "name": "Cancel a streaming subscription",
-        "category": "retail",
-        "counterpart": "Streaming service support",
-        "on_behalf_of": "Dana Sample (the account holder)",
-        "goal": "Cancel the subscription below at the end of the current billing period and get "
-        "a cancellation number. Decline retention offers politely.",
-        "facts": {
-            "account_email": "dana.sample@example.com",
-            "account_holder": "Dana Sample",
-            "plan": "Premium monthly",
-        },
-        "limits": ["Do not accept any offer or plan change.", "Do not give payment details."],
-        "success_checks": ["Cancellation number recorded", "End date of service recorded"],
-        "rehearsal_script": "Answer as support. Offer 50% off for three months; if declined, "
-        "cancel and give cancellation number C-99120, service ends on the 30th.",
-    },
-]
+# The starter library lives in scenario_library (synthetic data only).
+EXAMPLES = LIBRARY
 
 
 # --- views and validation -----------------------------------------------------------------------
