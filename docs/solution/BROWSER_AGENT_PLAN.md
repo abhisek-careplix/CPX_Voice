@@ -30,6 +30,34 @@ agents, the RCM engine and the integration hub can call like an API.
 "Learning" here is **procedure memory**, not retraining: demonstrations, the written skill, examples and every
 human correction, refined after each run. It is reliable, explainable and auditable.
 
+## 2a. Two ways a task starts (owner, 3 Nov 2026)
+
+**Mode A: learn by watching (the first, safest way).** A person does the real task for a real case in the
+Studio browser, start to finish. The agent only observes: it records the steps, the pages, the fields used and
+the result, and asks the person to confirm what each step was for. From one or more such cases it drafts the
+skill. Next time the same kind of case comes up, the agent offers to do it, first step by step with approval
+(Shadow), then under supervision. Nothing is ever done by the agent in Mode A until a person has done it first.
+
+**Mode B: do a defined task.** A person (or a workflow, later) asks for a task in plain words with its inputs,
+for example "check the status of claim 12345 on the Aetna provider portal". Before touching the browser the
+agent runs a **pre-flight check** and shows the result:
+
+| Check | Passes when |
+|---|---|
+| Site allowed | The site is on the allowlist and its terms permit assisted or automated use |
+| Signed in | A valid saved session exists for this practice and user (otherwise: "please sign in first") |
+| Information complete | Every input the task needs is present (member ID, date of service, claim number…), taken from the hub or entered by the person; nothing is guessed |
+| Permission | The person's role may run this task; the skill's maturity level allows this mode (read-only vs. write) |
+| Minimum data | Only the fields the task needs are passed to the model |
+| Model | The chosen model (Gemini or Claude) is approved for this workspace |
+
+If a check fails, the agent says exactly what is missing and stops. If all pass, it proceeds in the browser
+under the skill's current level: step-by-step approval if the skill is new or unknown, watched if it is
+Supervised, alone for read-only tasks once Autonomous, and always stopping before any submit or save.
+
+**Where to start:** Mode A on a **read-only** task (look up eligibility or a claim status on a portal whose
+terms allow it), then Mode B for the same task once a few cases have been taught.
+
 ## 3. Maturity ladder (per skill)
 
 | Level | Who acts | To move up |
@@ -82,8 +110,8 @@ the skill's checks).
 | # | Delivers |
 |---|---|
 | **B1** | Browser runtime on GKE, live view, staff sign-in, saved sessions, take-over, audit |
-| **B2** | Model adapter (Gemini + Claude via Vertex) and the model picker; agent performs a plain-language task with step-by-step approval |
-| **B3** | Teach mode: record a demonstration, agent drafts the skill, staff edit it |
+| **B2** | **Mode A**: record a person doing a real case (steps, pages, fields, result), confirm each step's purpose, draft the skill; staff edit it |
+| **B3** | Model adapter (Gemini + Claude via Vertex), model picker, **Mode B** with the pre-flight check, and the agent running a taught skill step by step with approval |
 | **B4** | Maturity ladder, skill library, scorecards, automatic demotion |
 | **B5** | Skills as tools for voice agents and RCM; Browser connector in the hub with approved writes |
 | **B6** | First production skills on two sites whose terms allow automation (owner to pick) |
