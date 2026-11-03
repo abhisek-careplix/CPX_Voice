@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -32,6 +32,7 @@ class ScenarioIn(BaseModel):
     limits: list[str] = Field(default_factory=list, max_length=10)
     success_checks: list[str] = Field(default_factory=list, max_length=10)
     rehearsal_script: str | None = Field(default=None, max_length=1500)
+    simulation: dict[str, Any] | None = None
 
 
 def _audit(session: AsyncSession, principal: Principal, action: str, target: str) -> None:
@@ -135,7 +136,7 @@ async def delete_scenario(
 
 
 class RunIn(BaseModel):
-    mode: Literal["rehearse", "live"]
+    mode: Literal["rehearse", "simulate", "live"]
     use: Literal["draft", "published"] = "published"
 
 
@@ -153,6 +154,8 @@ async def run_scenario(
     scenario = await scenarios.get(session, principal, scenario_id)
     if body.mode == "rehearse":
         return await scenarios.rehearse(session, principal, settings, gw, scenario, body.use)
+    if body.mode == "simulate":
+        return await scenarios.simulate(session, principal, settings, gw, scenario, body.use)
     if not principal.can("start_task"):
         raise ApiError(403, "forbidden", "Your role does not allow live calls.")
     attempt = await scenarios.run_live(session, principal, settings, gw, run, scenario)

@@ -40,6 +40,9 @@ from careplix_api.scenario_library import LIBRARY
 from careplix_api.settings import Settings
 
 ERRAND = "errand"
+# Gemini Live voices for the simulated counterpart (different from the agent's by default).
+COUNTERPART_VOICES = ("Charon", "Kore", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr", "Puck")
+MAX_SIM_HOLD_S = 600
 CATEGORIES = (
     "eligibility",
     "claim_status",
@@ -88,6 +91,7 @@ def view(scenario: Scenario, box: PhiBox, *, with_facts: bool = True) -> dict[st
         "limits": scenario.limits or [],
         "success_checks": scenario.success_checks or [],
         "rehearsal_script": scenario.rehearsal_script,
+        "simulation": simulation_settings(scenario),
         "updated_at": scenario.updated_at,
     }
 
@@ -110,6 +114,15 @@ def apply(scenario: Scenario, data: dict[str, Any], box: PhiBox) -> None:
         x.strip()[:300] for x in data.get("success_checks") or [] if x.strip()
     ][:10]
     scenario.rehearsal_script = (data.get("rehearsal_script") or "").strip()[:1500] or None
+    sim = data.get("simulation") or {}
+    voice = sim.get("voice") or "Charon"
+    if voice not in COUNTERPART_VOICES:
+        raise ApiError(422, "unknown_voice", "Choose one of the listed voices.")
+    scenario.simulation = {
+        "menu": (sim.get("menu") or "").strip()[:600] or None,
+        "hold_s": max(0, min(int(sim.get("hold_s") or 0), MAX_SIM_HOLD_S)),
+        "voice": voice,
+    }
     scenario.updated_at = utcnow()
 
 
@@ -118,6 +131,56 @@ async def get(session: AsyncSession, principal: Principal, scenario_id: str) -> 
     if scenario is None or scenario.workspace_id != principal.workspace_id:
         raise ApiError(404, "not_found", "Scenario not found.")
     return scenario
+
+
+def simulation_settings(scenario: Scenario) -> dict[str, Any]:
+    sim = scenario.simulation or {}
+    return {
+        "menu": sim.get("menu"),
+        "hold_s": int(sim.get("hold_s") or 0),
+        "voice": sim.get("voice") or "Charon",
+    }
+
+
+def counterpart_brief(scenario: Scenario, box: PhiBox) -> dict[str, Any]:
+    """What the simulated other side (VS2) is told. It plays a role in a closed test: the agent on
+    the other end is ours, the data is synthetic, and nobody else is on the call."""
+    sim = simulation_settings(scenario)
+    facts = box.open(scenario.facts)
+    lines = [
+        f"You are role-playing '{scenario.counterpart}' answering a phone call in a CarePlix test "
+        "simulation. The caller is an automated assistant being tested. Stay in role, speak "
+        "naturally and briefly, and behave like a realistic, busy but fair representative.",
+        "Never mention that this is a simulation or that you are an AI.",
+    ]
+    if sim["menu"]:
+        lines.append(
+            "Start as an automated phone menu. Read this menu and wait for a keypad choice: "
+            f"{sim['menu']} When the caller presses keys you will receive a message like "
+            "'[keypad: 2]'. Route accordingly; if the choice is wrong, repeat the menu once."
+        )
+    else:
+        lines.append(f"Start by answering the phone as {scenario.counterpart}.")
+    if sim["hold_s"]:
+        lines.append(
+            "Once the caller has reached the right department (after the menu, or after they state "
+            "why they are calling), say 'Please hold' and call put_on_hold with "
+            f"seconds={sim['hold_s']}. "
+            "Do this once. When it returns, continue as a live representative who just picked up."
+        )
+    if scenario.rehearsal_script:
+        lines.append(f"How to play this call: {scenario.rehearsal_script}")
+    if facts:
+        lines.append(
+            "Your records (use them to verify what the caller says; do not read them out unless "
+            "a real representative would): " + "; ".join(f"{k}: {v}" for k, v in facts.items())
+        )
+    lines.append(
+        "If the caller asks you to do something the script doesn't cover, respond as a real "
+        "representative would. When the conversation is clearly finished, say goodbye and call "
+        "end_call."
+    )
+    return {"instructions": "\n".join(lines), "voice": sim["voice"], "hold_s": sim["hold_s"]}
 
 
 # --- what the agent receives ----------------------------------------------------------------------
@@ -170,6 +233,30 @@ async def rehearse(
     agent = await _agent(session, principal, scenario)
     return await calls_service.start_browser_session(
         session, principal, settings, gateway, agent, use, None, scenario_id=scenario.id
+    )
+
+
+async def simulate(
+    session: AsyncSession,
+    principal: Principal,
+    settings: Settings,
+    gateway: LiveKitGateway,
+    scenario: Scenario,
+    use: str,
+) -> dict[str, Any]:
+    """VS2: the agent and an AI counterpart playing the scenario, in one room, no person needed.
+    The returned token lets the Studio listen in."""
+    agent = await _agent(session, principal, scenario)
+    return await calls_service.start_browser_session(
+        session,
+        principal,
+        settings,
+        gateway,
+        agent,
+        use,
+        None,
+        scenario_id=scenario.id,
+        simulated=True,
     )
 
 
@@ -299,7 +386,9 @@ async def scorecard(session: AsyncSession, attempt: CallAttempt, scenario: Scena
     )
     return {
         "attempt_id": attempt.id,
-        "mode": "rehearsal" if attempt.direction == "browser" else "live",
+        "mode": "live"
+        if attempt.direction != "browser"
+        else ("simulation" if attempt.pins.get("simulated") else "rehearsal"),
         "state": attempt.state,
         "started_at": attempt.created_at,
         "verdict": verdict,

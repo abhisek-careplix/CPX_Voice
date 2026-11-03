@@ -96,6 +96,18 @@ class ControlPlane:
             },
         )
 
+    async def counterpart_claim(self, attempt_id: str, room: str, job_id: str) -> dict[str, Any]:
+        """VS2: claim the simulated other side of a scenario run (once per run)."""
+        response = await self._http.post(
+            f"/internal/attempts/{attempt_id}/counterpart",
+            json={"room": room, "job_id": job_id},
+            headers={"Authorization": f"Bearer {self._service_token}"},
+        )
+        if response.status_code != 200:
+            code = response.json().get("error", {}).get("code", "claim_failed")
+            raise ClaimRejected(response.status_code, code)
+        return response.json()
+
     async def ack_probe(self, probe_id: str, room: str, build: str) -> None:
         response = await self._http.post(
             f"/internal/probes/{probe_id}/ack",

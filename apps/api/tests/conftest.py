@@ -77,6 +77,10 @@ class FakeGateway(LiveKitGateway):
         ]
         return "ST_new"
 
+    async def dispatch_counterpart(self, room, attempt_id):
+        self.calls.append(("counterpart", room, attempt_id))
+        return "AD_counterpart"
+
     async def dispatch_probe(self, room, probe_id):
         self.calls.append(("probe", room, probe_id))
 
