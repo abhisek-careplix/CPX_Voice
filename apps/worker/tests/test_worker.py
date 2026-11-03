@@ -100,3 +100,70 @@ def test_every_model_tool_is_accepted_by_the_gemini_plugin():
     declared, _ = create_tools_config(llm.ToolContext(tools), use_parameters_json_schema=False)
     names = {d.name for t in declared for d in (t.function_declarations or [])}
     assert names == set(contracts.tool_registry())
+
+
+# --- hold mode (ADR10) -------------------------------------------------------------------------
+
+from careplix_worker.hold import HoldClock  # noqa: E402
+
+
+class _Clock:
+    def __init__(self):
+        self.t = 0.0
+
+    def __call__(self):
+        return self.t
+
+
+def test_hold_time_does_not_spend_the_call_budget():
+    t = _Clock()
+    clock = HoldClock(max_duration_s=600, max_hold_s=2700, now=t)
+    clock.start()
+    t.t = 120  # two minutes in the phone menu
+    assert clock.enter_hold() and not clock.enter_hold()  # a repeat is not a new hold
+    t.t = 120 + 1800  # thirty minutes of hold music
+    assert clock.exceeded() is None and clock.talk_s() == 120
+    assert clock.leave_hold() == 1800
+    t.t += 479
+    assert clock.exceeded() is None
+    t.t += 1
+    assert clock.exceeded() == "budget_exhausted"  # 600 s of talk, whatever the hold
+    assert clock.hold_total_s() == 1800 and clock.holds == 1
+
+
+def test_one_hold_longer_than_the_allowance_ends_the_call():
+    t = _Clock()
+    clock = HoldClock(max_duration_s=600, max_hold_s=60, now=t)
+    clock.start()
+    clock.enter_hold()
+    t.t = 59
+    assert clock.exceeded() is None
+    t.t = 60
+    assert clock.exceeded() == "hold_timeout"
+
+
+def test_runtime_mutes_on_hold_and_unmutes_when_a_person_is_back():
+    class Output:
+        enabled = True
+
+        def set_audio_enabled(self, value):
+            self.enabled = value
+
+    class Session:
+        output = Output()
+
+    reporter = EventReporter.__new__(EventReporter)
+    sent = []
+    reporter.emit = lambda type_, payload=None: sent.append(type_)
+    runtime = main.CallRuntime(
+        None, None, reporter, {"max_duration_s": 600, "max_hold_s": 2700, "tools": []}
+    )
+    runtime.session = Session()
+    runtime.clock.start()
+    runtime.substate_changed("IVR")
+    assert Session.output.enabled and sent == []
+    runtime.substate_changed("Hold")
+    runtime.substate_changed("Hold")  # the model repeating itself changes nothing
+    assert not Session.output.enabled and sent == ["hold.started"]
+    runtime.substate_changed("Conversation")
+    assert Session.output.enabled and sent == ["hold.started", "hold.ended"]

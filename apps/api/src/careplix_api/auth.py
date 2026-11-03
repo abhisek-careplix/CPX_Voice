@@ -131,7 +131,8 @@ def issue_attempt_token(settings: Settings, attempt_id: str, workspace_id: str) 
             "ws": workspace_id,
             "aud": WORKER_AUDIENCE,
             "iat": now,
-            "exp": now + timedelta(seconds=settings.max_call_duration_s + 600),
+            "exp": now
+            + timedelta(seconds=settings.max_call_duration_s + settings.max_hold_s + 600),
         },
         settings.signing_key(),
         algorithm="HS256",

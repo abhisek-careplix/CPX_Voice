@@ -187,7 +187,7 @@ class TranscriptSegment(Base):
     attempt_id: Mapped[str] = mapped_column(ForeignKey("call_attempts.id"), index=True)
     speaker: Mapped[str] = mapped_column(String(12))  # agent|counterpart
     text: Mapped[str] = mapped_column(Text)
-    playout: Mapped[str] = mapped_column(String(12))  # played|interrupted|unverified
+    playout: Mapped[str] = mapped_column(String(12))  # played|interrupted|muted|unverified
     occurred_at: Mapped[datetime] = mapped_column()
 
 

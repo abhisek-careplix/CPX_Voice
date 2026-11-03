@@ -350,3 +350,17 @@ async def test_concurrent_events_get_distinct_cursors(tmp_path):
         )
     await db.dispose()
     assert seqs == [1, 2, 3]
+
+
+def test_claim_gives_the_worker_a_hold_allowance_beyond_the_talk_budget(client, settings):
+    """ADR10: a payer hold must not run out the worker's token or the brief."""
+    session = _browser_attempt(client)
+    payload = _claim(client, session["attempt_id"])
+    assert payload["max_hold_s"] == 2700  # auth-status hold policy, within the workspace cap
+    brief = payload["brief"]
+    assert brief["budget"]["max_hold_s"] == 2700
+    from datetime import datetime
+
+    issued = datetime.fromisoformat(brief["issued_at"])
+    expires = datetime.fromisoformat(brief["expires_at"])
+    assert (expires - issued).total_seconds() >= settings.max_call_duration_s + 2700
