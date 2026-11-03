@@ -167,3 +167,31 @@ def test_runtime_mutes_on_hold_and_unmutes_when_a_person_is_back():
     assert not Session.output.enabled and sent == ["hold.started"]
     runtime.substate_changed("Conversation")
     assert Session.output.enabled and sent == ["hold.started", "hold.ended"]
+
+
+# --- VS2 counterpart ---------------------------------------------------------------------------
+
+import asyncio  # noqa: E402
+
+from careplix_worker import counterpart  # noqa: E402
+
+
+def test_hold_music_is_the_requested_length_in_20ms_frames():
+    frames = list(counterpart.hold_music_frames(1.0))
+    assert len(frames) == 50
+    assert all(f.samples_per_channel == 480 and f.sample_rate == 24000 for f in frames)
+    assert any(any(b for b in bytes(f.data)) for f in frames)  # not silence
+
+
+async def test_keypad_presses_are_delivered_together_after_a_pause():
+    got = []
+    pad = counterpart.KeypadBuffer(got.append, settle_s=0.05)
+    pad.press("1")
+    pad.press("2")
+    await asyncio.sleep(0.02)
+    pad.press("#")
+    await asyncio.sleep(0.1)
+    assert got == ["12#"]
+    pad.press("0")
+    await asyncio.sleep(0.1)
+    assert got == ["12#", "0"]

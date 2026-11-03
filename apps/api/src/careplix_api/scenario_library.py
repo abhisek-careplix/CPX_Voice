@@ -54,6 +54,11 @@ LIBRARY: list[dict[str, Any]] = [
     },
     {
         "name": "1b · Benefits detail the electronic check missed",
+        "simulation": {
+            "menu": "Thank you for calling provider services. For eligibility and benefits, press 1. For claims, press 2. For prior authorization, press 3.",
+            "hold_s": 30,
+            "voice": "Kore",
+        },
         "category": "eligibility",
         "counterpart": "Health plan provider services",
         "on_behalf_of": PRACTICE,
@@ -79,6 +84,11 @@ LIBRARY: list[dict[str, Any]] = [
     # --- 2. Claim status ---------------------------------------------------------------------------
     {
         "name": "2a · Claim status: pended for records",
+        "simulation": {
+            "menu": "Provider claims line. For claim status, press 1. For appeals, press 2. To speak with a representative, press 0.",
+            "hold_s": 45,
+            "voice": "Charon",
+        },
         "category": "claim_status",
         "counterpart": "Health plan claims line",
         "on_behalf_of": PRACTICE,
@@ -104,6 +114,11 @@ LIBRARY: list[dict[str, Any]] = [
     },
     {
         "name": "2b · Claim status: no record on file",
+        "simulation": {
+            "menu": "Provider claims line. For claim status, press 1. For appeals, press 2.",
+            "hold_s": 20,
+            "voice": "Fenrir",
+        },
         "category": "claim_status",
         "counterpart": "Health plan claims line",
         "on_behalf_of": PRACTICE,
@@ -129,6 +144,11 @@ LIBRARY: list[dict[str, Any]] = [
     },
     {
         "name": "2c · Medicare automated claim-status line",
+        "simulation": {
+            "menu": "Welcome to the Medicare provider line. Enter your 10-digit NPI followed by pound. Then your PTAN followed by pound. Then the last five digits of your tax ID. Then say the beneficiary's Medicare number.",
+            "hold_s": 0,
+            "voice": "Orus",
+        },
         "category": "claim_status",
         "counterpart": "Medicare contractor automated line (simulated)",
         "on_behalf_of": PRACTICE,
@@ -154,6 +174,11 @@ LIBRARY: list[dict[str, Any]] = [
     # --- 3. Denials ----------------------------------------------------------------------------------
     {
         "name": "3a · Medicare telephone reopening (wrong modifier)",
+        "simulation": {
+            "menu": "Medicare provider contact center. For telephone reopenings, press 3. For claim status, press 1.",
+            "hold_s": 40,
+            "voice": "Leda",
+        },
         "category": "denials",
         "counterpart": "Medicare contractor reopenings line",
         "on_behalf_of": PRACTICE,
@@ -228,6 +253,7 @@ LIBRARY: list[dict[str, Any]] = [
     # --- 4. Prior authorization ----------------------------------------------------------------------
     {
         "name": "4a · Prior auth status: pending review",
+        "simulation": {"menu": None, "hold_s": 60, "voice": "Aoede"},
         "category": "prior_auth",
         "counterpart": "Utilization review department",
         "on_behalf_of": PRACTICE,
@@ -355,6 +381,11 @@ LIBRARY: list[dict[str, Any]] = [
     # --- Showcase errand (beyond healthcare) -------------------------------------------------------
     {
         "name": "Showcase · Move a flight to the next day",
+        "simulation": {
+            "menu": "Thank you for calling. For reservations and changes, press 1. For baggage, press 2.",
+            "hold_s": 30,
+            "voice": "Zephyr",
+        },
         "category": "travel",
         "counterpart": "Airline reservations",
         "on_behalf_of": "Sam Example (the passenger)",

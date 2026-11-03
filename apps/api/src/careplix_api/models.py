@@ -494,6 +494,8 @@ class Scenario(IdMixin, Base):
     limits: Mapped[list[str]] = mapped_column(JSON, default=list)
     success_checks: Mapped[list[str]] = mapped_column(JSON, default=list)
     rehearsal_script: Mapped[str | None] = mapped_column(Text)  # how to play the other side
+    # VS2 simulated counterpart: {"menu": str | None, "hold_s": int, "voice": str}
+    simulation: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     created_by: Mapped[str] = mapped_column(String(36))
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)

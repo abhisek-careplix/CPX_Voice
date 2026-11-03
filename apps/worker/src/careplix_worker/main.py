@@ -23,6 +23,7 @@ from livekit.agents.voice import room_io
 from livekit.plugins import google
 
 from careplix_common.safe_logging import scrub
+from careplix_worker import counterpart as counterpart_role
 from careplix_worker import prompt
 from careplix_worker.control_plane import ClaimRejected, ControlPlane, EventReporter
 from careplix_worker.gcp import load_credentials
@@ -34,6 +35,7 @@ log = logging.getLogger("careplix.worker")
 RUNTIME_BUILD = os.environ.get("CAREPLIX_RUNTIME_BUILD", "dev")
 DTMF_CODES = {**{str(d): d for d in range(10)}, "*": 10, "#": 11}
 SIP_KIND = rtc.ParticipantKind.PARTICIPANT_KIND_SIP
+AGENT_KIND = rtc.ParticipantKind.PARTICIPANT_KIND_AGENT
 
 # Cloud Run sends health checks to $PORT; locally the SDK picks its own port.
 server = AgentServer(port=int(os.environ["PORT"])) if os.environ.get("PORT") else AgentServer()
@@ -183,6 +185,10 @@ async def entrypoint(ctx: JobContext) -> None:
             await plane.aclose()
             ctx.shutdown(reason="probe_acknowledged")
         return
+    if attempt_for := _metadata(ctx.job.metadata).get("counterpart_for"):
+        # VS2: this job plays the other side of a simulated scenario run.
+        await counterpart_role.run(ctx, plane, settings, str(attempt_for))
+        return
 
     try:
         claim = await _claim(ctx, plane)
@@ -200,13 +206,22 @@ async def entrypoint(ctx: JobContext) -> None:
     runtime = CallRuntime(ctx, plane, reporter, claim)
     ctx.add_shutdown_callback(plane.aclose)
 
-    # Outbound calls bind audio input to the dialled SIP participant only.
+    # Outbound calls bind audio input to the dialled SIP participant only. In a simulation the
+    # other side is the counterpart agent (VS2); a Studio listener in the room is ignored.
+    simulated = claim.get("counterpart_kind") == "agent"
     if claim["expect_sip"]:
         counterpart = await ctx.wait_for_participant(identity=claim["sip_identity"])
+    elif simulated:
+        counterpart = await ctx.wait_for_participant(kind=AGENT_KIND)
     else:
         counterpart = await ctx.wait_for_participant()
     reporter.emit(
-        "participant.joined", {"kind": "sip" if counterpart.kind == SIP_KIND else "browser"}
+        "participant.joined",
+        {
+            "kind": "sip"
+            if counterpart.kind == SIP_KIND
+            else ("simulated" if simulated else "browser")
+        },
     )
 
     @ctx.room.on("participant_attributes_changed")
@@ -280,7 +295,10 @@ async def entrypoint(ctx: JobContext) -> None:
     await session.start(
         agent=Agent(instructions=prompt.compose(claim), tools=runtime.build_tools()),
         room=ctx.room,
-        room_options=room_io.RoomOptions(participant_identity=counterpart.identity),
+        room_options=room_io.RoomOptions(
+            participant_identity=counterpart.identity,
+            **({"participant_kinds": [AGENT_KIND]} if simulated else {}),
+        ),
     )
     reporter.emit("worker.ready", {"runtime_build": RUNTIME_BUILD})
 

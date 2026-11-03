@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, CircleDashed, Clock, Hash, Library, Mic, PhoneOutgoing, Plus, Sparkles, Trash2, XCircle } from "lucide-react";
+import { Bot, CheckCircle2, CircleDashed, Clock, Hash, Library, Mic, PhoneOutgoing, Plus, Sparkles, Trash2, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError, type AgentSummary } from "../api";
@@ -23,12 +23,13 @@ interface ScenarioRow {
   limits: string[];
   success_checks: string[];
   rehearsal_script: string | null;
+  simulation: { menu: string | null; hold_s: number; voice: string };
   updated_at: string;
 }
 
 interface Scorecard {
   attempt_id: string;
-  mode: "rehearsal" | "live";
+  mode: "rehearsal" | "simulation" | "live";
   state: string;
   started_at: string;
   verdict: "achieved" | "partly_achieved" | "not_achieved" | "running" | "unknown";
@@ -150,7 +151,10 @@ const EMPTY: Omit<ScenarioRow, "id" | "updated_at"> = {
   limits: [],
   success_checks: [],
   rehearsal_script: null,
+  simulation: { menu: null, hold_s: 0, voice: "Charon" },
 };
+
+const VOICES = ["Charon", "Kore", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr", "Puck"];
 
 function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; categories: Category[]; onSaved: (id: string) => void; onDeleted: () => void }) {
   const isNew = id === "new";
@@ -166,7 +170,7 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
   useEffect(() => {
     if (!isNew && detail.data && form === null) {
       const { id: _id, updated_at: _u, runs: _r, ...rest } = detail.data;
-      setForm({ ...rest, facts: rest.facts ?? {} });
+      setForm({ ...rest, facts: rest.facts ?? {}, simulation: rest.simulation ?? EMPTY.simulation });
     }
   }, [detail.data, form, isNew]);
 
@@ -215,6 +219,13 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
     },
     onError: (e) => toast(e instanceof ApiError ? e.message : "Could not approve the number"),
   });
+  const simulate = useMutation({
+    mutationFn: () => api.post<{ attempt_id: string }>(`/scenarios/${id}/runs`, { mode: "simulate" }),
+    onSuccess: () => {
+      toast("Simulation started: the agent is calling the simulated counterpart. Follow it in the run below.");
+      qc.invalidateQueries({ queryKey: ["scenario", id] });
+    },
+  });
   const notApproved = live.error instanceof ApiError && live.error.code === "destination_not_approved";
 
   if (!form) return <Card pad>Loading…</Card>;
@@ -230,6 +241,9 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
         actions={
           !isNew && (
             <div className="row" style={{ gap: 8 }}>
+              <button className="btn btn-secondary" disabled={!agent?.current || simulate.isPending} onClick={() => simulate.mutate()} title={agent?.current ? "The agent calls an AI playing the other side; no one needs to talk" : "Publish the agent first"}>
+                <Bot size={15} aria-hidden /> Simulate
+              </button>
               <button className="btn btn-secondary" disabled={!agent?.current} onClick={() => setRehearsing(true)} title={agent?.current ? "" : "Publish the agent first"}>
                 <Mic size={15} aria-hidden /> Rehearse in browser
               </button>
@@ -243,6 +257,7 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
         }
       >
         <div className="card-pad stack" style={{ gap: 14 }}>
+          {simulate.error && <CallBlocked error={simulate.error} onCleared={() => simulate.reset()} />}
           {live.error && !notApproved && <CallBlocked error={live.error} onCleared={() => live.reset()} />}
           {notApproved && (
             <div className="field-error" role="alert">
@@ -322,9 +337,24 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
               <textarea className="textarea" rows={3} value={form.success_checks.join("\n")} onChange={(e) => set("success_checks", e.target.value.split("\n"))} disabled={!canEdit} />
             </Field>
           </div>
-          <Field label="Rehearsal: how to play the other side" help="Shown to you during a browser rehearsal. Later used by the simulated counterpart.">
+          <Field label="How to play the other side" help="Shown to you in a browser rehearsal, and followed by the simulated counterpart.">
             <textarea className="textarea" rows={2} value={form.rehearsal_script ?? ""} onChange={(e) => set("rehearsal_script", e.target.value || null)} disabled={!canEdit} />
           </Field>
+          <div className="row" style={{ gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+            <Field label="Simulation: phone menu (optional)" flex={2} help="The simulated line reads this first and waits for keypad presses.">
+              <textarea className="textarea" rows={2} value={form.simulation.menu ?? ""} onChange={(e) => set("simulation", { ...form.simulation, menu: e.target.value || null })} disabled={!canEdit} />
+            </Field>
+            <Field label="Hold (seconds)" flex={1} help="Hold music before a person answers. 0 = none.">
+              <input className="input" type="number" min={0} max={600} value={form.simulation.hold_s} onChange={(e) => set("simulation", { ...form.simulation, hold_s: Number(e.target.value) || 0 })} disabled={!canEdit} />
+            </Field>
+            <Field label="Counterpart voice" flex={1}>
+              <select className="select" value={form.simulation.voice} onChange={(e) => set("simulation", { ...form.simulation, voice: e.target.value })} disabled={!canEdit}>
+                {VOICES.map((v) => (
+                  <option key={v}>{v}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
           {canEdit && (
             <div className="row" style={{ gap: 8 }}>
               <button className="btn btn-primary" onClick={() => save.mutate()} disabled={save.isPending || !form.name || !form.goal || !form.counterpart || !form.on_behalf_of}>
@@ -385,7 +415,7 @@ function Runs({ runs }: { runs: Scorecard[] }) {
                       {v.label}
                     </Pill>
                     <span className="small muted">
-                      {r.mode === "live" ? "Live call" : "Rehearsal"} · {timeAgo(r.started_at)}
+                      {r.mode === "live" ? "Live call" : r.mode === "simulation" ? "Simulation" : "Rehearsal"} · {timeAgo(r.started_at)}
                     </span>
                     <Link className="small" to={`/calls/${r.attempt_id}`}>
                       Open call

@@ -133,3 +133,72 @@ def test_scorecard_counts_what_the_call_recorded(client):
 def test_a_scenario_of_another_workspace_is_not_found(client):
     assert client.get("/api/scenarios/does-not-exist").status_code == 404
     assert WORKER  # imported for parity with other suites
+
+
+# --- VS2: simulated counterpart --------------------------------------------------------------
+
+
+def _by_name(client, prefix):
+    return next(s for s in _examples(client) if s["name"].startswith(prefix))
+
+
+def test_simulation_dispatches_agent_and_counterpart_into_one_room(client, gateway):
+    claim_status = _by_name(client, "2a")
+    run = client.post(f"/api/scenarios/{claim_status['id']}/runs", json={"mode": "simulate"})
+    assert run.status_code == 200, run.text
+    attempt_id = run.json()["attempt_id"]
+    kinds = [c[0] for c in gateway.calls]
+    assert kinds[-2:] == ["dispatch", "counterpart"]
+    assert gateway.calls[-1][1] == gateway.calls[-2][1]  # same room
+
+    agent = _claim(client, attempt_id)
+    assert agent["speak_first"] is False  # the counterpart answers, like a real callee
+    assert agent["counterpart_kind"] == "agent"
+
+    room = f"att_{attempt_id.replace('-', '')}"
+    body = {"room": room, "job_id": "AJ_cp"}
+    role = client.post(f"/internal/attempts/{attempt_id}/counterpart", json=body, headers=WORKER)
+    assert role.status_code == 200, role.text
+    role = role.json()
+    assert role["counterpart"] == "Health plan claims line" and role["hold_s"] == 45
+    assert "press 1" in role["instructions"] and "put_on_hold" in role["instructions"]
+    assert "CLM-90217" in role["instructions"]  # the script's answer
+    assert "Never mention that this is a simulation" in role["instructions"]
+    again = client.post(f"/internal/attempts/{attempt_id}/counterpart", json=body, headers=WORKER)
+    assert again.status_code == 409
+
+    [card] = client.get(f"/api/scenarios/{claim_status['id']}").json()["runs"]
+    assert card["mode"] == "simulation"
+
+
+def test_counterpart_cannot_claim_a_real_call(client):
+    flight = _by_name(client, "Showcase")
+    run = client.post(f"/api/scenarios/{flight['id']}/runs", json={"mode": "rehearse"})
+    attempt_id = run.json()["attempt_id"]
+    room = f"att_{attempt_id.replace('-', '')}"
+    refused = client.post(
+        f"/internal/attempts/{attempt_id}/counterpart",
+        json={"room": room, "job_id": "AJ_cp"},
+        headers=WORKER,
+    )
+    assert refused.status_code == 404  # only simulated runs have a counterpart
+    unauthorised = client.post(
+        f"/internal/attempts/{attempt_id}/counterpart", json={"room": room, "job_id": "x"}
+    )
+    assert unauthorised.status_code == 401
+
+
+def test_simulation_settings_are_validated(client):
+    flight = _by_name(client, "Showcase")
+    detail = client.get(f"/api/scenarios/{flight['id']}").json()
+    assert detail["simulation"]["hold_s"] == 30 and detail["simulation"]["voice"] == "Zephyr"
+    body = {k: detail[k] for k in ("name", "category", "agent_id", "counterpart", "on_behalf_of")}
+    body |= {k: detail[k] for k in ("goal", "facts", "limits", "success_checks")}
+    bad = client.put(
+        f"/api/scenarios/{flight['id']}", json={**body, "simulation": {"voice": "Nobody"}}
+    )
+    assert bad.json()["error"]["code"] == "unknown_voice"
+    capped = client.put(
+        f"/api/scenarios/{flight['id']}", json={**body, "simulation": {"hold_s": 99999}}
+    ).json()
+    assert capped["simulation"]["hold_s"] == 600

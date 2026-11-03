@@ -124,7 +124,10 @@ async def start_browser_session(
     case_id: str | None,
     *,
     scenario_id: str | None = None,
+    simulated: bool = False,
 ) -> dict[str, Any]:
+    """A sandbox session in a LiveKit room. ``simulated``: the other side is an AI counterpart
+    playing the scenario (VS2), dispatched into the same room, instead of a person's browser."""
     if not gateway.configured:
         raise ApiError(503, "voice_not_configured", "Voice connection is not configured.")
     if use == "draft":
@@ -154,7 +157,7 @@ async def start_browser_session(
         sandbox=True,
         room_name=room_name_for(attempt_id),
         state="Created",
-        pins=_pins(version, eff),
+        pins={**_pins(version, eff), **({"simulated": True} if simulated else {})},
         created_by=principal.user_id,
         scenario_id=scenario_id,
     )
@@ -164,6 +167,8 @@ async def start_browser_session(
 
     try:
         dispatch_id = await gateway.create_room_and_dispatch(attempt.room_name, attempt.id)
+        if simulated:
+            await gateway.dispatch_counterpart(attempt.room_name, attempt.id)
     except Exception as exc:
         attempt.disposition = "voice_unavailable"
         await events.set_state(session, attempt, "Failed", "api", reason=type(exc).__name__)
@@ -512,7 +517,10 @@ async def _claim_payload(
         "conversation": config["conversation"],
         "model_id": attempt.pins["model_id"],
         "vertex": {"project": eff.gcp_project, "location": eff.vertex_location},
-        "speak_first": attempt.direction != "outbound",
+        # The callee speaks first. In a simulation the AI counterpart is the callee.
+        "speak_first": attempt.direction != "outbound" and not attempt.pins.get("simulated"),
+        # Who the agent talks to: a person (browser/phone) or the simulated counterpart agent.
+        "counterpart_kind": "agent" if attempt.pins.get("simulated") else "person",
         "expect_sip": attempt.direction == "outbound",
         "sip_identity": f"pstn_{attempt.id.replace('-', '')}"
         if attempt.direction == "outbound"

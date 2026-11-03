@@ -110,6 +110,53 @@ async def run_tool(
         return result
 
 
+class CounterpartClaimIn(BaseModel):
+    room: str = Field(max_length=64)
+    job_id: str = Field(max_length=80)
+
+
+@router.post("/attempts/{attempt_id}/counterpart", dependencies=[Depends(require_worker_service)])
+async def counterpart_claim(
+    attempt_id: str,
+    body: CounterpartClaimIn,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+):
+    """VS2: the simulated other side claims its role once, for a simulated scenario run only."""
+    from careplix_api import scenarios
+    from careplix_api.phi import PhiBox
+
+    async with request.app.state.db.sessions() as session:
+        attempt = await session.get(CallAttempt, attempt_id)
+        if (
+            attempt is None
+            or not attempt.pins.get("simulated")
+            or attempt.room_name != body.room
+            or attempt.state not in calls_service.ACTIVE_STATES
+        ):
+            raise ApiError(404, "attempt_not_found", "No simulation is waiting in that room.")
+        if (attempt.provider_ids or {}).get("counterpart_job"):
+            raise ApiError(409, "already_claimed", "The counterpart is already in this call.")
+        scenario = await scenarios.for_attempt(session, attempt)
+        if scenario is None:
+            raise ApiError(404, "no_scenario", "This simulation has no scenario.")
+        attempt.provider_ids = {**(attempt.provider_ids or {}), "counterpart_job": body.job_id}
+        await session.commit()
+        brief = scenarios.counterpart_brief(scenario, PhiBox(settings))
+        from careplix_api import connections
+
+        eff = await connections.load(session, attempt.workspace_id, settings)
+        return {
+            "vertex": {"project": eff.gcp_project, "location": eff.vertex_location},
+            "attempt_id": attempt.id,
+            "role": "counterpart",
+            "counterpart": scenario.counterpart,
+            **brief,
+            "model_id": attempt.pins["model_id"],
+            "max_duration_s": settings.max_call_duration_s + brief["hold_s"],
+        }
+
+
 class ProbeAckIn(BaseModel):
     runtime_build: str = Field(max_length=80)
     room: str = Field(max_length=64)

@@ -72,6 +72,18 @@ class LiveKitGateway:
             )
             return dispatch.id
 
+    async def dispatch_counterpart(self, room: str, attempt_id: str) -> str:
+        """VS2: dispatch the simulated other side into an existing room (same worker image)."""
+        async with self._client() as lk:
+            dispatch = await lk.agent_dispatch.create_dispatch(
+                lkapi.CreateAgentDispatchRequest(
+                    agent_name=self.settings.livekit_agent_name,
+                    room=room,
+                    metadata=json.dumps({"counterpart_for": attempt_id}),
+                )
+            )
+            return dispatch.id
+
     def browser_token(self, room: str, identity: str, display_name: str) -> str:
         return (
             lkapi.AccessToken(
