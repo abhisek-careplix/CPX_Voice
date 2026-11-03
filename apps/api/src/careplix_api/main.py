@@ -12,7 +12,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from careplix_api import connections_api, integrations_api, internal_api, seed, studio_api
+from careplix_api import (
+    connections_api,
+    integrations_api,
+    internal_api,
+    scenarios_api,
+    seed,
+    studio_api,
+)
 from careplix_api.calls_service import CallRunner
 from careplix_api.db import Database
 from careplix_api.errors import ApiError
@@ -131,6 +138,7 @@ def create_app(
     app.include_router(connections_api.router, prefix="/api")
     app.include_router(integrations_api.router, prefix="/api")
     app.include_router(practice_api.router, prefix="/api")
+    app.include_router(scenarios_api.router, prefix="/api")
     app.include_router(internal_api.router)
     if settings.is_dev:
         # Local webhook testing; in the cloud the public ingress is its own service (no IAP).

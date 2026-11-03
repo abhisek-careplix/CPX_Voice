@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AudioLines, Bot, Building2, ClipboardCheck, LayoutGrid, ListChecks, LogOut, Phone, PlugZap, ShieldCheck, Stethoscope, CalendarPlus, Network } from "lucide-react";
+import { AudioLines, Bot, Building2, ClipboardCheck, LayoutGrid, ListChecks, LogOut, Phone, PlugZap, ShieldCheck, Stethoscope, CalendarPlus, Network, Sparkles } from "lucide-react";
 import { createContext, useContext, useEffect } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, ApiError, type Me, type WorkspaceSummary } from "./api";
@@ -16,6 +16,7 @@ import ResultDetail from "./pages/ResultDetail";
 import Results from "./pages/Results";
 import TaskComposer from "./pages/TaskComposer";
 import Tasks from "./pages/Tasks";
+import VoiceStudio from "./pages/VoiceStudio";
 import Workspace from "./pages/Workspace";
 
 const MeCtx = createContext<Me | null>(null);
@@ -108,6 +109,9 @@ function Shell() {
         <NavLink to="/" end className="nav-link">
           <LayoutGrid size={18} aria-hidden /> Workspace
         </NavLink>
+        <NavLink to="/studio" className="nav-link">
+          <Sparkles size={18} aria-hidden /> Voice Studio
+        </NavLink>
         <NavLink to="/agents" className="nav-link">
           <Bot size={18} aria-hidden /> Agents
         </NavLink>
@@ -173,6 +177,7 @@ function Shell() {
       <main className="main">
         <Routes>
           <Route path="/" element={<Workspace />} />
+          <Route path="/studio" element={<VoiceStudio />} />
           <Route path="/agents" element={<Agents />} />
           <Route path="/agents/:id" element={<AgentEditor />} />
           <Route path="/tasks" element={<Tasks />} />
