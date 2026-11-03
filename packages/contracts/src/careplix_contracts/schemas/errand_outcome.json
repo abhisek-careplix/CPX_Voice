@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:careplix:voice:errand_outcome",
+  "title": "Errand call outcome",
+  "description": "Output schema for template errand (Voice Studio scenarios).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["attempt_id", "outcome"],
+  "properties": {
+    "attempt_id": {"type": "string"},
+    "outcome": {"enum": ["achieved", "partly_achieved", "not_achieved"]},
+    "result_summary": {"type": ["string", "null"]},
+    "reference_number": {"type": ["string", "null"]},
+    "options_offered": {"type": ["string", "null"]},
+    "blocker": {"type": ["string", "null"]},
+    "next_step": {"type": ["string", "null"]}
+  }
+}

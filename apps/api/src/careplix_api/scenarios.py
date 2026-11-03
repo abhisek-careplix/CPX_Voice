@@ -1,0 +1,412 @@
+"""Voice Studio scenarios: plan a call, rehearse it, run it live, and score every run.
+
+A scenario is the job description for one kind of call ("move my United flight", "check a
+prior-auth status", "ask the pharmacy about a refill"). The *errand* template reads it at claim
+time: the goal and limits become the call's objective, and the facts become the only context the
+agent may share. Runs are ordinary call attempts tagged with the scenario, so the live view,
+transcript, findings and review all work as for any other call.
+
+The scorecard is computed from what the call actually recorded (events and findings), never from
+what the model claims: goal reached (its recorded outcome), menu presses, time to a person, hold
+time, refused actions and how the call ended. Success checks are listed for a reviewer to tick.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import uuid
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from careplix_api import agents_service, calls_service, connections, events, templates
+from careplix_api.auth import Principal
+from careplix_api.calls_service import ACTIVE_STATES
+from careplix_api.db import as_utc, utcnow
+from careplix_api.errors import ApiError
+from careplix_api.livekit_gateway import LiveKitGateway
+from careplix_api.models import (
+    Agent,
+    CallAttempt,
+    CallEvent,
+    Finding,
+    Scenario,
+    Task,
+)
+from careplix_api.phi import PhiBox
+from careplix_api.settings import Settings
+
+ERRAND = "errand"
+CATEGORIES = ("healthcare", "travel", "pharmacy", "utilities", "retail", "government", "other")
+
+# Synthetic people and references only. Real errands are entered by their owner.
+EXAMPLES: list[dict[str, Any]] = [
+    {
+        "name": "Move a flight to the next day",
+        "category": "travel",
+        "counterpart": "Airline reservations",
+        "on_behalf_of": "Sam Example (the passenger)",
+        "goal": "Move the passenger's flight on the booking below to the earliest flight the "
+        "next day in the same cabin, if that can be done without a fee.",
+        "facts": {
+            "passenger_name": "Sam Example",
+            "confirmation_code": "QX7P2R",
+            "flight": "UA 1234, Chicago O'Hare to Newark, December 4, 7:05 am",
+        },
+        "limits": [
+            "Do not pay or accept any change fee or fare difference; ask what it would cost.",
+            "Do not cancel the booking.",
+        ],
+        "success_checks": [
+            "New flight number and time confirmed, or the exact fee to change",
+            "Confirmation code read back",
+        ],
+        "rehearsal_script": "Answer as 'Airline reservations'. Ask for the confirmation code and "
+        "name. Offer two flights the next morning; say the 9:10 am one is free and the 7:30 am "
+        "one costs $75. Give the new confirmation as QX7P2R, seat 14C.",
+    },
+    {
+        "name": "Prior authorization status (payer line)",
+        "category": "healthcare",
+        "counterpart": "Health plan provider services",
+        "on_behalf_of": "Northwind Physical Therapy (the provider's office)",
+        "goal": "Find out the status of the prior authorization request below, and what is "
+        "still needed if it is pending.",
+        "facts": {
+            "member_id": "100200300",
+            "patient_name": "Alex Synth",
+            "date_of_birth": "1950-01-01",
+            "provider_npi": "1234567893",
+            "service": "Outpatient physical therapy, 12 visits, CPT 97110",
+        },
+        "limits": ["Do not agree to submit anything new; note what is requested."],
+        "success_checks": [
+            "Status recorded (approved, denied or pending)",
+            "Reference number read back",
+            "Missing documents listed if pending",
+        ],
+        "rehearsal_script": "Answer as a payer representative. Verify member ID and date of "
+        "birth. Say the request is pending clinical review and needs the last two PT progress "
+        "notes; give reference PA-48213.",
+    },
+    {
+        "name": "Pharmacy refill status",
+        "category": "pharmacy",
+        "counterpart": "Neighborhood pharmacy",
+        "on_behalf_of": "Casey Demo (the patient)",
+        "goal": "Ask whether the prescription refill below is ready, and if not, when it will be.",
+        "facts": {
+            "patient_name": "Casey Demo",
+            "date_of_birth": "1954-03-03",
+            "prescription": "Rx 4471902",
+        },
+        "limits": [
+            "Do not discuss or ask about the medicine or its use; ask only about readiness.",
+            "Do not pay or give card details.",
+        ],
+        "success_checks": ["Ready or ready-by time recorded"],
+        "rehearsal_script": "Answer as a pharmacy technician. Ask for name and date of birth. "
+        "Say it will be ready tomorrow after 2 pm because the doctor needs to approve the refill.",
+    },
+    {
+        "name": "Cancel a streaming subscription",
+        "category": "retail",
+        "counterpart": "Streaming service support",
+        "on_behalf_of": "Dana Sample (the account holder)",
+        "goal": "Cancel the subscription below at the end of the current billing period and get "
+        "a cancellation number. Decline retention offers politely.",
+        "facts": {
+            "account_email": "dana.sample@example.com",
+            "account_holder": "Dana Sample",
+            "plan": "Premium monthly",
+        },
+        "limits": ["Do not accept any offer or plan change.", "Do not give payment details."],
+        "success_checks": ["Cancellation number recorded", "End date of service recorded"],
+        "rehearsal_script": "Answer as support. Offer 50% off for three months; if declined, "
+        "cancel and give cancellation number C-99120, service ends on the 30th.",
+    },
+]
+
+
+# --- views and validation -----------------------------------------------------------------------
+
+
+def _clean_facts(facts: dict[str, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for key, value in (facts or {}).items():
+        name = "_".join(str(key).strip().lower().split())[:40]
+        text = str(value).strip()[:300]
+        if name and text:
+            out[name] = text
+    if len(out) > 20:
+        raise ApiError(422, "too_many_facts", "Keep a scenario to 20 facts or fewer.")
+    return out
+
+
+def view(scenario: Scenario, box: PhiBox, *, with_facts: bool = True) -> dict[str, Any]:
+    return {
+        "id": scenario.id,
+        "name": scenario.name,
+        "category": scenario.category,
+        "agent_id": scenario.agent_id,
+        "counterpart": scenario.counterpart,
+        "on_behalf_of": scenario.on_behalf_of,
+        "destination": scenario.destination_e164,
+        "goal": scenario.goal,
+        "facts": box.open(scenario.facts) if with_facts else None,
+        "limits": scenario.limits or [],
+        "success_checks": scenario.success_checks or [],
+        "rehearsal_script": scenario.rehearsal_script,
+        "updated_at": scenario.updated_at,
+    }
+
+
+def apply(scenario: Scenario, data: dict[str, Any], box: PhiBox) -> None:
+    category = data.get("category") or "other"
+    if category not in CATEGORIES:
+        raise ApiError(422, "unknown_category", "Choose one of the listed categories.")
+    destination = (data.get("destination") or "").strip()
+    scenario.name = data["name"].strip()[:120]
+    scenario.category = category
+    scenario.agent_id = data.get("agent_id") or None
+    scenario.counterpart = data["counterpart"].strip()[:120]
+    scenario.on_behalf_of = data["on_behalf_of"].strip()[:120]
+    scenario.destination_e164 = calls_service.normalize_e164(destination) if destination else None
+    scenario.goal = data["goal"].strip()[:1200]
+    scenario.facts = box.seal(_clean_facts(data.get("facts") or {}))
+    scenario.limits = [x.strip()[:300] for x in data.get("limits") or [] if x.strip()][:10]
+    scenario.success_checks = [
+        x.strip()[:300] for x in data.get("success_checks") or [] if x.strip()
+    ][:10]
+    scenario.rehearsal_script = (data.get("rehearsal_script") or "").strip()[:1500] or None
+    scenario.updated_at = utcnow()
+
+
+async def get(session: AsyncSession, principal: Principal, scenario_id: str) -> Scenario:
+    scenario = await session.get(Scenario, scenario_id)
+    if scenario is None or scenario.workspace_id != principal.workspace_id:
+        raise ApiError(404, "not_found", "Scenario not found.")
+    return scenario
+
+
+# --- what the agent receives ----------------------------------------------------------------------
+
+
+def brief_inputs(scenario: Scenario, box: PhiBox) -> dict[str, Any]:
+    """Objective, context and disclosure list for the call brief (``calls_service.build_brief``)."""
+    facts = box.open(scenario.facts)
+    lines = [f"Call {scenario.counterpart} on behalf of {scenario.on_behalf_of}.", scenario.goal]
+    if scenario.limits:
+        lines.append("Limits: " + " ".join(f"({i}) {x}" for i, x in enumerate(scenario.limits, 1)))
+    if scenario.success_checks:
+        lines.append("Done when: " + "; ".join(scenario.success_checks) + ".")
+    return {
+        "objective": " ".join(lines),
+        "context": facts,
+        "disclose": sorted(facts),
+        "on_behalf_of": scenario.on_behalf_of,
+    }
+
+
+async def for_attempt(session: AsyncSession, attempt: CallAttempt) -> Scenario | None:
+    if not attempt.scenario_id:
+        return None
+    scenario = await session.get(Scenario, attempt.scenario_id)
+    return scenario if scenario and scenario.workspace_id == attempt.workspace_id else None
+
+
+# --- runs ----------------------------------------------------------------------------------------
+
+
+async def _agent(session: AsyncSession, principal: Principal, scenario: Scenario) -> Agent:
+    if not scenario.agent_id:
+        raise ApiError(422, "no_agent", "Choose the agent that makes this call.")
+    agent = await agents_service.get_agent(session, principal, scenario.agent_id)
+    if templates.get_template(agent.template_id)["direction"] != "outbound":
+        raise ApiError(422, "agent_not_outbound", "Choose an agent that places calls.")
+    return agent
+
+
+async def rehearse(
+    session: AsyncSession,
+    principal: Principal,
+    settings: Settings,
+    gateway: LiveKitGateway,
+    scenario: Scenario,
+    use: str,
+) -> dict[str, Any]:
+    """Browser rehearsal: the agent calls you, and you play the other side."""
+    agent = await _agent(session, principal, scenario)
+    return await calls_service.start_browser_session(
+        session, principal, settings, gateway, agent, use, None, scenario_id=scenario.id
+    )
+
+
+async def run_live(
+    session: AsyncSession,
+    principal: Principal,
+    settings: Settings,
+    gateway: LiveKitGateway,
+    runner: calls_service.CallRunner,
+    scenario: Scenario,
+) -> CallAttempt:
+    """A real phone call to the scenario's number (it must be an approved destination)."""
+    agent = await _agent(session, principal, scenario)
+    version = await agents_service.current_version(session, agent)
+    if version is None:
+        raise ApiError(422, "agent_not_published", "Publish the agent before calling live.")
+    if not scenario.destination_e164:
+        raise ApiError(422, "no_destination", "Add the number to call to this scenario.")
+    eff = await connections.load(session, principal.workspace_id, settings)
+    if scenario.destination_e164 not in eff.approved_destinations:
+        raise ApiError(
+            422,
+            "destination_not_approved",
+            "Add this number under Connections → Approved destinations first.",
+        )
+    task = Task(
+        workspace_id=principal.workspace_id,
+        kind="outbound",
+        created_by=principal.user_id,
+        agent_id=agent.id,
+        agent_version_id=version.id,
+        destination_e164=scenario.destination_e164,
+        objective=f"Voice Studio: {scenario.name}",
+        scenario_id=scenario.id,
+        state="Ready",
+    )
+    session.add(task)
+    await session.flush()
+    return await calls_service.start_call(
+        session, principal, settings, gateway, runner, task, f"scenario-{uuid.uuid4()}"
+    )
+
+
+async def ensure_errand_agent(
+    session: AsyncSession, principal: Principal, settings: Settings
+) -> Agent:
+    """The workspace's 'Call on my behalf' agent, created (and published, if the model is
+    configured) the first time it is needed."""
+    agent = await session.scalar(
+        select(Agent).where(
+            Agent.workspace_id == principal.workspace_id, Agent.template_id == ERRAND
+        )
+    )
+    if agent is None:
+        agent = await agents_service.create_agent(session, principal, settings, "Jordan", ERRAND)
+        await session.flush()
+    if await agents_service.current_version(session, agent) is None:
+        # e.g. no approved model yet: the agent stays a draft to publish later
+        with contextlib.suppress(ApiError):
+            await agents_service.publish(
+                session, principal, agent, settings, "Voice Studio starter"
+            )
+    return agent
+
+
+async def add_examples(
+    session: AsyncSession, principal: Principal, settings: Settings
+) -> list[Scenario]:
+    agent = await ensure_errand_agent(session, principal, settings)
+    existing = set(
+        await session.scalars(
+            select(Scenario.name).where(Scenario.workspace_id == principal.workspace_id)
+        )
+    )
+    box = PhiBox(settings)
+    added = []
+    for example in EXAMPLES:
+        if example["name"] in existing:
+            continue
+        scenario = Scenario(workspace_id=principal.workspace_id, created_by=principal.user_id)
+        apply(scenario, {**example, "agent_id": agent.id}, box)
+        session.add(scenario)
+        added.append(scenario)
+    await session.flush()
+    return added
+
+
+# --- scorecard -----------------------------------------------------------------------------------
+
+
+def _seconds(a: datetime | None, b: datetime | None) -> int | None:
+    if a is None or b is None:
+        return None
+    return max(0, round((as_utc(b) - as_utc(a)).total_seconds()))
+
+
+async def scorecard(session: AsyncSession, attempt: CallAttempt, scenario: Scenario) -> dict:
+    evts = list(
+        await session.scalars(
+            select(CallEvent).where(CallEvent.attempt_id == attempt.id).order_by(CallEvent.seq)
+        )
+    )
+    findings: dict[str, Any] = {}
+    for f in await session.scalars(
+        select(Finding).where(Finding.attempt_id == attempt.id).order_by(Finding.created_at)
+    ):
+        findings[f.field] = f.value  # latest wins
+    presses = sum(
+        1 for e in evts if e.type == "tool.succeeded" and e.payload.get("tool") == "send_dtmf"
+    )
+    refused = [e.payload.get("tool") for e in evts if e.type == "tool.rejected"]
+    first_person = next(
+        (
+            e.occurred_at
+            for e in evts
+            if e.type == "attempt.substate_changed" and e.payload.get("to") == "Conversation"
+        ),
+        None,
+    )
+    hold_s = sum(int(e.payload.get("hold_s") or 0) for e in evts if e.type == "hold.ended")
+    holds = sum(1 for e in evts if e.type == "hold.started")
+    outcome = findings.get("outcome")
+    verdict = (
+        outcome
+        if outcome in ("achieved", "partly_achieved", "not_achieved")
+        else ("running" if attempt.state in ACTIVE_STATES else "unknown")
+    )
+    return {
+        "attempt_id": attempt.id,
+        "mode": "rehearsal" if attempt.direction == "browser" else "live",
+        "state": attempt.state,
+        "started_at": attempt.created_at,
+        "verdict": verdict,
+        "summary": findings.get("result_summary"),
+        "reference_number": findings.get("reference_number"),
+        "options_offered": findings.get("options_offered"),
+        "blocker": findings.get("blocker"),
+        "next_step": findings.get("next_step"),
+        "metrics": {
+            "duration_s": _seconds(attempt.connected_at, attempt.ended_at or utcnow()),
+            "time_to_person_s": _seconds(attempt.connected_at, first_person),
+            "menu_presses": presses,
+            "holds": holds,
+            "hold_s": hold_s,
+            "refused_actions": len(refused),
+            "findings_recorded": len(findings),
+        },
+        "refused": refused,
+        "ended": attempt.end_reason,
+        "checks": [{"check": c, "status": "to_review"} for c in scenario.success_checks or []],
+    }
+
+
+async def runs(session: AsyncSession, scenario: Scenario, limit: int = 20) -> list[dict]:
+    attempts = list(
+        await session.scalars(
+            select(CallAttempt)
+            .where(CallAttempt.scenario_id == scenario.id)
+            .order_by(CallAttempt.created_at.desc())
+            .limit(limit)
+        )
+    )
+    return [await scorecard(session, a, scenario) for a in attempts]
+
+
+async def note_run(session: AsyncSession, attempt: CallAttempt, scenario: Scenario) -> None:
+    await events.append(
+        session, attempt, "scenario.run", "api", {"scenario_id": scenario.id, "name": scenario.name}
+    )
