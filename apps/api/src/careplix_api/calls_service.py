@@ -33,6 +33,7 @@ from careplix_api.models import (
     TranscriptSegment,
     Workspace,
 )
+from careplix_api.phi import PhiBox
 from careplix_api.settings import Settings
 
 log = logging.getLogger("careplix.calls")
@@ -121,6 +122,8 @@ async def start_browser_session(
     agent: Agent,
     use: str,
     case_id: str | None,
+    *,
+    scenario_id: str | None = None,
 ) -> dict[str, Any]:
     if not gateway.configured:
         raise ApiError(503, "voice_not_configured", "Voice connection is not configured.")
@@ -153,6 +156,7 @@ async def start_browser_session(
         state="Created",
         pins=_pins(version, eff),
         created_by=principal.user_id,
+        scenario_id=scenario_id,
     )
     session.add(attempt)
     await events.append(session, attempt, "attempt.created", "api", {"direction": "browser"})
@@ -286,6 +290,7 @@ async def start_call(
         agent_id=task.agent_id,
         agent_version_id=task.agent_version_id,
         case_id=task.case_id,
+        scenario_id=task.scenario_id,
         direction="outbound",
         room_name=room_name_for(attempt_id),
         state="Created",
@@ -488,7 +493,11 @@ async def _claim_payload(
     eff = await connections.load(session, attempt.workspace_id, settings)
     config = version.config
     template = templates.get_template(config["task"]["template_id"])
-    brief = build_brief(attempt, task, config, template, case, settings)
+    from careplix_api import scenarios  # local: scenarios imports this module
+
+    scenario = await scenarios.for_attempt(session, attempt)
+    plan = scenarios.brief_inputs(scenario, PhiBox(settings)) if scenario else None
+    brief = build_brief(attempt, task, config, template, case, settings, scenario=plan)
     registry = contracts.tool_registry()
     return {
         "attempt_id": attempt.id,
@@ -580,10 +589,15 @@ def build_brief(
     template: dict[str, Any],
     case: Case | None,
     settings: Settings,
+    scenario: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     context = templates.case_context(case.data) if case else {}
     required = template["required_context"]
     objective = task.objective if task else template["objective"]
+    if scenario is not None:
+        # Voice Studio: the scenario is the job (goal, limits, done-when) and its facts are the
+        # only context the agent has and may share.
+        objective = scenario["objective"]
     if task and task.additional_instructions:
         objective += f" Additional operator note: {task.additional_instructions}"
     issued = utcnow()
@@ -627,6 +641,14 @@ def build_brief(
             issued + timedelta(seconds=settings.max_call_duration_s + settings.max_hold_s + 600)
         ).isoformat(),
     }
+    if scenario is not None:
+        brief["authority"] = {
+            "statement": "Act only for the person or organisation named, for this goal, within the "
+            "limits given.",
+            "on_behalf_of": scenario["on_behalf_of"],
+            "disclose_allowlist": scenario["disclose"],
+        }
+        brief["context"] = scenario["context"]
     contracts.validate("call_brief", brief)
     return brief
 

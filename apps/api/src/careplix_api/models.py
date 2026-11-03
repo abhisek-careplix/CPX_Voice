@@ -129,6 +129,7 @@ class Task(IdMixin, Base):
     # Electronic payer check (PAS $inquire), keyed by phase: {"pre_call": {...}, "post_call": {...}}
     # A phase whose value is {"state": "pending"} is picked up by the integration worker.
     electronic_check: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    scenario_id: Mapped[str | None] = mapped_column(String(36), index=True)  # Voice Studio run
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
@@ -165,6 +166,7 @@ class CallAttempt(IdMixin, Base):
     # FO-3 receptionist state for this call: practice connection, verified patient reference,
     # verification tries and the slots offered (ids only; no names or dates of birth).
     front_desk: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    scenario_id: Mapped[str | None] = mapped_column(String(36), index=True)  # Voice Studio run
 
 
 class CallEvent(Base):
@@ -469,3 +471,29 @@ class FrontDeskMessage(IdMixin, Base):
     handled_by: Mapped[str | None] = mapped_column(String(36))
     handled_at: Mapped[datetime | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+
+
+class Scenario(IdMixin, Base):
+    """A reusable call plan in Voice Studio: who to call, the goal, what may be shared, the limits
+    and what success looks like. Rehearsed in the browser, then run live; every run is scored.
+
+    ``facts`` are what the agent may say on the call (a confirmation code, a member ID). They are
+    entered by the person who owns the errand and sealed at rest.
+    """
+
+    __tablename__ = "scenarios"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    category: Mapped[str] = mapped_column(String(20), default="other")
+    agent_id: Mapped[str | None] = mapped_column(ForeignKey("agents.id"))
+    counterpart: Mapped[str] = mapped_column(String(120))  # who the agent is calling
+    on_behalf_of: Mapped[str] = mapped_column(String(120))
+    destination_e164: Mapped[str | None] = mapped_column(String(20))
+    goal: Mapped[str] = mapped_column(Text)
+    facts: Mapped[str | None] = mapped_column(Text)  # sealed {name: value}
+    limits: Mapped[list[str]] = mapped_column(JSON, default=list)
+    success_checks: Mapped[list[str]] = mapped_column(JSON, default=list)
+    rehearsal_script: Mapped[str | None] = mapped_column(Text)  # how to play the other side
+    created_by: Mapped[str] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)

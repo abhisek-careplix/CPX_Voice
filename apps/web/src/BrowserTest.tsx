@@ -21,11 +21,31 @@ const AGENT_STATE_TEXT: Record<string, string> = {
 };
 
 /** Real two-way browser conversation through LiveKit with the selected draft or published config. */
-export function BrowserTestSheet({ agentId, use, caseId, template, onClose }: { agentId: string; use: "draft" | "published"; caseId?: string; template?: Template; onClose: () => void }) {
+export function BrowserTestSheet({
+  agentId,
+  use,
+  caseId,
+  scenarioId,
+  rehearsalNote,
+  template,
+  onClose,
+}: {
+  agentId: string;
+  use: "draft" | "published";
+  caseId?: string;
+  /** Voice Studio rehearsal: the agent works the scenario and you play the other side. */
+  scenarioId?: string;
+  rehearsalNote?: string | null;
+  template?: Template;
+  onClose: () => void;
+}) {
   const qc = useQueryClient();
   const [deviceError, setDeviceError] = useState<string | null>(null);
   const start = useMutation({
-    mutationFn: () => api.post<BrowserSession>("/browser-sessions", { agent_id: agentId, use, case_id: caseId }),
+    mutationFn: () =>
+      scenarioId
+        ? api.post<BrowserSession>(`/scenarios/${scenarioId}/runs`, { mode: "rehearse", use })
+        : api.post<BrowserSession>("/browser-sessions", { agent_id: agentId, use, case_id: caseId }),
   });
   const end = useMutation({
     mutationFn: (attemptId: string) => api.post(`/calls/${attemptId}/end`),
@@ -70,6 +90,12 @@ export function BrowserTestSheet({ agentId, use, caseId, template, onClose }: { 
           {(start.error as ApiError).code === "voice_not_configured" || (start.error as ApiError).code === "model_not_configured" ? (
             <Link to="/connections">Check connections</Link>
           ) : null}
+        </Banner>
+      )}
+      {rehearsalNote && session && (
+        <Banner tone="blue" title="You play the other side">
+          {" "}
+          {rehearsalNote}
         </Banner>
       )}
       {deviceError && (
