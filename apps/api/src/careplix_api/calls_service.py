@@ -510,6 +510,7 @@ async def _claim_payload(
         else None,
         "tools": [_model_tool(registry[ref["name"]]) for ref in config["tools"]],
         "max_duration_s": config["guardrails"]["max_duration_s"],
+        "max_hold_s": max_hold_s(config, settings),
     }
 
 
@@ -566,6 +567,12 @@ def _model_tool(tool: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def max_hold_s(config: dict[str, Any], settings: Settings) -> int:
+    """The agent's hold allowance (ADR10), capped by the workspace limit."""
+    wanted = config["conversation"].get("hold_policy", {}).get("max_hold_s", 0)
+    return max(0, min(int(wanted), settings.max_hold_s))
+
+
 def build_brief(
     attempt: CallAttempt,
     task: Task | None,
@@ -609,14 +616,16 @@ def build_brief(
             "max_duration_s": min(
                 config["guardrails"]["max_duration_s"], settings.max_call_duration_s
             ),
-            "max_hold_s": config["conversation"].get("hold_policy", {}).get("max_hold_s", 0),
+            "max_hold_s": max_hold_s(config, settings),
             "max_menu_repeats": config["conversation"]
             .get("ivr_policy", {})
             .get("max_menu_repeats", 3),
         },
         "context": {k: context[k] for k in required if k in context},
         "issued_at": issued.isoformat(),
-        "expires_at": (issued + timedelta(seconds=settings.max_call_duration_s + 600)).isoformat(),
+        "expires_at": (
+            issued + timedelta(seconds=settings.max_call_duration_s + settings.max_hold_s + 600)
+        ).isoformat(),
     }
     contracts.validate("call_brief", brief)
     return brief
@@ -636,6 +645,10 @@ WORKER_EVENT_TYPES = {
     "model.error",
     "audio.missing",
     "model.session_renewed",
+    "hold.started",
+    "hold.ended",
+    "hold.timeout",
+    "budget.exceeded",
 }
 
 
@@ -890,7 +903,7 @@ class CallRunner:
                     attempt.disposition, reason = "interrupted", "reconciler_stale_heartbeat"
                 elif attempt.state == "Ending" and beat is not None and beat > 20:
                     reason = "reconciler_ending_timeout"
-                elif age > self.settings.max_call_duration_s + 60:
+                elif age > self.settings.max_call_duration_s + self.settings.max_hold_s + 60:
                     attempt.disposition, reason = "budget_exhausted", "reconciler_budget"
                 if reason:
                     await events.append(

@@ -93,7 +93,8 @@ class Settings(BaseSettings):
     # Release D calling policy (FR05, SEC12): only approved synthetic test destinations.
     approved_test_destinations: str = ""
     max_concurrent_calls: int = 1
-    max_call_duration_s: int = 900
+    max_call_duration_s: int = 900  # talk time; hold time is extra, up to max_hold_s (ADR10)
+    max_hold_s: int = 2700  # longest single payer hold a call may sit through
     worker_claim_timeout_s: float = 20.0
     heartbeat_stale_s: float = 45.0
 

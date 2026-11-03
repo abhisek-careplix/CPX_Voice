@@ -15,6 +15,7 @@ import logging
 import os
 from typing import Any
 
+from google.genai import types as genai_types
 from livekit import rtc
 from livekit.agents import Agent, AgentServer, AgentSession, JobContext, RunContext, cli
 from livekit.agents.llm import function_tool
@@ -24,6 +25,7 @@ from livekit.plugins import google
 from careplix_worker import prompt
 from careplix_worker.control_plane import ClaimRejected, ControlPlane, EventReporter
 from careplix_worker.gcp import load_credentials
+from careplix_worker.hold import HoldClock
 from careplix_worker.settings import get_settings
 
 log = logging.getLogger("careplix.worker")
@@ -59,6 +61,27 @@ class CallRuntime:
     def __init__(self, ctx: JobContext, plane: ControlPlane, reporter: EventReporter, claim: dict):
         self.ctx, self.plane, self.reporter, self.claim = ctx, plane, reporter, claim
         self.ending = False
+        self.session: AgentSession | None = None
+        self.clock = HoldClock(
+            max_duration_s=claim["max_duration_s"],
+            # Older API builds don't send max_hold_s: no hold allowance beyond the budget.
+            max_hold_s=claim.get("max_hold_s") or 0,
+        )
+
+    def substate_changed(self, substate: str) -> None:
+        """Mute on hold, unmute when a menu or a person is back (ADR10)."""
+        if substate == "Hold":
+            if self.clock.enter_hold():
+                self._voice(False)
+                self.reporter.emit("hold.started", {"hold": self.clock.holds})
+        elif self.clock.on_hold:
+            lasted = self.clock.leave_hold()
+            self._voice(True)
+            self.reporter.emit("hold.ended", {"hold_s": round(lasted), "to": substate})
+
+    def _voice(self, enabled: bool) -> None:
+        if self.session is not None:
+            self.session.output.set_audio_enabled(enabled)
 
     def build_tools(self) -> list:
         return [self._proxy(spec) for spec in self.claim["tools"]]
@@ -78,7 +101,9 @@ class CallRuntime:
             if response["state"] != "succeeded":
                 # The model sees the refusal and continues; it cannot work around it (SEC06).
                 return {"refused": response["result"].get("message", "Not permitted.")}
-            if name == "send_dtmf":
+            if name == "set_call_state":
+                self.substate_changed(response["result"].get("substate", ""))
+            elif name == "send_dtmf":
                 await self._press(raw_arguments["digits"])
             elif name == "end_call":
                 await context.wait_for_playout()
@@ -203,8 +228,14 @@ async def entrypoint(ctx: JobContext) -> None:
             location=claim.get("vertex", {}).get("location") or settings.vertex_location,
             voice=conversation.get("voice") or settings.gemini_voice,
             credentials=load_credentials(settings),
+            # Long payer holds: a sliding window keeps the session under Gemini's context limit,
+            # so it isn't cut off at ~15 minutes of audio. The plugin resumes on GoAway.
+            context_window_compression=genai_types.ContextWindowCompressionConfig(
+                sliding_window=genai_types.SlidingWindow()
+            ),
         )
     )
+    runtime.session = session
 
     @session.on("conversation_item_added")
     def _on_item(event) -> None:
@@ -216,7 +247,12 @@ async def entrypoint(ctx: JobContext) -> None:
             f"{plane.attempt_id[:8]}-{item.id}"[:64],
             "agent" if item.role == "assistant" else "counterpart",
             text,
-            "interrupted" if getattr(item, "interrupted", False) else "played",
+            # Said while muted on hold: the other side never heard it.
+            "muted"
+            if item.role == "assistant" and runtime.clock.on_hold
+            else "interrupted"
+            if getattr(item, "interrupted", False)
+            else "played",
         )
 
     @session.on("error")
@@ -235,9 +271,19 @@ async def entrypoint(ctx: JobContext) -> None:
     reporter.emit("worker.ready", {"runtime_build": RUNTIME_BUILD})
 
     async def _budget() -> None:
-        await asyncio.sleep(claim["max_duration_s"])
-        reporter.emit("budget.exceeded", {"max_duration_s": claim["max_duration_s"]})
-        await runtime.hang_up("budget_exhausted")
+        # Talk time counts against max_duration_s; hold time has its own limit (ADR10).
+        runtime.clock.start()
+        while (reason := runtime.clock.exceeded()) is None:
+            await asyncio.sleep(1)
+        payload = {
+            "max_duration_s": claim["max_duration_s"],
+            "talk_s": round(runtime.clock.talk_s()),
+            "hold_s": round(runtime.clock.hold_total_s()),
+        }
+        reporter.emit(
+            "budget.exceeded" if reason == "budget_exhausted" else "hold.timeout", payload
+        )
+        await runtime.hang_up(reason)
 
     budget = asyncio.create_task(_budget())
 

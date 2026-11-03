@@ -104,6 +104,12 @@ function timelineText(e: CallEvent): string | null {
       return `${humanize(p.tool)}: outcome unknown, front desk to check`;
     case "budget.exceeded":
       return "Call time limit reached";
+    case "hold.started":
+      return "On hold · agent muted, waiting for a person";
+    case "hold.ended":
+      return `Off hold after ${Math.round(Number(p.hold_s) / 60)} min`;
+    case "hold.timeout":
+      return "Hold limit reached · call ended";
     case "model.error":
       return "Voice model error";
     default:
@@ -159,10 +165,11 @@ function Bubble({ e, highlighted }: { e: CallEvent; highlighted?: boolean }) {
   return (
     <div className={`bubble-row ${side}`} id={`seg-${p.segment_id}`}>
       <div>
-        <div className={`bubble${p.playout === "interrupted" ? " interrupted" : ""}${highlighted ? " highlight" : ""}`}>{p.text}</div>
+        <div className={`bubble${p.playout === "interrupted" || p.playout === "muted" ? " interrupted" : ""}${highlighted ? " highlight" : ""}`}>{p.text}</div>
         <div className="bubble-meta" style={{ textAlign: side === "agent" ? "left" : "right" }}>
           {side === "agent" ? "Agent" : "Other party"}
           {p.playout === "interrupted" && " · interrupted, not fully spoken"}
+          {p.playout === "muted" && " · muted on hold, not heard by the other side"}
         </div>
       </div>
     </div>
