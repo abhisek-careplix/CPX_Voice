@@ -19,7 +19,15 @@ def _flight(client):
 
 def test_example_library_creates_a_published_errand_agent(client):
     listed = _examples(client)
-    assert {s["category"] for s in listed} >= {"travel", "healthcare", "pharmacy", "retail"}
+    assert len(listed) == 14  # the Head-of-RCM top 5 as 13 scenarios, plus the airline showcase
+    assert {s["category"] for s in listed} == {
+        "eligibility",
+        "claim_status",
+        "denials",
+        "prior_auth",
+        "patient_billing",
+        "travel",
+    }
     assert all(s["facts"] is None for s in listed)  # the list never carries facts
     agent = next(a for a in client.get("/api/agents").json() if a["template"]["id"] == "errand")
     assert agent["current"] is not None  # ready to run

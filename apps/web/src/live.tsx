@@ -111,7 +111,9 @@ function timelineText(e: CallEvent): string | null {
     case "hold.timeout":
       return "Hold limit reached · call ended";
     case "model.error":
-      return "Voice model error";
+      return p.detail ? `Voice model error: ${p.detail}` : "Voice model error";
+    case "audio.missing":
+      return `Agent hasn't spoken ${p.after_s ?? 20}s after joining. Check the voice model connection (Connections → Gemini Live → Test model)`;
     default:
       return null;
   }

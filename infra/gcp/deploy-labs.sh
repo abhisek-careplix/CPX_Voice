@@ -227,10 +227,12 @@ deploy() {
   internal_url=$(url_of careplix-internal)
 
   # 5. Voice worker: always on, one instance, Vertex AI through its own identity (no keys).
+  # GEMINI_CONTEXT_COMPRESSION=false in .env turns long-session compression off (default on).
+  compression=$(env_value GEMINI_CONTEXT_COMPRESSION || true)
   $G run deploy careplix-worker --region "$REGION" --image "$REGISTRY/worker:$TAG" \
     --service-account "$SA_WORKER" --no-allow-unauthenticated --ingress internal \
     --min-instances 1 --max-instances 1 --no-cpu-throttling --cpu 2 --memory 2Gi \
-    --set-env-vars "CAREPLIX_ENV=labs,LIVEKIT_URL=$livekit_url,CAREPLIX_API_URL=$internal_url,CAREPLIX_API_AUDIENCE=$internal_url,GCP_PROJECT=$PROJECT,VERTEX_LOCATION=$REGION,GEMINI_LIVE_MODEL=$MODEL,CAREPLIX_RUNTIME_BUILD=$TAG" \
+    --set-env-vars "CAREPLIX_ENV=labs,LIVEKIT_URL=$livekit_url,CAREPLIX_API_URL=$internal_url,CAREPLIX_API_AUDIENCE=$internal_url,GCP_PROJECT=$PROJECT,VERTEX_LOCATION=$REGION,GEMINI_LIVE_MODEL=$MODEL,GEMINI_CONTEXT_COMPRESSION=${compression:-true},CAREPLIX_RUNTIME_BUILD=$TAG" \
     --set-secrets "WORKER_SERVICE_TOKEN=cpx-worker-token:latest,LIVEKIT_API_KEY=cpx-livekit-api-key:latest,LIVEKIT_API_SECRET=cpx-livekit-api-secret:latest"
 
   # 6. OpenEMR demo screens: nginx in front of the private VM, behind IAP (CarePlix accounts only).

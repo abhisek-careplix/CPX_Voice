@@ -22,6 +22,7 @@ from livekit.agents.llm import function_tool
 from livekit.agents.voice import room_io
 from livekit.plugins import google
 
+from careplix_common.safe_logging import scrub
 from careplix_worker import prompt
 from careplix_worker.control_plane import ClaimRejected, ControlPlane, EventReporter
 from careplix_worker.gcp import load_credentials
@@ -230,16 +231,26 @@ async def entrypoint(ctx: JobContext) -> None:
             credentials=load_credentials(settings),
             # Long payer holds: a sliding window keeps the session under Gemini's context limit,
             # so it isn't cut off at ~15 minutes of audio. The plugin resumes on GoAway.
-            context_window_compression=genai_types.ContextWindowCompressionConfig(
-                sliding_window=genai_types.SlidingWindow()
+            **(
+                {
+                    "context_window_compression": genai_types.ContextWindowCompressionConfig(
+                        sliding_window=genai_types.SlidingWindow()
+                    )
+                }
+                if settings.gemini_context_compression
+                else {}
             ),
         )
     )
     runtime.session = session
 
+    spoke = asyncio.Event()  # the agent has said something (for the silence alarm)
+
     @session.on("conversation_item_added")
     def _on_item(event) -> None:
         item = event.item
+        if getattr(item, "role", None) == "assistant":
+            spoke.set()
         text = getattr(item, "text_content", None)
         if getattr(item, "role", None) not in ("user", "assistant") or not text:
             return
@@ -257,7 +268,10 @@ async def entrypoint(ctx: JobContext) -> None:
 
     @session.on("error")
     def _on_error(event) -> None:
-        reporter.emit("model.error", {"error": type(event.error).__name__})
+        # The message says *why* (bad model ID, permission, rejected setting…); scrubbed and capped.
+        detail = scrub(str(getattr(event.error, "message", None) or event.error))[:240]
+        log.warning("model error %s: %s", type(event.error).__name__, detail, extra=ids)
+        reporter.emit("model.error", {"error": type(event.error).__name__, "detail": detail})
 
     @session.on("close")
     def _on_close(event) -> None:
@@ -269,6 +283,28 @@ async def entrypoint(ctx: JobContext) -> None:
         room_options=room_io.RoomOptions(participant_identity=counterpart.identity),
     )
     reporter.emit("worker.ready", {"runtime_build": RUNTIME_BUILD})
+
+    async def _silence_alarm() -> None:
+        # A session that connects but never speaks looks like "no audio" to the person testing.
+        try:
+            await asyncio.wait_for(spoke.wait(), timeout=settings.silence_alarm_s)
+        except TimeoutError:
+            log.warning("agent silent %.0fs after joining", settings.silence_alarm_s, extra=ids)
+            reporter.emit(
+                "audio.missing",
+                {
+                    "after_s": round(settings.silence_alarm_s),
+                    "compression": settings.gemini_context_compression,
+                },
+            )
+
+    if claim["speak_first"]:
+        silence = asyncio.create_task(_silence_alarm())
+
+        async def _cancel_silence() -> None:
+            silence.cancel()
+
+        ctx.add_shutdown_callback(_cancel_silence)
 
     async def _budget() -> None:
         # Talk time counts against max_duration_s; hold time has its own limit (ADR10).
