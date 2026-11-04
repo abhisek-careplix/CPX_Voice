@@ -99,6 +99,32 @@ Credentialing and payer enrollment come before billing: a provider who isn't enr
 | **Audit layer ("verification of AI")** | We already log every tool call, keep the transcript, record write intents and require approval. Package it as an evidence report per determination. | Existing audit plus browser screenshots | ✅ extends what exists |
 | **Compliance dashboard** | Readiness per provider ("can bill payer X at location Y from date Z"), gaps, upcoming expiries | Combines everything above | ✅ |
 
+### 3.3a Parity check against CareLumi's nine product areas (owner's list, 4 Nov 2026)
+
+Each area lists what CareLumi describes publicly, what we build for it (rows above plus the additions here), and our edge. **New** marks a gap that the table above did not cover.
+
+| CareLumi area | Their functions | CarePlix build | CR wave | Our edge |
+|---|---|---|---|---|
+| **Credentialing** | Primary-source verification, document extraction, work-history gap detection, committee-ready files | PSV per item (NPPES, boards, DEA, ABMS, NPDB, education). **New:** document extraction to fields, with a person confirming each one; **new:** work-history timeline that flags gaps longer than 6 months and asks the provider for an explanation; committee-ready file (PDF binder plus an evidence index). | CR-0, CR-3 | The voice agent does reference, employer and malpractice-carrier verification calls (CR8, CR9) |
+| **Multi-state licensing** | State-specific applications, interstate compact pathways, renewal tracking | **New:** state requirements library (fees, documents, CME, renewal cycle). **New:** compact pathway advisor for IMLC (physicians), PSYPACT (psychologists), the Nurse Licensure Compact, the Counseling Compact and PT Compact. Application packet pre-fill; renewal tracker. | CR-2, CR-4 | Supervised browser fills state portals; voice calls the board for application status (CR5) |
+| **DEA and board certifications** | Registration tracking, specialty-board verification, expiration monitoring | DEA per state of practice, plus state controlled-substance registration (**new**); board certification and MOC cycle; expiry monitoring | CR-1, CR-5 | Uses the same expiry engine as licenses |
+| **Facility privileging** | Bylaw-specific packets, reference tracking, FPPE/OPPE workflows | **New:** per-facility bylaw templates (required items, forms, delineation of privileges). **New:** reference tracker (request, reminder, receipt). **New:** FPPE (focused review for new privileges) and OPPE (ongoing review every 6–12 months) workflows, with metrics pulled from the hub. | CR-3 | Voice chases references and medical staff offices (CR7, CR8); OPPE metrics come from EHR data via the hub |
+| **Payer enrollment** | Commercial, Medicare, Medicaid applications, follow-ups, effective-date tracking | Enrollment tracker; packets (CMS-855I/B/R, state Medicaid, commercial); follow-up cadence; effective date; contract-loaded check | CR-2 | **Voice follow-ups** (CR1–CR4) and NGSConnex under supervision. Plugs into our clearinghouse enrollment and billing: "enrolled" → "claims paid" in one place |
+| **Provider master data** | CAQH and NPPES reconciliation, digital credential binders | **New:** three-way reconciliation of hub, NPPES and CAQH (address, taxonomy, practice locations), with a fix list per mismatch; digital binder per provider (shareable, expiring link) | CR-0, CR-5 | The hub keeps EHR data as a fourth source, so mismatches that cause denials show up |
+| **Continuous monitoring** | Licenses, sanctions, exclusions, registration expirations | Monthly OIG, SAM and state Medicaid exclusions; board actions; license status; expiry calendar; alerts by SMS and voice | CR-1 | Alerts become actions: the agent calls the provider and opens the renewal task |
+| **Compliance intelligence** | Regulatory-change tracking, provider impact assessment, audit packages | **New:** regulatory feed (CMS transmittals and MLN, MAC bulletins, state board rule changes, payer policy updates) summarised by AI with citations; impact assessment matching each change to the providers, specialties and states it affects; audit package per provider or payer (everything, with sources) | CR-4 | Uses the CMS Coverage data we can reach (NCD/LCD changes) and links straight to billing rules |
+| **AI verification** | Action logs, source-backed checks, error tracing, corrective actions, human sign-off | We already log every tool call, keep transcripts and screenshots, record write intents and approvals. **New:** source link on every verified field; **new:** error trace (which step and source went wrong) and corrective-action record; sign-off queue | CR-0 onward | Covers voice and browser actions, not just documents |
+
+**Added voice scenarios:**
+
+| # | Scenario | Counterpart |
+|---|---|---|
+| CR8 | Professional reference and past-employer verification | Former department chair or HR |
+| CR9 | Malpractice carrier: coverage and claims-history confirmation | Insurance carrier |
+| CR10 | State board: licence application status and missing items | Licensing board analyst |
+
+**Added browser skills (supervised):** state licence application portals, PECOS status (read-only), CAQH ProView data checks until an API agreement exists, and medical staff office portals.
+
 ### 3.4 Voice scenarios to add to the Voice Studio library (credentialing)
 
 | # | Scenario | Counterpart |
@@ -129,12 +155,12 @@ Four tracks run in parallel; each step is merged, deployed and testable.
 
 | Wave | Voice | Browser | RCM | Credentialing (new, "CR") |
 |---|---|---|---|---|
-| **1 (now)** | VS3 AI judge, suites, publish gate | B1 runtime | RC1 gateway and white-label | CR-0 provider record, document vault, NPPES and exclusion checks (API) |
-| **2** | VS4 personas and guardrails | B2 teach (NPPES as first skill) | RC2 enrollment wizard | CR-1 expiry calendar, alerts, readiness dashboard; CR1–CR7 scenarios in the library |
-| **3** | VS5 knowledge | B3 models and Mode B | RC3 hub billing pull · RC4 eligibility | CR-2 payer enrollment tracker plus voice status calls (CR1–CR4 live) |
-| **4** | VS6 memory and showcase | B4 maturity, skill library | RC5 claims · RC6 claim status | CR-3 privileging and re-credentialing; packet generation (CMS-855, payer applications) |
-| **5** | FO-4 outreach (SMS, campaigns) | B5 skills as tools | RC7 ERA · RC8 denials and balances | CR-4 rosters for MSOs and groups; audit evidence reports |
-| **6** | FO-5 forms | B6 production skills | RC9 prior auth and reporting | CR-5 CAQH API, DEA, NPDB (after the agreements below) |
+| **1 (now)** | VS3 AI judge, suites, publish gate | B1 runtime | RC1 gateway and white-label | CR-0 provider record and vault, document extraction, work-history gaps, NPPES and exclusion checks, source link on every field |
+| **2** | VS4 personas and guardrails | B2 teach (NGSConnex claim status first) | RC2 enrollment wizard | CR-1 expiry calendar, alerts, readiness dashboard; CR1–CR10 scenarios in the library |
+| **3** | VS5 knowledge | B3 models and Mode B | RC3 hub billing pull · RC4 eligibility | CR-2 payer enrollment tracker with voice follow-ups (CR1–CR4 live); state licensing library and compact advisor |
+| **4** | VS6 memory and showcase | B4 maturity, skill library | RC5 claims · RC6 claim status | CR-3 privileging (bylaw packets, references, FPPE/OPPE) and re-credentialing; committee-ready files; CMS-855 and payer packets |
+| **5** | FO-4 outreach (SMS, campaigns) | B5 skills as tools | RC7 ERA · RC8 denials and balances | CR-4 rosters for MSOs and groups; compliance intelligence (regulatory feed, impact assessment); audit packages |
+| **6** | FO-5 forms | B6 production skills | RC9 prior auth and reporting | CR-5 CAQH and NPPES reconciliation with the CAQH API, DEA, NPDB (after the agreements below) |
 
 **Pilot:** Absolute Health Group onboarding naturally exercises CR (its providers' NPI, licenses and Medicare enrollment) before RC (billing).
 
