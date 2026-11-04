@@ -187,3 +187,42 @@ Four tracks run in parallel; each step is merged, deployed and testable.
 - Calls go to approved numbers only.
 - Browser runs are under human supervision; unsupervised runs only on sites marked "automation permitted".
 - Every determination has human sign-off and an evidence trail.
+
+---
+
+## Appendix A. Credentialing data sources (researched 4 Nov 2026)
+
+### A1. Free public sources to integrate first (CR-0, CR-1)
+
+| Source | What it gives | Access |
+|---|---|---|
+| **NPPES NPI Registry** | NPI, name, taxonomy, practice addresses, enumeration date | Free REST API, plus a monthly full file |
+| **OIG LEIE** | Federal exclusions | Free monthly CSV, plus an online verification lookup |
+| **SAM.gov Exclusions** | Federal debarments and exclusions | Free API with an API key |
+| **State Medicaid exclusion lists** | State sanctions | Published by most states; formats vary (CSV, PDF, web) |
+| **data.cms.gov, Medicare enrollment** | Public provider enrollment (PECOS), revalidation due dates, order-and-referring eligibility, opt-out affidavits, reassignments | Free data-API, refreshed monthly |
+| **Payer provider directories (FHIR Plan-Net)** | Whether a provider is listed in-network with a payer: a cross-check for enrollment and effective date | Public FHIR APIs that CMS requires of MA, Medicaid and exchange plans |
+| **Interstate compacts** | IMLC, PSYPACT and the Nurse Licensure Compact (through Nursys) | Public look-ups |
+| **Nursys** | Nurse licence verification and e-Notify alerts | Free for employers; institutional API |
+
+### A2. Paid or agreement-based sources (CR-5)
+
+| Source | Gives | Route |
+|---|---|---|
+| **CAQH ProView** | Provider-attested profile, documents, attestation status | Participating-organisation agreement and API |
+| **NPDB** | Malpractice payments and adverse actions; continuous query | Register as an eligible entity; small fee per query; has a machine interface |
+| **DEA registrant data** | DEA registration status and expiry | NTIS subscription |
+| **FSMB** (Physician Data Center, FCVS, DocInfo) | Board actions across states; verified education and exams | Paid service |
+| **ABMS Solutions** | Board certification (accepted as a primary source) | Paid API or subscription |
+| **AMA Physician Profile, ECFMG, AOA** | Education and training (AMA), foreign graduates (ECFMG), DOs (AOA) | Paid per profile |
+
+### A3. Buy instead of build: credentialing verification APIs
+
+API-first vendors with NCQA Credentialing Certification offer primary-source verification as a service: **Verifiable**, **CertifyOS** and **Medallion**. Incumbents are **symplr** and **Verisys**. Option: use one behind our gateway, white-labelled like the clearinghouse, for NCQA-grade files from day one, while our own sources (A1) cover monitoring and voice and browser cover the long tail. Their marketing claims (for example "600+ sources" and accuracy rates) need confirming in a pilot.
+
+### A4. Standards and open-source
+
+- **Data model:** HL7 **FHIR US National Directory for Healthcare (NDH)**, `HL7/fhir-us-ndh`, and its predecessor VhDir. Use Practitioner, PractitionerRole, Organization, Location, Endpoint and Verification resources so our provider record is standard and exportable.
+- **Payer directories:** Da Vinci **PDex Plan-Net** implementation guide.
+- **Open-source code:** small and young. NPPES API wrappers, LEIE and SAM.gov clients, and early MCP servers for exclusion screening exist (e.g. `gm4prezi/oig-leie`, `palavir-llc/palavir-mcp-compliance`, state Medicaid sanction MCPs). They are useful as references, not dependencies: low adoption, so we write our own adapters against the official sources.
+- **Rules:** NCQA Credentialing standards define the accepted primary sources and time limits (e.g. verification within 180 days of the decision; re-credential every 36 months). Our checks are built to those rules.
