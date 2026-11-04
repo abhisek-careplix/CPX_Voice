@@ -187,7 +187,9 @@ deploy() {
     --member "serviceAccount:$SA_STUDIO" --role roles/run.invoker >/dev/null
   sandbox_url=$(url_of careplix-payer-sandbox)
 
-  common_env="CAREPLIX_ENV=labs,LIVEKIT_URL=$livekit_url,GCP_PROJECT=$PROJECT,VERTEX_LOCATION=$REGION,GEMINI_LIVE_MODEL=$MODEL,PAYER_SANDBOX_URL=$sandbox_url/fhir,PAYER_SANDBOX_AUTH=google_id_token,CAREPLIX_RUNTIME_BUILD=$TAG"
+  # VS3 AI judge: a Gemini text model; JUDGE_MODEL in .env overrides the default.
+  judge_model=$(env_value JUDGE_MODEL || true)
+  common_env="CAREPLIX_ENV=labs,LIVEKIT_URL=$livekit_url,GCP_PROJECT=$PROJECT,VERTEX_LOCATION=$REGION,GEMINI_LIVE_MODEL=$MODEL,JUDGE_MODEL=${judge_model:-gemini-2.5-flash},PAYER_SANDBOX_URL=$sandbox_url/fhir,PAYER_SANDBOX_AUTH=google_id_token,CAREPLIX_RUNTIME_BUILD=$TAG"
   secrets="DATABASE_URL=cpx-database-url:latest,SESSION_SECRET=cpx-session-secret:latest,WORKER_SERVICE_TOKEN=cpx-worker-token:latest,LIVEKIT_API_KEY=cpx-livekit-api-key:latest,LIVEKIT_API_SECRET=cpx-livekit-api-secret:latest"
 
   # 2. Webhook ingress: the only public service. Verifies, dedupes and records IDs; no IAP, no PHI.

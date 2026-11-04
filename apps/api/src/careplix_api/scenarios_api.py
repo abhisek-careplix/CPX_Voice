@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from careplix_api import scenarios
 from careplix_api.auth import Principal, require
 from careplix_api.errors import ApiError
-from careplix_api.models import AuditEvent, Scenario
+from careplix_api.judge import service as judge_service
+from careplix_api.models import AuditEvent, CallAttempt, Scenario
 from careplix_api.phi import PhiBox
 from careplix_api.settings import Settings, get_settings
 from careplix_api.studio_api import Session, gateway, runner
@@ -101,9 +102,11 @@ async def get_scenario(
     settings: Settings = Depends(get_settings),
 ):
     scenario = await scenarios.get(session, principal, scenario_id)
+    cards = await scenarios.runs(session, scenario)
     return {
         **scenarios.view(scenario, PhiBox(settings), with_facts=principal.can("edit_draft")),
-        "runs": await scenarios.runs(session, scenario),
+        "runs": cards,
+        "judge_summary": scenarios.judge_summary(cards),
     }
 
 
@@ -160,3 +163,27 @@ async def run_scenario(
         raise ApiError(403, "forbidden", "Your role does not allow live calls.")
     attempt = await scenarios.run_live(session, principal, settings, gw, run, scenario)
     return {"attempt_id": attempt.id, "state": attempt.state}
+
+
+@router.post("/{scenario_id}/runs/{attempt_id}/judge")
+async def judge_run(
+    scenario_id: str,
+    attempt_id: str,
+    request: Request,
+    principal: Principal = Depends(require("edit_draft")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """Score (or re-score) a finished run with the AI judge."""
+    scenario = await scenarios.get(session, principal, scenario_id)
+    attempt = await session.get(CallAttempt, attempt_id)
+    if attempt is None or attempt.scenario_id != scenario.id:
+        raise ApiError(404, "not_found", "Run not found.")
+    if attempt.state not in judge_service.ENDED:
+        raise ApiError(409, "run_active", "The run is still going. Score it once it has ended.")
+    row = await judge_service.judge_attempt(
+        session, attempt, scenario, settings, request.app.state.judge, principal.user_id
+    )
+    _audit(session, principal, "scenario.run_judged", attempt.id)
+    await session.commit()
+    return judge_service.view(row)

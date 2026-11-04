@@ -41,9 +41,30 @@ interface Scorecard {
   metrics: { duration_s: number | null; time_to_person_s: number | null; menu_presses: number; holds: number; hold_s: number; refused_actions: number; findings_recorded: number };
   ended: string | null;
   checks: { check: string; status: string }[];
+  judge: Judgement | null;
 }
 
-type ScenarioDetail = ScenarioRow & { runs: Scorecard[] };
+interface Judgement {
+  state: "pending" | "done" | "failed";
+  verdict: "pass" | "partial" | "fail" | null;
+  score: number | null;
+  summary: string | null;
+  checks: { check: string; status: "met" | "not_met" | "unclear"; evidence: string }[];
+  limits: { limit: string; status: "kept" | "broken" | "unclear"; evidence: string }[];
+  coaching: string[];
+  model_id: string | null;
+  error: string | null;
+  judged_at: string | null;
+}
+
+type ScenarioDetail = ScenarioRow & { runs: Scorecard[]; judge_summary: { runs: number; average: number | null; passed: number } };
+
+const JUDGE_VERDICT = {
+  pass: { label: "Judge: pass", tone: "green" as const },
+  partial: { label: "Judge: partial", tone: "orange" as const },
+  fail: { label: "Judge: fail", tone: "red" as const },
+};
+const MARK: Record<string, string> = { met: "✅", kept: "✅", not_met: "❌", broken: "⛔", unclear: "❔" };
 
 const CATEGORY_LABEL: Record<Category, string> = {
   eligibility: "Insurance & benefits",
@@ -370,7 +391,7 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
         </div>
       </Card>
 
-      {!isNew && <Runs runs={detail.data?.runs ?? []} />}
+      {!isNew && <Runs scenarioId={id} runs={detail.data?.runs ?? []} summary={detail.data?.judge_summary} />}
 
       {rehearsing && form.agent_id && (
         <BrowserTestSheet
@@ -398,9 +419,13 @@ function Field({ label, help, flex, children }: { label: string; help?: string; 
   );
 }
 
-function Runs({ runs }: { runs: Scorecard[] }) {
+function Runs({ scenarioId, runs, summary }: { scenarioId: string; runs: Scorecard[]; summary?: ScenarioDetail["judge_summary"] }) {
+  const subtitle =
+    summary && summary.runs > 0
+      ? `Measured from what the call recorded. AI judge: average ${summary.average}/100 over the last ${summary.runs} scored run${summary.runs === 1 ? "" : "s"}, ${summary.passed} passed.`
+      : "Measured from what the call recorded, not from what the agent says. Finished runs are scored by the AI judge.";
   return (
-    <Card title="Runs and scorecards" subtitle="Measured from what the call recorded, not from what the agent says.">
+    <Card title="Runs and scorecards" subtitle={subtitle}>
       {runs.length === 0 ? (
         <div className="card-pad small muted">No runs yet. Rehearse in the browser first, then call live.</div>
       ) : (
@@ -441,13 +466,14 @@ function Runs({ runs }: { runs: Scorecard[] }) {
                       {r.next_step && <div>Next: {r.next_step}</div>}
                     </div>
                   )}
-                  {r.checks.length > 0 && (
+                  {r.judge?.state === "done" ? null : r.checks.length > 0 && (
                     <ul className="small muted" style={{ margin: 0, paddingLeft: 18 }}>
                       {r.checks.map((c) => (
                         <li key={c.check}>{c.check} · to review</li>
                       ))}
                     </ul>
                   )}
+                  <JudgePanel scenarioId={scenarioId} run={r} />
                 </div>
               </li>
             );
@@ -455,5 +481,94 @@ function Runs({ runs }: { runs: Scorecard[] }) {
         </ul>
       )}
     </Card>
+  );
+}
+
+function JudgePanel({ scenarioId, run }: { scenarioId: string; run: Scorecard }) {
+  const canEdit = useCan("edit_draft");
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const score = useMutation({
+    mutationFn: () => api.post<Judgement>(`/scenarios/${scenarioId}/runs/${run.attempt_id}/judge`, {}),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["scenario", scenarioId] }),
+  });
+  const j = run.judge;
+  const finished = !["running"].includes(run.verdict) && !["Created", "Queued", "Dialing", "Connected", "Ending"].includes(run.state);
+  const button = canEdit && finished && (
+    <button className="btn btn-plain" disabled={score.isPending} onClick={() => score.mutate()}>
+      <Sparkles size={13} aria-hidden /> {score.isPending ? "Scoring…" : j ? "Score again" : "Score with AI judge"}
+    </button>
+  );
+  if (!j || j.state === "pending") {
+    return (
+      <div className="row small muted" style={{ gap: 8 }}>
+        {j?.state === "pending" || (finished && !j) ? <span>AI judge: scoring shortly…</span> : null}
+        {button}
+      </div>
+    );
+  }
+  if (j.state === "failed") {
+    return (
+      <div className="row small" style={{ gap: 8 }}>
+        <span className="muted">AI judge couldn't score this run: {j.error}</span>
+        {button}
+      </div>
+    );
+  }
+  const v = JUDGE_VERDICT[j.verdict ?? "fail"];
+  return (
+    <div className="stack" style={{ gap: 6, borderLeft: "3px solid var(--border, #ddd)", paddingLeft: 10 }}>
+      <div className="row" style={{ gap: 8 }}>
+        <Pill tone={v.tone} icon={Sparkles}>
+          {v.label} · {j.score}/100
+        </Pill>
+        <button className="btn btn-plain" onClick={() => setOpen(!open)}>
+          {open ? "Hide evidence" : "Show evidence"}
+        </button>
+        {button}
+      </div>
+      {j.summary && <div className="small">{j.summary}</div>}
+      {open && (
+        <div className="small stack" style={{ gap: 6 }}>
+          {j.checks.length > 0 && (
+            <div>
+              <strong>Success checks</strong>
+              <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+                {j.checks.map((c) => (
+                  <li key={c.check}>
+                    {MARK[c.status]} {c.check}
+                    {c.evidence && <div className="muted">“{c.evidence}”</div>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {j.limits.length > 0 && (
+            <div>
+              <strong>Limits</strong>
+              <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+                {j.limits.map((c) => (
+                  <li key={c.limit}>
+                    {MARK[c.status]} {c.limit}
+                    {c.evidence && <div className="muted">“{c.evidence}”</div>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {j.coaching.length > 0 && (
+            <div>
+              <strong>Coaching for the agent</strong>
+              <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+                {j.coaching.map((c) => (
+                  <li key={c}>{c}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="muted">Scored by {j.model_id} from the transcript and measured events.</div>
+        </div>
+      )}
+    </div>
   );
 }

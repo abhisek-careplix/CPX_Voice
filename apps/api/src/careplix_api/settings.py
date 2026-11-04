@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     gemini_live_model: str = ""
     # Optional restricted service-account JSON for the API's own model test. Empty uses ADC.
     google_service_account_json: SecretStr = SecretStr("")
+    # VS3 AI judge: a Gemini text model on Vertex (same project; region defaults to the workspace).
+    judge_model: str = "gemini-2.5-flash"
+    judge_location: str = ""
+    judge_interval_s: float = 20.0  # how often finished Voice Studio runs are auto-scored
 
     # Development payer endpoint seeded as a workspace connection (synthetic). Empty disables.
     payer_sandbox_url: str = "http://localhost:8091/fhir"

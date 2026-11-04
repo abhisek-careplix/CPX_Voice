@@ -24,6 +24,7 @@ from careplix_api.calls_service import CallRunner
 from careplix_api.db import Database
 from careplix_api.errors import ApiError
 from careplix_api.integrations.service import IntegrationWorker
+from careplix_api.judge import service as judge_service
 from careplix_api.livekit_gateway import LiveKitGateway
 from careplix_api.practice import api as practice_api
 from careplix_api.practice import webhooks as practice_webhooks
@@ -51,6 +52,7 @@ def create_app(
     gateway: LiveKitGateway | None = None,
     model_prober=probe_live,
     integration_transport=None,
+    judge=None,
 ) -> FastAPI:
     settings = settings or get_settings()
     safe_logging.configure(settings.log_level)
@@ -61,6 +63,8 @@ def create_app(
         app.state.gateway = gateway or LiveKitGateway(settings)
         app.state.runner = CallRunner(app.state.db, app.state.gateway, settings)
         app.state.model_prober = model_prober
+        app.state.judge = judge or judge_service.gemini_judge
+        app.state.settings = settings
         # Tests inject an in-process transport (e.g. the payer sandbox ASGI app).
         app.state.integration_transport = integration_transport
         await app.state.db.create_all()
@@ -84,6 +88,9 @@ def create_app(
                 asyncio.create_task(app.state.runner.reconcile_forever()),
                 asyncio.create_task(app.state.integration_worker.run_forever()),
                 asyncio.create_task(app.state.practice_worker.run_forever()),
+                asyncio.create_task(
+                    judge_service.judge_forever(app.state.db, settings, app.state.judge)
+                ),
             ]
             if settings.run_background
             else []
