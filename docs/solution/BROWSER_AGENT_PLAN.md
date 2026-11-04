@@ -44,7 +44,7 @@ agent runs a **pre-flight check** and shows the result:
 
 | Check | Passes when |
 |---|---|
-| Site allowed | The site is on the allowlist and its terms permit assisted or automated use |
+| Human supervision | The **Under human supervision** box is ticked and the named supervisor has the live view open (see §6a) |
 | Signed in | A valid saved session exists for this practice and user (otherwise: "please sign in first") |
 | Information complete | Every input the task needs is present (member ID, date of service, claim number…), taken from the hub or entered by the person; nothing is guessed |
 | Permission | The person's role may run this task; the skill's maturity level allows this mode (read-only vs. write) |
@@ -55,8 +55,8 @@ If a check fails, the agent says exactly what is missing and stops. If all pass,
 under the skill's current level: step-by-step approval if the skill is new or unknown, watched if it is
 Supervised, alone for read-only tasks once Autonomous, and always stopping before any submit or save.
 
-**Where to start:** Mode A on a **read-only** task (look up eligibility or a claim status on a portal whose
-terms allow it), then Mode B for the same task once a few cases have been taught.
+**Where to start:** Mode A on a **read-only** task (look up eligibility or a claim status on a payer portal),
+then Mode B for the same task once a few cases have been taught.
 
 ## 3. Maturity ladder (per skill)
 
@@ -97,13 +97,86 @@ the skill's checks).
 
 ## 6. Safety rules
 
-- **Site terms first**: a per-site allowlist records whether automation is permitted. Where it is not (many
-  payer and Medicare portals, e.g. NGSConnex, Availity), the agent only assists a person or we use the
-  official API. Breaking terms can get a practice's account suspended.
+- **Any site, under human supervision** (owner decision, 4 Nov 2026; replaces the earlier per-site allowlist).
+  No site is blocked. Every run on a site carries the supervision rules in §6a.
 - **Page content is data, never instructions** (prompt-injection defence); the agent cannot leave a skill's
   approved domains; no downloads or uploads beyond the files a skill is allowed to handle.
 - **No payments, no signatures on legal forms, no account or password changes** without a person.
 - **Kill switch, take-over and the workspace emergency stop** cover browser runs; every run is audited.
+
+## 6a. Under human supervision (owner decision, 4 Nov 2026)
+
+Every browser run starts with a checkbox, **"Under human supervision"**, ticked by a named person who takes
+responsibility for the run. While it is on:
+
+| Rule | How it is enforced |
+|---|---|
+| **A person is really watching** | The supervisor's live view must be open and active. If it is closed, hidden or idle for more than 60 s, the agent pauses at the next step and waits. |
+| **The person can act at any moment** | Pause, take over and stop are always one click away; take-over hands mouse and keyboard to the person. |
+| **Stops before anything that changes data** | Submit, save, send, upload, delete and attest each need the supervisor's click. Read-only steps run without asking once the skill is past Shadow. |
+| **Human pace, one account, one session** | No parallel sessions on one login and no bulk loops faster than a person would work; the practice's own login only, never shared credentials. |
+| **People handle the gates** | Sign-in, two-factor codes and CAPTCHAs are done by the person. If a site shows a bot check or warning, the agent stops and hands over. |
+| **Recorded** | Supervisor, practice, site, model, every action and screenshot, approvals and take-overs go in the audit trail. |
+
+### 6b. The approval experience (owner, 4 Nov 2026: "like how Claude asks for approval")
+
+The agent works the way Claude Code asks permission: **it proposes, the person approves, the agent does it.**
+The person never has to drive the mouse; they read a short card and click.
+
+**1. Plan first.** Before the first click the agent shows its plan in plain words, for example:
+"1. Open Claims → Search. 2. Enter member ID ••••4821 and date of service 10/14. 3. Read the claim status.
+4. Copy status and paid amount back to the claim in CarePlix." The person can **approve the plan**,
+**edit** it (change a step or an input), or **cancel**.
+
+**2. An approval card for each action that needs one.** The card sits beside the live view:
+
+| On the card | Example |
+|---|---|
+| What the agent will do | "Click **Submit reconsideration**" |
+| Where | Screenshot with the target outlined, plus the page title and site |
+| With what data | Fields and values it will type, editable before approving (PHI masked until the person reveals it) |
+| Why | The plan step it belongs to and what it expects to happen next |
+| Risk | **Read**, **Enter data** or **Commit** (see below) |
+
+The buttons:
+- **Approve** (Enter);
+- **Approve all similar for this run**, such as all further page reads or "Next" clicks;
+- **Always allow for this skill on this site**, for admins and for Read and Enter-data actions only;
+- **Edit and approve**;
+- **Deny and tell the agent why** (Esc), so the agent re-plans from the feedback;
+- **Take over**.
+
+**3. Risk tiers decide what asks.**
+
+| Tier | Examples | Asks? |
+|---|---|---|
+| **Read** | Open a page, search, scroll, read a result | Asks while the skill is new. Can be allowed for the run or for the skill. |
+| **Enter data** | Type into a field, choose a dropdown, tick a box (nothing saved yet) | Asks with the values shown. Can be allowed for the run. |
+| **Commit** | Submit, save, send, upload, delete, attest, sign, pay | **Always asks, every time.** No "always allow". Pay, sign and attest stay person-only (§6). |
+
+**4. Never stuck, never silent.**
+- If no one answers within 2 minutes, the run pauses and the approval moves to the **Approvals inbox**.
+- The inbox is one queue in the Studio, with push and SMS notifications. It also holds voice-agent write
+  intents and RCM approvals, so staff approve everything in one place.
+- Approving from a phone works for Read and Enter-data actions. Commit actions need the live view.
+
+**5. After the run.**
+- A summary lists what was done, what was approved by whom, the result, and the evidence screenshots.
+- Each denial and edit becomes a proposed improvement to the skill. Approvals feed the maturity ladder: a step
+  that has been approved unchanged many times is offered as "allow for this skill".
+
+The same card-and-inbox pattern is used for voice-agent actions (write intents) and clearinghouse submissions,
+so the platform has one consistent way to ask a person.
+
+**Unsupervised runs** (the *Autonomous* rung of the ladder) are only offered on sites an admin has marked
+**"automation permitted"** with a note of where the terms say so. Everything else stays supervised, however
+mature the skill.
+
+**Risk the owner accepts.** Some portal terms (for example Availity's and NGSConnex's) prohibit automated
+access whether or not a person watches. Supervision greatly lowers the risk but does not remove it: the worst
+case is the portal suspending the **practice's** account. So, the first time a practice uses the agent on a
+site, its admin sees the site's terms note and acknowledges it once; the acknowledgement is audited. The
+agent never helps evade a site's controls (no CAPTCHA solving, no disguising, no rate-limit workarounds).
 
 ## 7. Milestones (parallel track)
 
@@ -111,13 +184,14 @@ the skill's checks).
 |---|---|
 | **B1** | Browser runtime on GKE, live view, staff sign-in, saved sessions, take-over, audit |
 | **B2** | **Mode A**: record a person doing a real case (steps, pages, fields, result), confirm each step's purpose, draft the skill; staff edit it |
-| **B3** | Model adapter (Gemini + Claude via Vertex), model picker, **Mode B** with the pre-flight check, and the agent running a taught skill step by step with approval |
+| **B3** | Model adapter (Gemini + Claude via Vertex), model picker, **Mode B** with the pre-flight check, plan approval, approval cards with risk tiers (§6b), and the Approvals inbox |
 | **B4** | Maturity ladder, skill library, scorecards, automatic demotion |
 | **B5** | Skills as tools for voice agents and RCM; Browser connector in the hub with approved writes |
-| **B6** | First production skills on two sites whose terms allow automation (owner to pick) |
+| **B6** | First production skills, under human supervision: NGSConnex Medicare claim status and eligibility for Absolute Health Group (closes the gap the clearinghouse can't cover), then a commercial payer portal |
 
 ## 8. Open items
 
-- Pick the first two target tasks and sites (terms must allow automation).
+- First target: NGSConnex claim status (read-only), under human supervision, with the practice admin's
+  one-time acknowledgement.
 - Confirm both computer-use models are enabled for the careplix-labs Vertex project.
 - GKE Autopilot cluster and a KMS key are new infrastructure: added to `deploy-labs.sh setup` at B1.
