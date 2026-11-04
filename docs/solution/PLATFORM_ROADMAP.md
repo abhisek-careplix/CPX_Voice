@@ -31,7 +31,7 @@ It ends with one combined build order and the decisions the owner needs to make.
 |---|---|---|
 | Voice Studio | **VS3** AI-judged scorecards, suites, publish gate · **VS4** personas, guardrail packs, red-team · **VS5** knowledge (RAG) · **VS6** caller memory, showcase | None; can start now |
 | Clearinghouse RCM | **RC1–RC9**: gateway and white-label, enrollment wizard, hub billing pull, eligibility to production, claims, status, ERA, denials, appeals, balances, prior auth, reporting | Clearinghouse enrollment for Absolute Health Group (NGS) for 837P, 835 and eligibility; production key at the end |
-| Browser agent | **B1–B6**: none built yet (see §2) | A first target site whose terms allow automation; GKE and KMS setup; computer-use models enabled on Vertex |
+| Browser agent | **B1–B6**: none built yet (see §2) | GKE and KMS setup; computer-use models enabled on Vertex |
 | Front office | **FO-4** outreach (SMS, consent, campaigns) · **FO-5** forms and intake | 10DLC registration for SMS; NexHealth v3.1 beta access |
 | Open issue | Silent audio in browser rehearsal: diagnostics shipped, root cause not confirmed | Owner's test after deploying `87cb389` |
 
@@ -48,11 +48,11 @@ This section is the "browser function for the agent". Nothing is built yet. The 
 | **B3 Models and Mode B** | Gemini and Claude adapters, model picker, pre-flight check (site allowed, signed in, inputs complete, permission, minimum data). The agent runs a taught skill step by step with approval. | Run the same lookup for a new NPI with each model; compare. |
 | **B4 Maturity** | Skill library. Ladder: watched → assisted → supervised → autonomous. Scorecards; automatic demotion after a failure. | A skill is promoted after 10 clean runs and demoted after one failure. |
 | **B5 Skills as tools** | Voice agents and RCM workflows call browser skills ("check the portal while I'm on the phone"); a Browser connector in the hub with approved writes. | During a simulated payer call, the agent checks a portal result. |
-| **B6 Production skills** | The first two production skills on permitted sites. | A real task on synthetic or test data. |
+| **B6 Production skills** | The first two production skills under human supervision (NGSConnex claim status first). | A real task on synthetic or test data. |
 
-**Good first targets** (public, built for lookup, no prohibited bots): **NPPES NPI Registry**, **OIG exclusions (LEIE)**, **SAM.gov exclusions**. Each has an API or bulk download, so the browser skill can be checked against the API answer. That makes them ideal for proving B2 and B3, and they feed straight into credentialing (§3).
+**Any site, under human supervision** (owner decision, 4 Nov 2026). There is no blocked-site list. Every run has an **"Under human supervision"** checkbox with a named supervisor whose live view must stay open. The agent pauses before any submit or save, and people handle sign-in, two-factor codes and CAPTCHAs. Unsupervised runs are offered only on sites an admin marks "automation permitted". Rules and the accepted risk are in `BROWSER_AGENT_PLAN.md` §6a.
 
-**Never automated:** NGSConnex and Availity; their terms forbid it. These stay voice- or human-only.
+**First targets:** **NGSConnex Medicare claim status and eligibility** for Absolute Health Group. The clearinghouse can't do Medicare claim status, so this closes a real gap. Then a commercial payer portal and the credentialing look-ups (NPPES, state boards).
 
 ---
 
@@ -84,13 +84,13 @@ Credentialing and payer enrollment come before billing: a provider who isn't enr
 | **Provider profile and document vault** | One verified record per provider: licenses, DEA, board certification, malpractice, education, work history, CV. Documents with expiry dates; extract fields from uploads. | Hub (EHR roster) plus uploads | ✅ build |
 | **NPI verification** | Automatic check on add and monthly | NPPES API (public) | ✅ build |
 | **Exclusion and sanction monitoring** | Monthly OIG LEIE and SAM.gov checks, state Medicaid exclusion lists, alerts | LEIE download, SAM.gov API; state lists via browser skills | ✅ / 🟡 per state |
-| **License primary-source verification** | Per-state verification and expiry tracking | State board look-ups: API where offered (e.g. Nursys for nurses), otherwise a browser skill **only where terms allow**, otherwise the voice agent calls the board | 🟡 per state |
+| **License primary-source verification** | Per-state verification and expiry tracking | State board look-ups: API where offered (e.g. Nursys for nurses), otherwise a supervised browser skill, otherwise the voice agent calls the board | 🟡 per state |
 | **DEA verification** | Registration status and expiry | DEA lookup needs a paid data subscription | 🔒 subscription |
-| **Board certification** | Verify and track recertification | ABMS, ABIM and others: subscriptions or browser where allowed | 🔒 / 🟡 |
+| **Board certification** | Verify and track recertification | ABMS, ABIM and others: subscriptions or supervised browser | 🔒 / 🟡 |
 | **NPDB** | Continuous query enrollment | NPDB registration as a querying entity, needs eligibility review | 🔒 legal |
 | **CAQH ProView** | Profile completeness, 120-day re-attestation reminders, roster | CAQH API needs a partner agreement; until then re-attestation is reminder-led and done by the provider | 🔒 partner |
 | **Medicare enrollment (PECOS, CMS-855)** | Prepare the application packet from the record; staff submit in PECOS; agent tracks status | PECOS: human submits (identity and access rules); voice calls the MAC enrollment line for status | 🟡 assisted |
-| **Commercial and Medicaid payer enrollment** | Enrollment tracker per provider × payer × TIN × location: applied → in review → missing info → approved → effective date. Application packets pre-filled. | Voice agent calls provider-relations lines for status and missing items; email and fax packets; portals via browser where allowed | ✅ voice-led, our edge |
+| **Commercial and Medicaid payer enrollment** | Enrollment tracker per provider × payer × TIN × location: applied → in review → missing info → approved → effective date. Application packets pre-filled. | Voice agent calls provider-relations lines for status and missing items; email and fax packets; portals via the supervised browser | ✅ voice-led, our edge |
 | **Clearinghouse enrollment** | 837P, 835 and eligibility enrollments per payer (already RC2) | Clearinghouse API | ✅ RC2 |
 | **Privileging (facility, telehealth)** | Request packet, committee-ready file, delineation of privileges, expiry | Documents plus workflow | ✅ build |
 | **Re-credentialing** | 36-month cycle tracker, auto-assembled file | Workflow | ✅ build |
@@ -113,12 +113,12 @@ Credentialing and payer enrollment come before billing: a provider who isn't enr
 
 Each runs first as a VS2 simulation, then live to approved numbers only.
 
-### 3.5 Browser skills to teach (Mode A), on permitted sites only
+### 3.5 Browser skills to teach (Mode A), under human supervision
 
 1. NPPES lookup.
 2. OIG and SAM exclusion search, cross-checked against the API.
-3. State boards whose terms allow it, one at a time, legal-reviewed.
-4. Payer portals that allow automation (to be named; Availity excluded).
+3. State board look-ups, one state at a time.
+4. Payer portals: NGSConnex (claim status, eligibility), Availity, then plan-specific portals.
 5. PECOS: *assisted only*. The agent prepares, a person submits.
 
 ---
@@ -145,12 +145,12 @@ Four tracks run in parallel; each step is merged, deployed and testable.
 | # | Decision or ask | Why | Lead time |
 |---|---|---|---|
 | 1 | Approve **credentialing (CR)** as a product line in this order | Scope | Now |
-| 2 | First browser targets: **NPPES, then OIG and SAM** (recommended), plus any payer or board site you know allows automation | Unblocks B1–B2 | Now |
+| 2 | ~~First browser targets~~ Decided: any site under human supervision; NGSConnex claim status first. Absolute Health's admin acknowledges NGSConnex's terms once. | Unblocks B1–B2 | Now |
 | 3 | Confirm Gemini and Claude computer use are enabled in Vertex for careplix-labs | B3 | Days |
 | 4 | **CAQH** partner/API application | CR-5 | Weeks to months |
 | 5 | **DEA** verification data subscription | CR-5 | Weeks |
 | 6 | **NPDB** querying-entity eligibility (legal) | CR-5 | Weeks |
-| 7 | Legal review of each state board's and payer portal's terms before any browser skill | Safety rule | Per site |
+| 7 | Admin marks which sites permit unsupervised automation (optional; supervised runs need nothing) | Autonomous rung | Per site |
 | 8 | 10DLC registration for SMS reminders | FO-4, CR-1 alerts | 2–4 weeks |
 | 9 | Test the deploy `87cb389` and report the silent-audio result | Closes the open issue | Now |
 
@@ -159,5 +159,5 @@ Four tracks run in parallel; each step is merged, deployed and testable.
 - All data is synthetic in dev. No test records go to CMS or production payers.
 - The vendor is shown as "Clearinghouse" only.
 - Calls go to approved numbers only.
-- Browser automation runs only where the site's terms allow it.
+- Browser runs are under human supervision; unsupervised runs only on sites marked "automation permitted".
 - Every determination has human sign-off and an evidence trail.
