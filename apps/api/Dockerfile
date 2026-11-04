@@ -19,6 +19,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY packages packages
 COPY apps/worker/pyproject.toml apps/worker/pyproject.toml
+COPY apps/browser/pyproject.toml apps/browser/pyproject.toml
 COPY apps/api apps/api
 # Synthetic fixtures: demo workspace seed and the payer sandbox's decisions.
 COPY fixtures fixtures

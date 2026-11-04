@@ -10,6 +10,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY packages packages
 COPY apps/api/pyproject.toml apps/api/pyproject.toml
+COPY apps/browser/pyproject.toml apps/browser/pyproject.toml
 COPY apps/worker apps/worker
 RUN uv sync --frozen --no-dev --package careplix-worker \
  && chown -R agent /app

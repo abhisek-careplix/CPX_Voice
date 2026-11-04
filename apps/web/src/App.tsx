@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AudioLines, Bot, Building2, ClipboardCheck, LayoutGrid, ListChecks, LogOut, Phone, PlugZap, ShieldCheck, Stethoscope, CalendarPlus, Network, Sparkles } from "lucide-react";
+import { AudioLines, Bot, Globe, Inbox, Building2, ClipboardCheck, LayoutGrid, ListChecks, LogOut, Phone, PlugZap, ShieldCheck, Stethoscope, CalendarPlus, Network, Sparkles } from "lucide-react";
 import { createContext, useContext, useEffect } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, ApiError, type Me, type WorkspaceSummary } from "./api";
 import AgentEditor from "./pages/AgentEditor";
 import Agents from "./pages/Agents";
+import Approvals from "./pages/Approvals";
 import Backfill from "./pages/Backfill";
+import BrowserAgent from "./pages/BrowserAgent";
 import Hub from "./pages/Hub";
 import CallDetail from "./pages/CallDetail";
 import Calls from "./pages/Calls";
@@ -112,6 +114,12 @@ function Shell() {
         <NavLink to="/studio" className="nav-link">
           <Sparkles size={18} aria-hidden /> Voice Studio
         </NavLink>
+        <NavLink to="/browser" className="nav-link">
+          <Globe size={18} aria-hidden /> Browser agent
+        </NavLink>
+        <NavLink to="/approvals" className="nav-link">
+          <Inbox size={18} aria-hidden /> Approvals
+        </NavLink>
         <NavLink to="/agents" className="nav-link">
           <Bot size={18} aria-hidden /> Agents
         </NavLink>
@@ -178,6 +186,9 @@ function Shell() {
         <Routes>
           <Route path="/" element={<Workspace />} />
           <Route path="/studio" element={<VoiceStudio />} />
+          <Route path="/browser" element={<BrowserAgent />} />
+          <Route path="/browser/:id" element={<BrowserAgent />} />
+          <Route path="/approvals" element={<Approvals />} />
           <Route path="/agents" element={<Agents />} />
           <Route path="/agents/:id" element={<AgentEditor />} />
           <Route path="/tasks" element={<Tasks />} />

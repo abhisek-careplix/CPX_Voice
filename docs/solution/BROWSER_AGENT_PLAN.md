@@ -182,9 +182,9 @@ agent never helps evade a site's controls (no CAPTCHA solving, no disguising, no
 
 | # | Delivers |
 |---|---|
-| **B1** | Browser runtime on GKE, live view, staff sign-in, saved sessions, take-over, audit |
+| **B1** | Browser runtime, live view, staff sign-in, saved sessions, take-over, audit. **Built 4 Nov 2026**; labs runs it as one always-on private Cloud Run service (`careplix-browser`), with GKE when sessions need to scale |
 | **B2** | **Mode A**: record a person doing a real case (steps, pages, fields, result), confirm each step's purpose, draft the skill; staff edit it |
-| **B3** | Model adapter (Gemini + Claude via Vertex), model picker, **Mode B** with the pre-flight check, plan approval, approval cards with risk tiers (§6b), and the Approvals inbox |
+| **B3** | Model adapter (Gemini + Claude via Vertex), model picker, **Mode B** with the pre-flight check, plan approval, approval cards with risk tiers (§6b), and the Approvals inbox. **Built 4 Nov 2026** (ahead of B2): supervision checkbox, presence pause, Enter/Esc shortcuts, edit before approve, deny with feedback, take-over input, evidence screenshots. Push/SMS alerts for the inbox come with FO-4 |
 | **B4** | Maturity ladder, skill library, scorecards, automatic demotion |
 | **B5** | Skills as tools for voice agents and RCM; Browser connector in the hub with approved writes |
 | **B6** | First production skills, under human supervision: NGSConnex Medicare claim status and eligibility for Absolute Health Group (closes the gap the clearinghouse can't cover), then a commercial payer portal |
@@ -195,3 +195,25 @@ agent never helps evade a site's controls (no CAPTCHA solving, no disguising, no
   one-time acknowledgement.
 - Confirm both computer-use models are enabled for the careplix-labs Vertex project.
 - GKE Autopilot cluster and a KMS key are new infrastructure: added to `deploy-labs.sh setup` at B1.
+
+## 9. As built (4 Nov 2026)
+
+- **Runtime:** `apps/browser` is a FastAPI service around Playwright Chromium.
+  - It runs one isolated context per run, with a 1280×800 viewport.
+  - Each run is limited to its allowed sites; a person approves any new site.
+  - It is private on Cloud Run, reachable only by the Studio identity, and also checks a shared token.
+- **Engine:** `careplix_api/browser` owns its tables:
+  - `browser_runs`;
+  - `browser_steps` (the approval cards, with sealed values and sealed screenshots);
+  - `browser_sites` (the one-time terms acknowledgement and admin "always allow");
+  - `browser_profiles` (sealed sign-ins, which expire after 14 days).
+- **Models:**
+  - Gemini computer use, which uses normalised coordinates and honours its `require_confirmation` safety decisions as forced approval cards.
+  - Claude computer use (`computer_toolset_20260801`, default `claude-opus-5-5`) on Vertex, plus `navigate`, `go_back` and `task_complete` tools.
+  - The model is chosen per run, with the workspace default from `BROWSER_DEFAULT_MODEL`.
+- **Risk is decided by the server, from the element under the action** (`policy.py`):
+  - links and tabs are *read*;
+  - fields, boxes and options are *enter data*;
+  - submit, save, send and similar are *commit*, and always ask;
+  - pay, sign, attest and password fields are *person only*.
+- **Still to build:** Mode A (B2), the skill library and maturity ladder (B4), skills as tools (B5), and inbox push/SMS alerts.
