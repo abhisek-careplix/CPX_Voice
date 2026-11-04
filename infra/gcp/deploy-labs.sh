@@ -178,8 +178,20 @@ openemr() {
   echo "OpenEMR is installed on $OE_VM ($(oe_ip)). Run deploy to publish $OE_PUBLIC_URL behind IAP."
 }
 
+# Secret Manager entries the services read. A missing one fails its service's deploy and stops the
+# script halfway (services left on mixed builds), so check them all before changing anything.
+REQUIRED_SECRETS="cpx-database-url cpx-session-secret cpx-worker-token cpx-livekit-api-key cpx-livekit-api-secret
+  cpx-nexhealth-api-key cpx-stedi-api-key cpx-data-key cpx-browser-token"
+
 deploy() {
-  local livekit_url conn common_env secrets
+  local livekit_url conn common_env secrets missing=""
+  for s in $REQUIRED_SECRETS; do
+    $G secrets describe "$s" >/dev/null 2>&1 || missing="$missing $s"
+  done
+  if [ -n "$missing" ]; then
+    echo "✗ Missing in Secret Manager:$missing. Run ./infra/gcp/deploy-labs.sh setup first; nothing was deployed." >&2
+    exit 1
+  fi
   livekit_url=$(env_value LIVEKIT_URL)
   conn="$PROJECT:$REGION:$SQL_INSTANCE"
 
@@ -241,11 +253,13 @@ deploy() {
   $G iap web add-iam-policy-binding --resource-type=cloud-run --service careplix-studio --region "$REGION" \
     --member "domain:careplix.com" --role roles/iap.httpsResourceAccessor >/dev/null
 
-  # 4. Worker-facing internal API: same image, no background loops, IAM-only for the worker.
+  # 4. Worker-facing internal API: same image, no background loops, IAM-only for the worker. Call
+  #    claims and the receptionist's EHR tools run here, so it needs the practice settings and the
+  #    data key (PhiBox) exactly like the Studio, and the VPC route to the hosted OpenEMR.
   $G run deploy careplix-internal --region "$REGION" --image "$REGISTRY/api:$TAG" \
-    --service-account "$SA_STUDIO" --add-cloudsql-instances "$conn" \
-    --set-env-vars "$common_env,RUN_BACKGROUND=false,SEED_DEMO_DATA=false" \
-    --set-secrets "$secrets" --min-instances 0 --max-instances 2 --no-allow-unauthenticated
+    --service-account "$SA_STUDIO" --add-cloudsql-instances "$conn" $VPC_FLAGS \
+    --set-env-vars "$common_env,$practice_env,RUN_BACKGROUND=false,SEED_DEMO_DATA=false" \
+    --set-secrets "$secrets,$practice_secrets" --min-instances 0 --max-instances 2 --no-allow-unauthenticated
   $G run services add-iam-policy-binding careplix-internal --region "$REGION" \
     --member "serviceAccount:$SA_WORKER" --role roles/run.invoker >/dev/null
   internal_url=$(url_of careplix-internal)

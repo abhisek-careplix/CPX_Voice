@@ -1,7 +1,8 @@
+import httpx
 import pytest
 
 from careplix_worker import main, prompt
-from careplix_worker.control_plane import EventReporter
+from careplix_worker.control_plane import ClaimRejected, ControlPlane, EventReporter
 from careplix_worker.gcp import CredentialConfigError, credential_source, load_credentials
 from careplix_worker.settings import DEV_WORKER_TOKEN, WorkerSettings
 
@@ -195,3 +196,44 @@ async def test_keypad_presses_are_delivered_together_after_a_pause():
     pad.press("0")
     await asyncio.sleep(0.1)
     assert got == ["12#", "0"]
+
+
+def _plane(handler) -> ControlPlane:
+    plane = ControlPlane("https://internal.test", "token")
+    plane._http = httpx.AsyncClient(
+        base_url="https://internal.test", transport=httpx.MockTransport(handler)
+    )
+    return plane
+
+
+@pytest.mark.parametrize(
+    ("response", "status", "code"),
+    [
+        # careplix-labs, 4 Nov 2026: the internal API crashed (missing DATA_ENCRYPTION_KEY) and the
+        # worker died parsing the error page instead of hanging up cleanly.
+        (httpx.Response(500, text="Internal Server Error"), 500, "claim_failed"),
+        (httpx.Response(500, json={"error": {"code": "internal_error"}}), 500, "internal_error"),
+        (httpx.Response(409, json={"error": {"code": "already_claimed"}}), 409, "already_claimed"),
+    ],
+)
+async def test_every_failed_claim_is_a_clean_rejection(response, status, code):
+    plane = _plane(lambda request: response)
+    for call in (
+        plane.claim("a1", "room", "job", "build"),
+        plane.counterpart_claim("a1", "room", "job"),
+    ):
+        with pytest.raises(ClaimRejected) as rejected:
+            await call
+        assert (rejected.value.status, rejected.value.code) == (status, code)
+    await plane.aclose()
+
+
+async def test_an_unreachable_api_is_a_rejection_not_a_crash():
+    def refuse(request):
+        raise httpx.ConnectError("connection refused", request=request)
+
+    plane = _plane(refuse)
+    with pytest.raises(ClaimRejected) as rejected:
+        await plane.claim("a1", "room", "job", "build")
+    assert rejected.value.code == "api_unreachable"
+    await plane.aclose()
