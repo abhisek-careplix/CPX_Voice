@@ -118,6 +118,56 @@ responsibility for the run. While it is on:
 | **People handle the gates** | Sign-in, two-factor codes and CAPTCHAs are done by the person. If a site shows a bot check or warning, the agent stops and hands over. |
 | **Recorded** | Supervisor, practice, site, model, every action and screenshot, approvals and take-overs go in the audit trail. |
 
+### 6b. The approval experience (owner, 4 Nov 2026: "like how Claude asks for approval")
+
+The agent works the way Claude Code asks permission: **it proposes, the person approves, the agent does it.**
+The person never has to drive the mouse; they read a short card and click.
+
+**1. Plan first.** Before the first click the agent shows its plan in plain words, for example:
+"1. Open Claims → Search. 2. Enter member ID ••••4821 and date of service 10/14. 3. Read the claim status.
+4. Copy status and paid amount back to the claim in CarePlix." The person can **approve the plan**,
+**edit** it (change a step or an input), or **cancel**.
+
+**2. An approval card for each action that needs one.** The card sits beside the live view:
+
+| On the card | Example |
+|---|---|
+| What the agent will do | "Click **Submit reconsideration**" |
+| Where | Screenshot with the target outlined, plus the page title and site |
+| With what data | Fields and values it will type, editable before approving (PHI masked until the person reveals it) |
+| Why | The plan step it belongs to and what it expects to happen next |
+| Risk | **Read**, **Enter data** or **Commit** (see below) |
+
+The buttons:
+- **Approve** (Enter);
+- **Approve all similar for this run**, such as all further page reads or "Next" clicks;
+- **Always allow for this skill on this site**, for admins and for Read and Enter-data actions only;
+- **Edit and approve**;
+- **Deny and tell the agent why** (Esc), so the agent re-plans from the feedback;
+- **Take over**.
+
+**3. Risk tiers decide what asks.**
+
+| Tier | Examples | Asks? |
+|---|---|---|
+| **Read** | Open a page, search, scroll, read a result | Asks while the skill is new. Can be allowed for the run or for the skill. |
+| **Enter data** | Type into a field, choose a dropdown, tick a box (nothing saved yet) | Asks with the values shown. Can be allowed for the run. |
+| **Commit** | Submit, save, send, upload, delete, attest, sign, pay | **Always asks, every time.** No "always allow". Pay, sign and attest stay person-only (§6). |
+
+**4. Never stuck, never silent.**
+- If no one answers within 2 minutes, the run pauses and the approval moves to the **Approvals inbox**.
+- The inbox is one queue in the Studio, with push and SMS notifications. It also holds voice-agent write
+  intents and RCM approvals, so staff approve everything in one place.
+- Approving from a phone works for Read and Enter-data actions. Commit actions need the live view.
+
+**5. After the run.**
+- A summary lists what was done, what was approved by whom, the result, and the evidence screenshots.
+- Each denial and edit becomes a proposed improvement to the skill. Approvals feed the maturity ladder: a step
+  that has been approved unchanged many times is offered as "allow for this skill".
+
+The same card-and-inbox pattern is used for voice-agent actions (write intents) and clearinghouse submissions,
+so the platform has one consistent way to ask a person.
+
 **Unsupervised runs** (the *Autonomous* rung of the ladder) are only offered on sites an admin has marked
 **"automation permitted"** with a note of where the terms say so. Everything else stays supervised, however
 mature the skill.
@@ -134,7 +184,7 @@ agent never helps evade a site's controls (no CAPTCHA solving, no disguising, no
 |---|---|
 | **B1** | Browser runtime on GKE, live view, staff sign-in, saved sessions, take-over, audit |
 | **B2** | **Mode A**: record a person doing a real case (steps, pages, fields, result), confirm each step's purpose, draft the skill; staff edit it |
-| **B3** | Model adapter (Gemini + Claude via Vertex), model picker, **Mode B** with the pre-flight check, and the agent running a taught skill step by step with approval |
+| **B3** | Model adapter (Gemini + Claude via Vertex), model picker, **Mode B** with the pre-flight check, plan approval, approval cards with risk tiers (§6b), and the Approvals inbox |
 | **B4** | Maturity ladder, skill library, scorecards, automatic demotion |
 | **B5** | Skills as tools for voice agents and RCM; Browser connector in the hub with approved writes |
 | **B6** | First production skills, under human supervision: NGSConnex Medicare claim status and eligibility for Absolute Health Group (closes the gap the clearinghouse can't cover), then a commercial payer portal |
