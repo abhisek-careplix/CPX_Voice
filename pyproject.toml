@@ -8,13 +8,14 @@ requires-python = ">=3.12,<3.13"
 package = false
 
 [tool.uv.workspace]
-members = ["packages/contracts", "packages/common", "apps/api", "apps/worker"]
+members = ["packages/contracts", "packages/common", "apps/api", "apps/worker", "apps/browser"]
 
 [tool.uv.sources]
 careplix-contracts = { workspace = true }
 careplix-common = { workspace = true }
 careplix-api = { workspace = true }
 careplix-worker = { workspace = true }
+careplix-browser = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -22,6 +23,7 @@ dev = [
   "careplix-common",
   "careplix-api",
   "careplix-worker",
+  "careplix-browser",
   "pytest>=8.3",
   "pytest-asyncio>=0.24",
   "ruff>=0.8",
@@ -37,10 +39,10 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 ignore = ["B008"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["careplix_api", "careplix_common", "careplix_contracts", "careplix_worker"]
+known-first-party = ["careplix_api", "careplix_browser", "careplix_common", "careplix_contracts", "careplix_worker"]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/contracts/tests", "packages/common/tests", "apps/api/tests", "apps/worker/tests"]
+testpaths = ["packages/contracts/tests", "packages/common/tests", "apps/api/tests", "apps/worker/tests", "apps/browser/tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "--import-mode=importlib"

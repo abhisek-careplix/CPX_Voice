@@ -31,6 +31,8 @@ PERMISSIONS: dict[str, frozenset[str]] = {
     "publish": frozenset({"publisher", "admin"}),
     "start_task": frozenset({"operator", "publisher", "admin"}),
     "stop_calls": frozenset({"operator", "publisher", "admin"}),
+    # Supervised browser runs: start one, approve its steps, take over (BROWSER_AGENT_PLAN §6a).
+    "browser_supervise": frozenset({"operator", "publisher", "admin"}),
     "review": frozenset({"reviewer", "admin"}),
     "view": frozenset({"author", "operator", "publisher", "admin", "reviewer"}),
     "admin": frozenset({"admin"}),

@@ -1,4 +1,4 @@
-# Builds the API/Studio, worker and OpenEMR proxy images into Artifact Registry.
+# Builds the API/Studio, worker, browser runtime and OpenEMR proxy images into Artifact Registry.
 #   gcloud builds submit --project careplix-labs --config infra/gcp/cloudbuild.yaml \
 #     --substitutions _TAG=<git-sha>
 substitutions:
@@ -11,10 +11,13 @@ steps:
   - name: gcr.io/cloud-builders/docker
     args: ["build", "-f", "apps/worker/Dockerfile", "-t", "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/worker:${_TAG}", "."]
   - name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "apps/browser/Dockerfile", "-t", "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/browser:${_TAG}", "."]
+  - name: gcr.io/cloud-builders/docker
     args: ["build", "-t", "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/openemr-proxy:${_TAG}", "infra/openemr/proxy"]
 images:
   - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/api:${_TAG}
   - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/worker:${_TAG}
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/browser:${_TAG}
   - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/openemr-proxy:${_TAG}
 options:
   machineType: E2_HIGHCPU_8

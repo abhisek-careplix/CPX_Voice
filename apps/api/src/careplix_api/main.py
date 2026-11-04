@@ -20,6 +20,9 @@ from careplix_api import (
     seed,
     studio_api,
 )
+from careplix_api.browser import api as browser_api
+from careplix_api.browser.runtime_client import HttpRuntime
+from careplix_api.browser.service import BrowserRunner
 from careplix_api.calls_service import CallRunner
 from careplix_api.db import Database
 from careplix_api.errors import ApiError
@@ -53,6 +56,8 @@ def create_app(
     model_prober=probe_live,
     integration_transport=None,
     judge=None,
+    browser_runtime=None,
+    browser_agent_factory=None,
 ) -> FastAPI:
     settings = settings or get_settings()
     safe_logging.configure(settings.log_level)
@@ -65,6 +70,14 @@ def create_app(
         app.state.model_prober = model_prober
         app.state.judge = judge or judge_service.gemini_judge
         app.state.settings = settings
+        app.state.browser_runtime = browser_runtime or HttpRuntime(
+            settings.browser_runtime_url,
+            settings.browser_service_token.get_secret_value(),
+            settings.browser_runtime_auth,
+        )
+        app.state.browser_runner = BrowserRunner(
+            app.state.db, settings, app.state.browser_runtime, browser_agent_factory
+        )
         # Tests inject an in-process transport (e.g. the payer sandbox ASGI app).
         app.state.integration_transport = integration_transport
         await app.state.db.create_all()
@@ -76,6 +89,8 @@ def create_app(
                 await seed.ensure_reference_connections(session)
         async with app.state.db.sessions() as session:
             await ensure_practice_connections(session, settings)
+        if settings.run_background:
+            await app.state.browser_runner.recover()
         app.state.integration_worker = IntegrationWorker(
             app.state.db, lambda: app.state.integration_transport
         )
@@ -102,6 +117,7 @@ def create_app(
         # mid-query would otherwise wait forever on a connection that's gone.
         await asyncio.gather(*loops, return_exceptions=True)
         await app.state.runner.aclose()
+        await app.state.browser_runner.aclose()
         await app.state.db.dispose()
 
     app = FastAPI(title="CarePlix Voice API", version="0.2.0", lifespan=lifespan)
@@ -145,6 +161,7 @@ def create_app(
     app.include_router(connections_api.router, prefix="/api")
     app.include_router(integrations_api.router, prefix="/api")
     app.include_router(practice_api.router, prefix="/api")
+    app.include_router(browser_api.router, prefix="/api")
     app.include_router(scenarios_api.router, prefix="/api")
     app.include_router(internal_api.router)
     if settings.is_dev:

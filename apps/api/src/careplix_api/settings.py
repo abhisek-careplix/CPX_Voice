@@ -36,6 +36,19 @@ class Settings(BaseSettings):
     judge_model: str = "gemini-2.5-flash"
     judge_location: str = ""
     judge_interval_s: float = 20.0  # how often finished Voice Studio runs are auto-scored
+    # Supervised browser agent (BROWSER_AGENT_PLAN). The runtime is the private careplix-browser
+    # service; empty URL leaves the feature off.
+    browser_runtime_url: str = ""
+    browser_runtime_auth: str = "none"  # none | google_id_token (private Cloud Run)
+    browser_service_token: SecretStr = SecretStr("")
+    browser_default_model: str = "gemini"  # gemini | claude (workspace default; per run override)
+    browser_gemini_model: str = "gemini-2.5-computer-use-preview-10-2025"
+    browser_gemini_location: str = ""  # empty: the workspace's Vertex region
+    browser_claude_model: str = "claude-opus-5-5"
+    browser_claude_region: str = "global"
+    browser_max_steps: int = 60
+    browser_presence_timeout_s: float = 60.0  # supervisor's live view idle → the run pauses
+    browser_profile_days: int = 14  # saved sign-ins expire
 
     # Development payer endpoint seeded as a workspace connection (synthetic). Empty disables.
     payer_sandbox_url: str = "http://localhost:8091/fhir"

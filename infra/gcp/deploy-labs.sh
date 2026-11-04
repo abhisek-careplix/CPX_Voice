@@ -27,6 +27,7 @@ SA_WORKER="careplix-worker@$PROJECT.iam.gserviceaccount.com"
 SA_SANDBOX="careplix-sandbox@$PROJECT.iam.gserviceaccount.com"
 SA_WEBHOOKS="careplix-webhooks@$PROJECT.iam.gserviceaccount.com"
 SA_OE_PROXY="careplix-openemr-proxy@$PROJECT.iam.gserviceaccount.com"
+SA_BROWSER="careplix-browser@$PROJECT.iam.gserviceaccount.com"
 OE_VM=careplix-openemr
 OE_ZONE=$REGION-a
 OE_PUBLIC_URL="https://careplix-openemr-$NUMBER.$REGION.run.app"
@@ -57,7 +58,7 @@ setup() {
   $G artifacts repositories describe "$REPO" --location "$REGION" >/dev/null 2>&1 ||
     $G artifacts repositories create "$REPO" --location "$REGION" --repository-format docker
 
-  for sa in careplix-studio careplix-worker careplix-sandbox careplix-webhooks; do
+  for sa in careplix-studio careplix-worker careplix-sandbox careplix-webhooks careplix-browser; do
     $G iam service-accounts describe "$sa@$PROJECT.iam.gserviceaccount.com" >/dev/null 2>&1 ||
       $G iam service-accounts create "$sa" --display-name "CarePlix Voice $sa"
   done
@@ -89,6 +90,8 @@ setup() {
 
   $G secrets describe cpx-session-secret >/dev/null 2>&1 || python3 -c 'import secrets; print(secrets.token_urlsafe(48), end="")' | put_secret cpx-session-secret
   $G secrets describe cpx-worker-token >/dev/null 2>&1 || python3 -c 'import secrets; print(secrets.token_urlsafe(48), end="")' | put_secret cpx-worker-token
+  # Shared token between the Studio and the private browser runtime (supervised browser agent).
+  $G secrets describe cpx-browser-token >/dev/null 2>&1 || python3 -c 'import secrets; print(secrets.token_urlsafe(48), end="")' | put_secret cpx-browser-token
   env_value LIVEKIT_API_KEY | tr -d '\n' | put_secret cpx-livekit-api-key
   env_value LIVEKIT_API_SECRET | tr -d '\n' | put_secret cpx-livekit-api-secret
   # Practice layer: NexHealth and Stedi keys from .env; a Fernet key for the encrypted mirror.
@@ -98,13 +101,14 @@ setup() {
     python3 -c 'import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode(), end="")' | put_secret cpx-data-key
 
   for secret in cpx-database-url cpx-session-secret cpx-worker-token cpx-livekit-api-key cpx-livekit-api-secret \
-    cpx-nexhealth-api-key cpx-stedi-api-key cpx-data-key; do
+    cpx-nexhealth-api-key cpx-stedi-api-key cpx-data-key cpx-browser-token; do
     $G secrets add-iam-policy-binding "$secret" --member "serviceAccount:$SA_STUDIO" --role roles/secretmanager.secretAccessor >/dev/null
   done
   for secret in cpx-worker-token cpx-livekit-api-key cpx-livekit-api-secret; do
     $G secrets add-iam-policy-binding "$secret" --member "serviceAccount:$SA_WORKER" --role roles/secretmanager.secretAccessor >/dev/null
   done
   $G secrets add-iam-policy-binding cpx-database-url --member "serviceAccount:$SA_WEBHOOKS" --role roles/secretmanager.secretAccessor >/dev/null
+  $G secrets add-iam-policy-binding cpx-browser-token --member "serviceAccount:$SA_BROWSER" --role roles/secretmanager.secretAccessor >/dev/null
   echo "setup complete"
 }
 
@@ -200,6 +204,24 @@ deploy() {
     --command sh --args='-c,uvicorn careplix_api.practice.webhooks:app --host 0.0.0.0 --port $PORT'
   webhooks_url=$(url_of careplix-webhooks)
 
+  # 2b. Browser runtime: private Chromium sessions for the supervised browser agent. Only the Studio
+  # identity may call it (IAM) and it also checks a shared token. One always-on instance keeps
+  # sessions alive while a run waits for an approval.
+  $G run deploy careplix-browser --region "$REGION" --image "$REGISTRY/browser:$TAG" \
+    --service-account "$SA_BROWSER" --no-allow-unauthenticated \
+    --set-secrets "BROWSER_SERVICE_TOKEN=cpx-browser-token:latest" \
+    --min-instances 1 --max-instances 1 --no-cpu-throttling --cpu 2 --memory 4Gi \
+    --concurrency 40 --timeout 3600
+  $G run services add-iam-policy-binding careplix-browser --region "$REGION" \
+    --member "serviceAccount:$SA_STUDIO" --role roles/run.invoker >/dev/null
+  browser_url=$(url_of careplix-browser)
+  # Optional .env overrides: BROWSER_DEFAULT_MODEL (gemini|claude), BROWSER_GEMINI_MODEL, BROWSER_CLAUDE_MODEL.
+  browser_env="BROWSER_RUNTIME_URL=$browser_url,BROWSER_RUNTIME_AUTH=google_id_token"
+  for key in BROWSER_DEFAULT_MODEL BROWSER_GEMINI_MODEL BROWSER_GEMINI_LOCATION BROWSER_CLAUDE_MODEL BROWSER_CLAUDE_REGION; do
+    value=$(env_value "$key" || true)
+    if [ -n "$value" ]; then browser_env="$browser_env,$key=$value"; fi
+  done
+
   # 3. Studio + API + background loops, behind IAP (CarePlix Google accounts only).
   practice_env="NEXHEALTH_ENV=$(env_value NEXHEALTH_ENV),NEXHEALTH_SUBDOMAIN=$(env_value NEXHEALTH_SUBDOMAIN),NEXHEALTH_INSTITUTION_ID=$(env_value NEXHEALTH_INSTITUTION_ID),NEXHEALTH_LOCATION_ID=$(env_value NEXHEALTH_LOCATION_ID),STEDI_ENV=$(env_value STEDI_ENV),WEBHOOK_PUBLIC_URL=$webhooks_url"
   practice_secrets="NEXHEALTH_API_KEY=cpx-nexhealth-api-key:latest,STEDI_API_KEY=cpx-stedi-api-key:latest,DATA_ENCRYPTION_KEY=cpx-data-key:latest"
@@ -211,8 +233,8 @@ deploy() {
   fi
   $G run deploy careplix-studio --region "$REGION" --image "$REGISTRY/api:$TAG" \
     --service-account "$SA_STUDIO" --add-cloudsql-instances "$conn" $VPC_FLAGS \
-    --set-env-vars "$common_env,$practice_env,RUN_BACKGROUND=true,IAP_AUDIENCE=/projects/$NUMBER/locations/$REGION/services/careplix-studio" \
-    --set-secrets "$secrets,$practice_secrets" --min-instances 1 --max-instances 1 --no-cpu-throttling \
+    --set-env-vars "$common_env,$practice_env,$browser_env,RUN_BACKGROUND=true,IAP_AUDIENCE=/projects/$NUMBER/locations/$REGION/services/careplix-studio" \
+    --set-secrets "$secrets,$practice_secrets,BROWSER_SERVICE_TOKEN=cpx-browser-token:latest" --min-instances 1 --max-instances 1 --no-cpu-throttling \
     --timeout 3600 --no-allow-unauthenticated --iap
   $G run services add-iam-policy-binding careplix-studio --region "$REGION" \
     --member "serviceAccount:service-$NUMBER@gcp-sa-iap.iam.gserviceaccount.com" --role roles/run.invoker >/dev/null
