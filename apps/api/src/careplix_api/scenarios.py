@@ -26,6 +26,7 @@ from careplix_api.auth import Principal
 from careplix_api.calls_service import ACTIVE_STATES
 from careplix_api.db import as_utc, utcnow
 from careplix_api.errors import ApiError
+from careplix_api.judge import service as judge_service
 from careplix_api.livekit_gateway import LiveKitGateway
 from careplix_api.models import (
     Agent,
@@ -421,7 +422,25 @@ async def runs(session: AsyncSession, scenario: Scenario, limit: int = 20) -> li
             .limit(limit)
         )
     )
-    return [await scorecard(session, a, scenario) for a in attempts]
+    judged = await judge_service.judgements_for(session, [a.id for a in attempts])
+    cards = []
+    for a in attempts:
+        card = await scorecard(session, a, scenario)
+        card["judge"] = judge_service.view(judged.get(a.id))
+        cards.append(card)
+    return cards
+
+
+def judge_summary(cards: list[dict]) -> dict[str, Any]:
+    """Average AI-judge score over the latest scored runs, and how many passed."""
+    scored = [c["judge"] for c in cards if c.get("judge") and c["judge"]["state"] == "done"][:5]
+    if not scored:
+        return {"runs": 0, "average": None, "passed": 0}
+    return {
+        "runs": len(scored),
+        "average": round(sum(j["score"] for j in scored) / len(scored)),
+        "passed": sum(1 for j in scored if j["verdict"] == "pass"),
+    }
 
 
 async def note_run(session: AsyncSession, attempt: CallAttempt, scenario: Scenario) -> None:

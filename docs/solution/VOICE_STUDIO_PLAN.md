@@ -72,7 +72,7 @@ LiveKit room ── agent worker (role=agent) ⇄ audio ⇄ worker (role=counter
 |---|---|---|
 | **VS1** | Voice Studio page; scenarios (CRUD, example library); *errand* "Call on my behalf" agent; rehearse and live runs; measured scorecard | Rehearse "move a flight" in the browser; place it live to an approved number; scorecard shows outcome, menu presses, hold |
 | **VS2** | Counterpart simulator (agent vs AI in one room) with phone menu, DTMF and hold music; test line on our inbound number | Run "payer: menu → 3 min hold → rep" with no human; hold mode verified end to end |
-| **VS3** | AI-judged scorecards, suites, publish gate, version comparison | A suite of 10 scenarios runs in parallel; a worse draft is blocked from publishing |
+| **VS3** | AI-judged scorecards (**built 4 Nov 2026**: auto-scored runs, evidence per check and limit, coaching), then suites, publish gate, version comparison | A suite of 10 scenarios runs in parallel; a worse draft is blocked from publishing |
 | **VS4** | Persona editor (style, pace, languages, avoid list); guardrail packs; red-team suite | Same scenarios, two personas side by side; injection attempts refused and logged |
 | **VS5** | Knowledge (RAG with citations) and `search_knowledge`; accuracy scoring | Upload an FAQ; agent answers only from it; accuracy score per run |
 | **VS6** | Caller memory; showcase mode | A second call picks up the first call's open item; a shareable demo page |
