@@ -1,6 +1,6 @@
 # CarePlix platform roadmap: what is built, what is pending, and the credentialing opportunity
 
-Owner: Head of Solution Design and Product Innovation · 4 Nov 2026 · Status: **plan, no code**
+Owner: Head of Solution Design and Product Innovation · 4 Nov 2026 · Status: **approved (owner, 4 Nov 2026)**; module boundaries in [PRODUCT_ARCHITECTURE.md](PRODUCT_ARCHITECTURE.md)
 
 This document does three things:
 
@@ -170,7 +170,7 @@ Four tracks run in parallel; each step is merged, deployed and testable.
 
 | # | Decision or ask | Why | Lead time |
 |---|---|---|---|
-| 1 | Approve **credentialing (CR)** as a product line in this order | Scope | Now |
+| 1 | ~~Approve credentialing~~ **Approved** (4 Nov 2026): CR is a product line, built as its own module (see the architecture doc) | Scope | Done |
 | 2 | ~~First browser targets~~ Decided: any site under human supervision; NGSConnex claim status first. Absolute Health's admin acknowledges NGSConnex's terms once. | Unblocks B1–B2 | Now |
 | 3 | Confirm Gemini and Claude computer use are enabled in Vertex for careplix-labs | B3 | Days |
 | 4 | **CAQH** partner/API application | CR-5 | Weeks to months |
@@ -178,7 +178,10 @@ Four tracks run in parallel; each step is merged, deployed and testable.
 | 6 | **NPDB** querying-entity eligibility (legal) | CR-5 | Weeks |
 | 7 | Admin marks which sites permit unsupervised automation (optional; supervised runs need nothing) | Autonomous rung | Per site |
 | 8 | 10DLC registration for SMS reminders | FO-4, CR-1 alerts | 2–4 weeks |
-| 9 | Test the deploy `87cb389` and report the silent-audio result | Closes the open issue | Now |
+| 9 | Test the latest deploy and report the silent-audio result | Closes the open issue | Now |
+| 10 | Request sandboxes from Verifiable, CertifyOS and Medallion (credentialing verification APIs, Appendix A3) | Buy-or-build decision for NCQA-grade checks | Weeks |
+
+**In build now (4 Nov 2026):** VS3 AI judge scoring; the browser agent end to end in Mode B (supervised runs, plan approval, approval cards, Approvals inbox). Mode A (teach by watching) and the skill library follow.
 
 ## 6. Principles that carry over
 
