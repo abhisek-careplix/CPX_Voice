@@ -56,14 +56,25 @@ class ControlPlane:
     async def aclose(self) -> None:
         await self._http.aclose()
 
-    async def _claim(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
-        response = await self._http.post(
-            path, json=body, headers={"Authorization": f"Bearer {self._service_token}"}
-        )
+    async def _post_claim(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        """POST a claim; every failure (refusal, API crash, network) is a ``ClaimRejected``."""
+        try:
+            response = await self._http.post(
+                path, json=body, headers={"Authorization": f"Bearer {self._service_token}"}
+            )
+        except httpx.HTTPError as exc:
+            log.warning("claim request failed: %s", type(exc).__name__)
+            raise ClaimRejected(0, "api_unreachable") from None
         if response.status_code != 200:
-            code = response.json().get("error", {}).get("code", "claim_failed")
+            try:
+                code = response.json().get("error", {}).get("code", "claim_failed")
+            except ValueError:  # e.g. a crash page instead of the API's JSON error
+                code = "claim_failed"
             raise ClaimRejected(response.status_code, code)
-        data = response.json()
+        return response.json()
+
+    async def _claim(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        data = await self._post_claim(path, body)
         self.attempt_id, self._attempt_token = data["attempt_id"], data["attempt_token"]
         return data
 
@@ -98,15 +109,9 @@ class ControlPlane:
 
     async def counterpart_claim(self, attempt_id: str, room: str, job_id: str) -> dict[str, Any]:
         """VS2: claim the simulated other side of a scenario run (once per run)."""
-        response = await self._http.post(
-            f"/internal/attempts/{attempt_id}/counterpart",
-            json={"room": room, "job_id": job_id},
-            headers={"Authorization": f"Bearer {self._service_token}"},
+        return await self._post_claim(
+            f"/internal/attempts/{attempt_id}/counterpart", {"room": room, "job_id": job_id}
         )
-        if response.status_code != 200:
-            code = response.json().get("error", {}).get("code", "claim_failed")
-            raise ClaimRejected(response.status_code, code)
-        return response.json()
 
     async def ack_probe(self, probe_id: str, room: str, build: str) -> None:
         response = await self._http.post(
