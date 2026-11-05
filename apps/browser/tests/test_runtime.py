@@ -7,9 +7,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 from fastapi.testclient import TestClient
+from playwright.async_api import Error as PlaywrightError
+from playwright.async_api import TimeoutError as PlaywrightTimeout
 
+from careplix_browser import runtime as runtime_module
 from careplix_browser.app import Settings, create_app
-from careplix_browser.runtime import Runtime, playwright_key
+from careplix_browser.runtime import ActionError, Runtime, Session, playwright_key
 
 PAGE = b"""<!doctype html><html><head><title>Payer portal (test)</title></head><body>
 <form onsubmit="document.getElementById('out').textContent='submitted:'+
@@ -117,3 +120,48 @@ def test_other_sites_are_refused(client, site):
     assert r.json()["ok"] is False and "not one of this run's sites" in r.json()["error"]
     bad = client.post(f"/sessions/{sid}/act", json={"kind": "click", "x": 5000, "y": 10}).json()
     assert bad["ok"] is False
+
+
+class _FlakyPage:
+    """Fails the first loads with the given errors, then loads."""
+
+    def __init__(self, *errors: Exception):
+        self.errors, self.loads = list(errors), 0
+
+    async def goto(self, url, **kwargs):
+        self.loads += 1
+        if self.errors:
+            raise self.errors.pop(0)
+
+
+def _session(page) -> Session:
+    return Session("s1", None, page, ["npiregistry.cms.hhs.gov"])
+
+
+URL = "https://npiregistry.cms.hhs.gov/"
+
+
+async def test_one_network_blip_does_not_end_the_run(monkeypatch):
+    # careplix-labs, 5 Nov 2026: a run's first load of the NPI Registry failed once and the run
+    # ended as "Browser runtime error 422"; the same load worked seconds later.
+    monkeypatch.setattr(runtime_module, "LOAD_RETRY_S", 0)
+    page = _FlakyPage(PlaywrightError(f"page.goto: net::ERR_NETWORK_CHANGED at {URL}"))
+    await Runtime()._goto(_session(page), URL)
+    assert page.loads == 2
+
+
+async def test_a_failed_load_says_why(monkeypatch):
+    monkeypatch.setattr(runtime_module, "LOAD_RETRY_S", 0)
+    reset = PlaywrightError(f"page.goto: net::ERR_CONNECTION_RESET at {URL}")
+    page = _FlakyPage(reset, reset)
+    with pytest.raises(ActionError, match=r"npiregistry.cms.hhs.gov: net::ERR_CONNECTION_RESET"):
+        await Runtime()._goto(_session(page), URL)
+    assert page.loads == 2
+
+
+async def test_a_timeout_is_not_retried(monkeypatch):
+    monkeypatch.setattr(runtime_module, "LOAD_RETRY_S", 0)
+    page = _FlakyPage(PlaywrightTimeout("page.goto: Timeout 30000ms exceeded."))
+    with pytest.raises(ActionError, match="TimeoutError"):
+        await Runtime()._goto(_session(page), URL)
+    assert page.loads == 1

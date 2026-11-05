@@ -29,14 +29,20 @@ class BrowserRuntime(Protocol):
 
 
 class HttpRuntime:
-    def __init__(self, base_url: str, token: str, auth: str = "none"):
+    def __init__(
+        self,
+        base_url: str,
+        token: str,
+        auth: str = "none",
+        transport: httpx.AsyncBaseTransport | None = None,
+    ):
         self.base_url = base_url.rstrip("/")
         self.token = token
         self.auth = auth  # none | google_id_token
         self.configured = bool(base_url and token)
         self._id_token: str | None = None
         self._id_expires = 0.0
-        self._client = httpx.AsyncClient(timeout=60)
+        self._client = httpx.AsyncClient(timeout=60, transport=transport)
 
     async def _headers(self) -> dict[str, str]:
         headers = {"Authorization": f"Bearer {self.token}"}
@@ -70,7 +76,13 @@ class HttpRuntime:
         if r.status_code == 404:
             raise RuntimeUnavailable("The browser session has ended.")
         if r.status_code >= 400:
-            raise RuntimeUnavailable(f"Browser runtime error {r.status_code}: {r.text[:200]}")
+            try:
+                detail = r.json().get("detail")
+            except ValueError:
+                detail = None
+            if not isinstance(detail, str):  # e.g. a crash page or a validation error list
+                detail = r.text[:200]
+            raise RuntimeUnavailable(f"Browser runtime error {r.status_code}: {detail}")
         return r.json()
 
     async def open(self, start_url, allowed_hosts, state):

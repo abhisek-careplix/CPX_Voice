@@ -54,10 +54,10 @@ def create_app(settings: Settings | None = None, runtime: Runtime | None = None)
                 with contextlib.suppress(Exception):
                     await rt.close_idle()
 
-        task = asyncio.create_task(reap())
+        task, warm = asyncio.create_task(reap()), asyncio.create_task(rt.warm())
         yield
         task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
+        await asyncio.gather(task, warm, return_exceptions=True)
         await rt.shutdown()
 
     app = FastAPI(title="CarePlix browser runtime", lifespan=lifespan)
