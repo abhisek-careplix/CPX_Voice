@@ -3,10 +3,12 @@
 import base64
 import time
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from careplix_api.browser.adapters import ProposedAction, Turn
+from careplix_api.browser.runtime_client import HttpRuntime, RuntimeUnavailable
 from careplix_api.main import create_app
 
 from .conftest import FakeGateway, make_settings
@@ -354,3 +356,22 @@ def test_not_configured_runtime_is_reported(client):
         },
     )
     assert r.status_code == 503
+
+
+@pytest.mark.parametrize(
+    ("response", "shown"),
+    [
+        (
+            httpx.Response(422, json={"detail": "could not open npiregistry.cms.hhs.gov: x"}),
+            "Browser runtime error 422: could not open npiregistry.cms.hhs.gov: x",
+        ),
+        (httpx.Response(500, text="Internal Server Error"), "error 500: Internal Server Error"),
+    ],
+)
+async def test_runtime_errors_read_as_the_runtime_s_reason(response, shown):
+    runtime = HttpRuntime(
+        "https://runtime.test", "t0k", transport=httpx.MockTransport(lambda r: response)
+    )
+    with pytest.raises(RuntimeUnavailable) as caught:
+        await runtime.open("https://npiregistry.cms.hhs.gov/", ["npiregistry.cms.hhs.gov"], None)
+    assert shown in str(caught.value) and "{" not in str(caught.value)

@@ -10,6 +10,7 @@ import asyncio
 import base64
 import contextlib
 import logging
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -23,6 +24,7 @@ log = logging.getLogger("careplix.browser")
 VIEWPORT = {"width": 1280, "height": 800}
 IDLE_TIMEOUT_S = 30 * 60
 ACTION_TIMEOUT_MS = 15_000
+LOAD_RETRY_S = 1.0
 
 # What a person or the agent may ask the browser to do.
 KINDS = {
@@ -117,6 +119,12 @@ class ActionError(Exception):
     pass
 
 
+def load_failure(exc: Exception) -> str:
+    """Chromium's reason for a failed load ('net::ERR_CONNECTION_RESET'), else the error type."""
+    match = re.search(r"net::ERR_[A-Z0-9_]+", str(exc))
+    return match.group(0) if match else type(exc).__name__
+
+
 @dataclass
 class Session:
     id: str
@@ -158,6 +166,11 @@ class Runtime:
                     args=["--no-sandbox", "--disable-dev-shm-usage"],
                 )
             return self._browser
+
+    async def warm(self) -> None:
+        """Start Chromium before the first run needs it (a cold launch takes about 4 s)."""
+        with contextlib.suppress(Exception):
+            await self._ensure_browser()
 
     async def open(
         self, start_url: str, allowed_hosts: list[str], storage_state: dict | None = None
@@ -250,10 +263,18 @@ class Runtime:
         host = host_of(url)
         if session.allowed_hosts and not host_allowed(host, session.allowed_hosts):
             raise ActionError(f"{host} is not one of this run's sites")
-        try:
-            await session.page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-        except Exception as exc:
-            raise ActionError(f"could not open {host}: {type(exc).__name__}") from exc
+        # A network error (net::ERR_…) gets one more try: one blip shouldn't end a run. A timeout
+        # doesn't, since a second 30 s wait would outlast the API's request.
+        for attempt in (1, 2):
+            try:
+                await session.page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+                return
+            except Exception as exc:
+                reason = load_failure(exc)
+                log.warning("could not open %s (attempt %d): %s", host, attempt, reason)
+                if attempt == 2 or not reason.startswith("net::"):
+                    raise ActionError(f"could not open {host}: {reason}") from exc
+            await asyncio.sleep(LOAD_RETRY_S)
 
     async def act(self, session: Session, action: dict[str, Any]) -> dict[str, Any]:
         kind = action.get("kind")
