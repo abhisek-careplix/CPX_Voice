@@ -42,3 +42,8 @@ def test_deploy_checks_every_secret_before_changing_anything():
     assert referenced - openemr <= set(required)
     first_deploy = text.index("run deploy", text.index("deploy() {"))
     assert text.index("REQUIRED_SECRETS", text.index("deploy() {")) < first_deploy
+
+
+def test_the_internal_api_stays_warm():
+    # Every call begins with a claim on careplix-internal; a cold start made claims time out.
+    assert "--min-instances 1" in _deploy_command("careplix-internal")

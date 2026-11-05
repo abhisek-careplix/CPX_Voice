@@ -19,6 +19,11 @@ import httpx
 log = logging.getLogger("careplix.worker")
 
 
+# A claim may land on a cold API instance (careplix-labs: 7 s to start). Giving up first leaves the
+# attempt claimed with nobody running it, so claims wait far longer than event and tool calls.
+CLAIM_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
+
+
 class ClaimRejected(Exception):
     def __init__(self, status: int, code: str):
         super().__init__(code)
@@ -60,7 +65,10 @@ class ControlPlane:
         """POST a claim; every failure (refusal, API crash, network) is a ``ClaimRejected``."""
         try:
             response = await self._http.post(
-                path, json=body, headers={"Authorization": f"Bearer {self._service_token}"}
+                path,
+                json=body,
+                headers={"Authorization": f"Bearer {self._service_token}"},
+                timeout=CLAIM_TIMEOUT,
             )
         except httpx.HTTPError as exc:
             log.warning("claim request failed: %s", type(exc).__name__)
