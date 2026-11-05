@@ -265,7 +265,10 @@ def test_away_supervisor_pauses_and_returns(tmp_path, runtime, agent_box):
             time.time() < deadline
             and c.get(f"/api/browser/runs/{run_id}").json()["state"] != "done"
         ):
-            assert c.get(f"/api/browser/runs/{run_id}/screen").status_code == 200  # watching
+            screen = c.get(f"/api/browser/runs/{run_id}/screen")  # watching
+            if screen.status_code == 409:  # the run finished between the two requests
+                break
+            assert screen.status_code == 200
             time.sleep(0.05)
         assert c.get(f"/api/browser/runs/{run_id}").json()["state"] == "done"
         assert runtime.acts == [{"kind": "scroll", "direction": "down"}]
