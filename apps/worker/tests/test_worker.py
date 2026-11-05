@@ -237,3 +237,18 @@ async def test_an_unreachable_api_is_a_rejection_not_a_crash():
         await plane.claim("a1", "room", "job", "build")
     assert rejected.value.code == "api_unreachable"
     await plane.aclose()
+
+
+async def test_a_claim_waits_out_a_cold_api_start():
+    # careplix-labs, 5 Nov 2026: careplix-internal took 7 s to cold-start; the worker gave up at
+    # 8 s (ReadTimeout) although the API claimed the attempt, so the rehearsal never spoke.
+    seen = {}
+
+    def handler(request):
+        seen.update(request.extensions["timeout"])
+        return httpx.Response(200, json={"attempt_id": "a1", "attempt_token": "t"})
+
+    plane = _plane(handler)
+    await plane.claim("a1", "room", "job", "build")
+    assert seen["read"] >= 30 and seen["connect"] >= 10
+    await plane.aclose()

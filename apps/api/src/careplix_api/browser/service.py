@@ -330,11 +330,16 @@ async def control(
     audit(session, run.workspace_id, principal.user_id, f"browser.{action}", run.id)
 
 
-async def record_presence(session: AsyncSession, principal: Principal, run: BrowserRun) -> None:
+async def record_presence(
+    session: AsyncSession, principal: Principal, run: BrowserRun, timeout_s: float
+) -> None:
+    """The supervisor is watching. Writes are throttled, but always well inside the away timeout:
+    a 5 s throttle against a shorter timeout would leave a returning supervisor marked away."""
     if run.supervisor_id != principal.user_id or run.state in ENDED:
         return
     now = utcnow()
-    if run.last_presence_at is None or now - as_utc(run.last_presence_at) > timedelta(seconds=5):
+    every = timedelta(seconds=min(5.0, timeout_s / 4))
+    if run.last_presence_at is None or now - as_utc(run.last_presence_at) > every:
         run.last_presence_at = now
 
 

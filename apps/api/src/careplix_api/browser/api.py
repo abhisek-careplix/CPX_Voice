@@ -168,12 +168,13 @@ async def live_screen(
     request: Request,
     principal: Principal = Depends(require("view")),
     session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
 ):
     """Live view (JPEG). The supervisor's view polling this is what counts as watching."""
     run = await service.get_run(session, principal, run_id)
     if run.state in service.ENDED or not run.runtime_session:
         raise ApiError(409, "no_screen", "This run has no live screen.")
-    await service.record_presence(session, principal, run)
+    await service.record_presence(session, principal, run, settings.browser_presence_timeout_s)
     await session.commit()
     try:
         shot = await request.app.state.browser_runtime.screenshot(run.runtime_session, "jpeg")
@@ -283,6 +284,7 @@ async def human_input(
     request: Request,
     principal: Principal = Depends(require("browser_supervise")),
     session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
 ):
     run = await service.get_run(session, principal, run_id)
     try:
@@ -291,7 +293,7 @@ async def human_input(
         )
     except RuntimeUnavailable as exc:
         raise ApiError(409, "runtime_unavailable", str(exc)) from exc
-    await service.record_presence(session, principal, run)
+    await service.record_presence(session, principal, run, settings.browser_presence_timeout_s)
     await session.commit()
     return result
 

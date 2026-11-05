@@ -255,11 +255,12 @@ deploy() {
 
   # 4. Worker-facing internal API: same image, no background loops, IAM-only for the worker. Call
   #    claims and the receptionist's EHR tools run here, so it needs the practice settings and the
-  #    data key (PhiBox) exactly like the Studio, and the VPC route to the hosted OpenEMR.
+  #    data key (PhiBox) exactly like the Studio, and the VPC route to the hosted OpenEMR. One
+  #    instance stays warm: every call starts with a claim here, and a cold start (~7 s) lost them.
   $G run deploy careplix-internal --region "$REGION" --image "$REGISTRY/api:$TAG" \
     --service-account "$SA_STUDIO" --add-cloudsql-instances "$conn" $VPC_FLAGS \
     --set-env-vars "$common_env,$practice_env,RUN_BACKGROUND=false,SEED_DEMO_DATA=false" \
-    --set-secrets "$secrets,$practice_secrets" --min-instances 0 --max-instances 2 --no-allow-unauthenticated
+    --set-secrets "$secrets,$practice_secrets" --min-instances 1 --max-instances 2 --no-allow-unauthenticated
   $G run services add-iam-policy-binding careplix-internal --region "$REGION" \
     --member "serviceAccount:$SA_WORKER" --role roles/run.invoker >/dev/null
   internal_url=$(url_of careplix-internal)
