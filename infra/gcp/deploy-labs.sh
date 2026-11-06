@@ -99,6 +99,11 @@ setup() {
   env_value STEDI_API_KEY | tr -d '\n' | put_secret cpx-stedi-api-key
   $G secrets describe cpx-data-key >/dev/null 2>&1 ||
     python3 -c 'import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode(), end="")' | put_secret cpx-data-key
+  # Optional: an Anthropic API key runs the browser agent's Claude on the Anthropic API, not Vertex.
+  if [ -n "$(env_value ANTHROPIC_API_KEY || true)" ]; then
+    env_value ANTHROPIC_API_KEY | tr -d '\n' | put_secret cpx-anthropic-api-key
+    $G secrets add-iam-policy-binding cpx-anthropic-api-key --member "serviceAccount:$SA_STUDIO" --role roles/secretmanager.secretAccessor >/dev/null
+  fi
 
   for secret in cpx-database-url cpx-session-secret cpx-worker-token cpx-livekit-api-key cpx-livekit-api-secret \
     cpx-nexhealth-api-key cpx-stedi-api-key cpx-data-key cpx-browser-token; do
@@ -237,6 +242,10 @@ deploy() {
   # 3. Studio + API + background loops, behind IAP (CarePlix Google accounts only).
   practice_env="NEXHEALTH_ENV=$(env_value NEXHEALTH_ENV),NEXHEALTH_SUBDOMAIN=$(env_value NEXHEALTH_SUBDOMAIN),NEXHEALTH_INSTITUTION_ID=$(env_value NEXHEALTH_INSTITUTION_ID),NEXHEALTH_LOCATION_ID=$(env_value NEXHEALTH_LOCATION_ID),STEDI_ENV=$(env_value STEDI_ENV),WEBHOOK_PUBLIC_URL=$webhooks_url"
   practice_secrets="NEXHEALTH_API_KEY=cpx-nexhealth-api-key:latest,STEDI_API_KEY=cpx-stedi-api-key:latest,DATA_ENCRYPTION_KEY=cpx-data-key:latest"
+  studio_secrets="BROWSER_SERVICE_TOKEN=cpx-browser-token:latest"
+  if $G secrets describe cpx-anthropic-api-key >/dev/null 2>&1; then
+    studio_secrets="$studio_secrets,ANTHROPIC_API_KEY=cpx-anthropic-api-key:latest"
+  fi
   oe_addr=$(oe_ip)
   if [ -n "$oe_addr" ] && $G secrets describe cpx-openemr-client-secret >/dev/null 2>&1; then
     # Hosted OpenEMR demo: API over the VPC (self-signed TLS on the private VM), screens via the proxy.
@@ -246,7 +255,7 @@ deploy() {
   $G run deploy careplix-studio --region "$REGION" --image "$REGISTRY/api:$TAG" \
     --service-account "$SA_STUDIO" --add-cloudsql-instances "$conn" $VPC_FLAGS \
     --set-env-vars "$common_env,$practice_env,$browser_env,RUN_BACKGROUND=true,IAP_AUDIENCE=/projects/$NUMBER/locations/$REGION/services/careplix-studio" \
-    --set-secrets "$secrets,$practice_secrets,BROWSER_SERVICE_TOKEN=cpx-browser-token:latest" --min-instances 1 --max-instances 1 --no-cpu-throttling \
+    --set-secrets "$secrets,$practice_secrets,$studio_secrets" --min-instances 1 --max-instances 1 --no-cpu-throttling \
     --timeout 3600 --no-allow-unauthenticated --iap
   $G run services add-iam-policy-binding careplix-studio --region "$REGION" \
     --member "serviceAccount:service-$NUMBER@gcp-sa-iap.iam.gserviceaccount.com" --role roles/run.invoker >/dev/null

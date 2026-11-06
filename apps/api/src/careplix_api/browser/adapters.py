@@ -361,16 +361,20 @@ def _image(png_b64: str) -> dict[str, Any]:
 
 
 class ClaudeAgent:
-    """Claude computer use (``computer_toolset_20260801``) on Vertex AI. Pixel coordinates."""
+    """Claude computer use (``computer_toolset_20260801``) on the Anthropic API when there's a
+    key, else on Vertex AI. Same request on both. Pixel coordinates."""
 
-    def __init__(self, target, model_id: str, region: str, task: str):
-        from anthropic import AsyncAnthropicVertex
+    def __init__(self, target, model_id: str, region: str, task: str, api_key: str = ""):
+        from anthropic import AsyncAnthropic, AsyncAnthropicVertex
 
         self.model_id = model_id
         self._task = task
-        self._client = AsyncAnthropicVertex(
-            project_id=target.project, region=region, credentials=target.credentials
-        )
+        if api_key:
+            self._client = AsyncAnthropic(api_key=api_key)
+        else:
+            self._client = AsyncAnthropicVertex(
+                project_id=target.project, region=region, credentials=target.credentials
+            )
         self._messages: list[dict[str, Any]] = []
         self._calls: dict[str, Any] = {}
         self._plan: list[str] = []
@@ -506,7 +510,11 @@ class ClaudeAgent:
 def make_agent(model: str, target, settings, task: str) -> ComputerAgent:
     if model == "claude":
         return ClaudeAgent(
-            target, settings.browser_claude_model, settings.browser_claude_region, task
+            target,
+            settings.browser_claude_model,
+            settings.browser_claude_region,
+            task,
+            api_key=settings.anthropic_api_key.get_secret_value(),
         )
     if settings.browser_gemini_location:
         target = dataclasses.replace(target, location=settings.browser_gemini_location)
