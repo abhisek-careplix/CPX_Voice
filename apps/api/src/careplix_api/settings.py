@@ -45,7 +45,9 @@ class Settings(BaseSettings):
     browser_gemini_model: str = "gemini-2.5-computer-use-preview-10-2025"
     browser_gemini_location: str = ""  # empty: the workspace's Vertex region
     browser_claude_model: str = "claude-opus-5-5"
-    browser_claude_region: str = "global"
+    browser_claude_region: str = "global"  # Vertex only
+    # Set: Claude runs on the Anthropic API with this key. Empty: Claude on Vertex AI.
+    anthropic_api_key: SecretStr = SecretStr("")
     browser_max_steps: int = 60
     browser_presence_timeout_s: float = 60.0  # supervisor's live view idle → the run pauses
     browser_profile_days: int = 14  # saved sign-ins expire

@@ -38,8 +38,9 @@ def test_deploy_checks_every_secret_before_changing_anything():
     text = SCRIPT.read_text()
     required = _variable("REQUIRED_SECRETS").split()
     referenced = set(re.findall(r"=(cpx-[a-z-]+):latest", text))
-    openemr = {s for s in referenced if s.startswith("cpx-openemr-")}  # deployed only when present
-    assert referenced - openemr <= set(required)
+    # Deployed only when present: the hosted OpenEMR's secrets and the optional Anthropic key.
+    optional = {s for s in referenced if s.startswith("cpx-openemr-")} | {"cpx-anthropic-api-key"}
+    assert referenced - optional <= set(required)
     first_deploy = text.index("run deploy", text.index("deploy() {"))
     assert text.index("REQUIRED_SECRETS", text.index("deploy() {")) < first_deploy
 
@@ -47,3 +48,10 @@ def test_deploy_checks_every_secret_before_changing_anything():
 def test_the_internal_api_stays_warm():
     # Every call begins with a claim on careplix-internal; a cold start made claims time out.
     assert "--min-instances 1" in _deploy_command("careplix-internal")
+
+
+def test_the_studio_gets_the_anthropic_key_only_when_it_is_stored():
+    text = SCRIPT.read_text()
+    guard = text.index("secrets describe cpx-anthropic-api-key", text.index("deploy() {"))
+    assert guard < text.index("ANTHROPIC_API_KEY=cpx-anthropic-api-key:latest")
+    assert "$studio_secrets" in _deploy_command("careplix-studio")

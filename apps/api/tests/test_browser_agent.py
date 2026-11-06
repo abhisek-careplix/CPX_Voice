@@ -7,7 +7,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from careplix_api.browser.adapters import ProposedAction, Turn
+from careplix_api.browser.adapters import ClaudeAgent, ProposedAction, Turn, make_agent
 from careplix_api.browser.runtime_client import HttpRuntime, RuntimeUnavailable
 from careplix_api.main import create_app
 
@@ -375,3 +375,22 @@ async def test_runtime_errors_read_as_the_runtime_s_reason(response, shown):
     with pytest.raises(RuntimeUnavailable) as caught:
         await runtime.open("https://npiregistry.cms.hhs.gov/", ["npiregistry.cms.hhs.gov"], None)
     assert shown in str(caught.value) and "{" not in str(caught.value)
+
+
+class _Target:
+    project, location, credentials = "careplix-labs", "us-central1", None
+
+
+def test_claude_uses_the_anthropic_api_when_a_key_is_set(tmp_path):
+    # careplix-labs, 5 Nov 2026: Vertex served the project no Gemini text model (404) and no Claude
+    # quota (429), so the browser agent's Claude runs on the Anthropic API with a key instead.
+    from anthropic import AsyncAnthropic, AsyncAnthropicVertex
+
+    keyed = make_agent(
+        "claude", _Target(), make_settings(tmp_path, anthropic_api_key="sk-test"), "Find an NPI"
+    )
+    assert isinstance(keyed, ClaudeAgent) and keyed.model_id == "claude-opus-5-5"
+    assert isinstance(keyed._client, AsyncAnthropic)
+    assert not isinstance(keyed._client, AsyncAnthropicVertex)
+    vertex = make_agent("claude", _Target(), make_settings(tmp_path), "Find an NPI")
+    assert isinstance(vertex._client, AsyncAnthropicVertex)
