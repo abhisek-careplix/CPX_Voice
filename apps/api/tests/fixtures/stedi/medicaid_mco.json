@@ -1,0 +1,52 @@
+{
+  "_source": "Synthetic Medicaid response built from the field definitions in docs/healthcare/api-reference/post-eligibility-check (managedCareCoordinator, costContainment, spendDown, cardReportedStolen, relatedEntities). Stedi publishes no Medicaid mock. Synthetic data only.",
+  "http_status": 200,
+  "body": {
+    "id": "ec_medicaid_synthetic",
+    "payerId": "100065",
+    "payer": {"type": "PAYER", "name": {"organization": "MEDI-CAL"}},
+    "subscriber": {
+      "memberId": "90000000A",
+      "dateOfBirth": "2016-03-03",
+      "name": {"person": {"firstName": "SAM", "lastName": "TEST"}},
+      "dates": {"eligibility": {"start": "2026-11-01", "end": "2026-11-30"}}
+    },
+    "plans": [
+      {
+        "benefits": {
+          "statuses": [
+            {
+              "status": "ACTIVE_COVERAGE",
+              "coverageLevel": "INDIVIDUAL",
+              "insuranceType": "MEDICAID",
+              "service": {"system": "STC", "value": "30", "definition": "Health Benefit Plan Coverage"}
+            }
+          ],
+          "managedCareCoordinator": [
+            {
+              "coverageLevel": "INDIVIDUAL",
+              "service": {"system": "STC", "value": "30"},
+              "relatedEntities": [
+                {
+                  "type": "MANAGED_CARE_ORGANIZATION",
+                  "name": {"organization": "SYNTHETIC HEALTH PLAN OF CA"},
+                  "payerId": "SYN01",
+                  "contacts": [{"phoneNumbers": ["8005550199"]}]
+                }
+              ]
+            }
+          ],
+          "costContainment": [
+            {"coverageLevel": "INDIVIDUAL", "service": {"system": "STC", "value": "30"}, "timePeriod": "MONTH", "amount": "25"}
+          ],
+          "spendDown": [
+            {"coverageLevel": "INDIVIDUAL", "service": {"system": "STC", "value": "30"}, "timePeriod": "MONTH", "amount": "180"}
+          ],
+          "cardReportedStolen": [
+            {"coverageLevel": "INDIVIDUAL", "dates": {"status": {"start": "2026-10-15"}}}
+          ]
+        }
+      }
+    ]
+  }
+}

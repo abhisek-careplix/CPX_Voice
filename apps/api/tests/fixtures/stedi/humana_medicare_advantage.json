@@ -1,0 +1,34 @@
+{
+  "_source": "Shaped from the commercial Medicare Advantage examples in docs/healthcare/eligibility-plan-details (Medicare Part A insurance type, MBI in subscriber.additionalInformation) for Stedi's Humana mock (Jane Doe, HUMANA123, 1975-05-05). Synthetic data only; the MBI is the documentation's example value.",
+  "http_status": 200,
+  "body": {
+    "id": "ec_humana_mock",
+    "payerId": "61101",
+    "payer": {"type": "PAYER", "name": {"organization": "HUMANA"}, "identification": "61101"},
+    "subscriber": {
+      "memberId": "HUMANA123",
+      "dateOfBirth": "1975-05-05",
+      "name": {"person": {"firstName": "JANE", "lastName": "DOE"}},
+      "additionalInformation": {"mbi": "1A22BB3CC44"},
+      "dates": {"plan": {"start": "2026-01-01", "end": "2026-12-31"}}
+    },
+    "plans": [
+      {
+        "name": "HUMANA GOLD PLUS HMO",
+        "benefits": {
+          "statuses": [
+            {
+              "status": "ACTIVE_SERVICES_CAPITATED_TO_PRIMARY_CARE_PROVIDER",
+              "coverageLevel": "INDIVIDUAL",
+              "insuranceType": "MEDICARE_PART_A",
+              "service": {"system": "STC", "value": "30", "definition": "Health Benefit Plan Coverage"}
+            }
+          ],
+          "coPayment": [
+            {"coverageLevel": "INDIVIDUAL", "network": {"indicator": "IN_NETWORK"}, "service": {"system": "STC", "value": "98"}, "amount": "0"}
+          ]
+        }
+      }
+    ]
+  }
+}

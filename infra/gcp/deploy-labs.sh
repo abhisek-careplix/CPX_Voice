@@ -42,6 +42,14 @@ if [ "$(env_value NEXHEALTH_ENV)" = "production" ]; then
   echo "✗ .env has a production NexHealth key; careplix-labs takes the sandbox key only (G4 PHI gate)." >&2
   exit 1
 fi
+# Same for Stedi: a production key reaches real payers with real patients. careplix-labs runs Stedi
+# in test mode only (mock members), so refuse STEDI_ENV=production or any STEDI_PROD_API_KEY.
+if [ "$(env_value STEDI_ENV || true)" = "production" ] || [ -n "$(env_value STEDI_PROD_API_KEY || true)" ]; then
+  echo "✗ .env has a production Stedi key or STEDI_ENV=production; careplix-labs takes a Stedi test key only (G4 PHI gate)." >&2
+  exit 1
+fi
+# The Stedi test key: STEDI_TEST_API_KEY, or the older STEDI_API_KEY (always a test key).
+stedi_test_key() { env_value STEDI_TEST_API_KEY | grep . || env_value STEDI_API_KEY || true; }
 
 put_secret() {  # put_secret NAME  (value on stdin)
   if ! $G secrets describe "$1" >/dev/null 2>&1; then
@@ -96,7 +104,7 @@ setup() {
   env_value LIVEKIT_API_SECRET | tr -d '\n' | put_secret cpx-livekit-api-secret
   # Practice layer: NexHealth and Stedi keys from .env; a Fernet key for the encrypted mirror.
   env_value NEXHEALTH_API_KEY | tr -d '\n' | put_secret cpx-nexhealth-api-key
-  env_value STEDI_API_KEY | tr -d '\n' | put_secret cpx-stedi-api-key
+  stedi_test_key | tr -d '\n' | put_secret cpx-stedi-api-key
   $G secrets describe cpx-data-key >/dev/null 2>&1 ||
     python3 -c 'import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode(), end="")' | put_secret cpx-data-key
   # Optional: an Anthropic API key runs the browser agent's Claude on the Anthropic API, not Vertex.
@@ -245,8 +253,9 @@ deploy() {
   done
 
   # 3. Studio + API + background loops, behind IAP (CarePlix Google accounts only).
-  practice_env="NEXHEALTH_ENV=$(env_value NEXHEALTH_ENV),NEXHEALTH_SUBDOMAIN=$(env_value NEXHEALTH_SUBDOMAIN),NEXHEALTH_INSTITUTION_ID=$(env_value NEXHEALTH_INSTITUTION_ID),NEXHEALTH_LOCATION_ID=$(env_value NEXHEALTH_LOCATION_ID),STEDI_ENV=$(env_value STEDI_ENV),WEBHOOK_PUBLIC_URL=$webhooks_url"
-  practice_secrets="NEXHEALTH_API_KEY=cpx-nexhealth-api-key:latest,STEDI_API_KEY=cpx-stedi-api-key:latest,DATA_ENCRYPTION_KEY=cpx-data-key:latest"
+  practice_env="NEXHEALTH_ENV=$(env_value NEXHEALTH_ENV),NEXHEALTH_SUBDOMAIN=$(env_value NEXHEALTH_SUBDOMAIN),NEXHEALTH_INSTITUTION_ID=$(env_value NEXHEALTH_INSTITUTION_ID),NEXHEALTH_LOCATION_ID=$(env_value NEXHEALTH_LOCATION_ID),STEDI_ENV=test,WEBHOOK_PUBLIC_URL=$webhooks_url"
+  # Labs only ever gets the Stedi test key, under the test key's name (never STEDI_PROD_API_KEY).
+  practice_secrets="NEXHEALTH_API_KEY=cpx-nexhealth-api-key:latest,STEDI_TEST_API_KEY=cpx-stedi-api-key:latest,DATA_ENCRYPTION_KEY=cpx-data-key:latest"
   studio_secrets="BROWSER_SERVICE_TOKEN=cpx-browser-token:latest"
   if $G secrets describe cpx-anthropic-api-key >/dev/null 2>&1; then
     studio_secrets="$studio_secrets,ANTHROPIC_API_KEY=cpx-anthropic-api-key:latest"

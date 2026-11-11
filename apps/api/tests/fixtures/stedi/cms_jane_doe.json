@@ -1,0 +1,359 @@
+{
+  "_source": "Derived from Stedi's published MBI lookup response for the CMS mock member Jane Doe (1AA2CC3DD45, 1955-05-05), docs/healthcare/mbi-lookup, Nov 2026. Stedi publishes no response for the plain CMS mock, so payerId is set to CMS and the raw x12 is dropped. Synthetic data only.",
+  "http_status": 200,
+  "body": {
+    "meta": {
+      "traceId": "01M4C8PJPY8P49D3EEXKQXVZGJ",
+      "outboundTraceId": "01M4C8PJPY8P49D3EEXKQXVZGJ"
+    },
+    "payerId": "CMS",
+    "payer": {
+      "name": {
+        "organization": "CMS"
+      },
+      "type": "PAYER",
+      "identification": "CMS"
+    },
+    "provider": {
+      "name": {
+        "organization": "MEDICAL PROVIDER"
+      },
+      "type": "PROVIDER",
+      "npi": "1999999984"
+    },
+    "subscriber": {
+      "address": {
+        "addressLine1": "101 MAIN ST",
+        "city": "SACRAMENTO",
+        "state": "CA",
+        "postalCode": "942030200"
+      },
+      "dates": {
+        "eligibility": {
+          "start": "2024-10-25"
+        }
+      },
+      "dateOfBirth": "1955-05-05",
+      "gender": "FEMALE",
+      "name": {
+        "person": {
+          "firstName": "JANE",
+          "lastName": "DOE",
+          "middleName": "A"
+        }
+      },
+      "memberId": "1AA2CC3DD45"
+    },
+    "plans": [
+      {
+        "benefits": {
+          "statuses": [
+            {
+              "coverageLevel": "INDIVIDUAL",
+              "network": {
+                "indicator": "IN_AND_OUT_OF_NETWORK"
+              },
+              "service": {
+                "value": "88",
+                "definition": "Pharmacy",
+                "system": "STC"
+              },
+              "status": "ACTIVE_COVERAGE"
+            },
+            {
+              "coverageLevel": "INDIVIDUAL",
+              "insuranceType": "MEDICARE_PART_A",
+              "network": {
+                "indicator": "IN_AND_OUT_OF_NETWORK"
+              },
+              "service": {
+                "value": "30",
+                "definition": "Health Benefit Plan Coverage",
+                "system": "STC"
+              },
+              "messages": [
+                "0-Beneficiary insured due to age OASI"
+              ],
+              "dates": {
+                "plan": {
+                  "start": "2019-01-01"
+                }
+              },
+              "status": "ACTIVE_COVERAGE"
+            },
+            {
+              "coverageLevel": "INDIVIDUAL",
+              "insuranceType": "MEDICARE_PART_A",
+              "network": {
+                "indicator": "IN_AND_OUT_OF_NETWORK"
+              },
+              "service": {
+                "value": "48",
+                "definition": "Hospital - Inpatient",
+                "system": "STC"
+              },
+              "messages": [
+                "0-Beneficiary insured due to age OASI"
+              ],
+              "dates": {
+                "plan": {
+                  "start": "2019-01-01"
+                }
+              },
+              "status": "ACTIVE_COVERAGE"
+            },
+            {
+              "coverageLevel": "INDIVIDUAL",
+              "insuranceType": "MEDICARE_PART_B",
+              "network": {
+                "indicator": "IN_AND_OUT_OF_NETWORK"
+              },
+              "service": {
+                "value": "30",
+                "definition": "Health Benefit Plan Coverage",
+                "system": "STC"
+              },
+              "messages": [
+                "0-Beneficiary insured due to age OASI"
+              ],
+              "dates": {
+                "plan": {
+                  "start": "2019-01-01"
+                }
+              },
+              "status": "ACTIVE_COVERAGE"
+            },
+            {
+              "coverageLevel": "INDIVIDUAL",
+              "insuranceType": "MEDICARE_PART_B",
+              "network": {
+                "indicator": "IN_AND_OUT_OF_NETWORK"
+              },
+              "service": {
+                "value": "98",
+                "definition": "Professional (Physician) Visit - Office",
+                "system": "STC"
+              },
+              "messages": [
+                "0-Beneficiary insured due to age OASI"
+              ],
+              "dates": {
+                "plan": {
+                  "start": "2019-01-01"
+                }
+              },
+              "status": "ACTIVE_COVERAGE"
+            }
+          ],
+          "coInsurance": [
+            {
+              "coverageLevel": "INDIVIDUAL",
+              "insuranceType": "QUALIFIED_MEDICARE_BENEFICIARY",
+              "network": {
+                "indicator": "IN_AND_OUT_OF_NETWORK"
+              },
+              "service": {
+                "value": "30",
+                "definition": "Health Benefit Plan Coverage",
+                "system": "STC"
+              },
+              "dates": {
+                "plan": {
+                  "start": "2024-01-01",
+                  "end": "2024-12-31"
+                }
+              },
+              "planCoverageDescription": "Medicare Part B",
+              "timePeriod": "VISIT",
+              "percent": "0"
+            }
+          ],
+          "deductible": [
+            {
+              "coverageLevel": "INDIVIDUAL",
+              "insuranceType": "QUALIFIED_MEDICARE_BENEFICIARY",
+              "network": {
+                "indicator": "IN_AND_OUT_OF_NETWORK"
+              },
+              "service": {
+                "value": "30",
+                "definition": "Health Benefit Plan Coverage",
+                "system": "STC"
+              },
+              "dates": {
+                "plan": {
+                  "start": "2024-01-01",
+                  "end": "2024-12-31"
+                }
+              },
+              "planCoverageDescription": "Medicare Part A",
+              "timePeriod": "EPISODE",
+              "amount": "0"
+            },
+            {
+              "coverageLevel": "INDIVIDUAL",
+              "insuranceType": "QUALIFIED_MEDICARE_BENEFICIARY",
+              "network": {
+                "indicator": "IN_AND_OUT_OF_NETWORK"
+              },
+              "service": {
+                "value": "30",
+                "definition": "Health Benefit Plan Coverage",
+                "system": "STC"
+              },
+              "dates": {
+                "plan": {
+                  "start": "2024-01-01",
+                  "end": "2024-12-31"
+                }
+              },
+              "planCoverageDescription": "Medicare Part B",
+              "timePeriod": "CALENDAR_YEAR",
+              "amount": "0"
+            }
+          ],
+          "nonCovered": [
+            {
+              "coverageLevel": "INDIVIDUAL",
+              "network": {
+                "indicator": "IN_AND_OUT_OF_NETWORK"
+              },
+              "service": {
+                "value": "41",
+                "definition": "Routine (Preventive) Dental",
+                "system": "STC"
+              }
+            },
+            {
+              "coverageLevel": "INDIVIDUAL",
+              "network": {
+                "indicator": "IN_AND_OUT_OF_NETWORK"
+              },
+              "service": {
+                "value": "54",
+                "definition": "Long Term Care",
+                "system": "STC"
+              }
+            }
+          ],
+          "otherOrAdditionalPayer": [
+            {
+              "coverageLevel": "INDIVIDUAL",
+              "insuranceType": "QUALIFIED_MEDICARE_BENEFICIARY",
+              "network": {
+                "indicator": "IN_AND_OUT_OF_NETWORK"
+              },
+              "dates": {
+                "coordinationOfBenefits": {
+                  "start": "2023-01-01"
+                }
+              },
+              "planCoverageDescription": "CA QMB Plan"
+            },
+            {
+              "coverageLevel": "INDIVIDUAL",
+              "insuranceType": "OTHER",
+              "network": {
+                "indicator": "IN_AND_OUT_OF_NETWORK",
+                "id": "555"
+              },
+              "service": {
+                "value": "88",
+                "definition": "Pharmacy",
+                "system": "STC"
+              },
+              "dates": {
+                "benefit": {
+                  "start": "2023-01-01"
+                }
+              },
+              "relatedEntities": [
+                {
+                  "name": {
+                    "organization": "UHC OF CALIFORNIA"
+                  },
+                  "type": "PAYER",
+                  "address": {
+                    "addressLine1": "202 Main St",
+                    "city": "Sacramento",
+                    "state": "CA",
+                    "postalCode": "94203"
+                  },
+                  "contacts": [
+                    {
+                      "phoneNumbers": [
+                        "8006446644"
+                      ],
+                      "urls": [
+                        "UHC.com/Medicare"
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "additionalInformation": {
+                "plan": {
+                  "number": "A0505"
+                }
+              }
+            }
+          ],
+          "contactFollowingEntityForInformation": [
+            {
+              "coverageLevel": "INDIVIDUAL",
+              "insuranceType": "HEALTH_MAINTENANCE_ORGANIZATION_HMO_MEDICARE_RISK",
+              "network": {
+                "indicator": "IN_AND_OUT_OF_NETWORK",
+                "id": "555"
+              },
+              "service": {
+                "value": "30",
+                "definition": "Health Benefit Plan Coverage",
+                "system": "STC"
+              },
+              "messages": [
+                "MA Bill Option Code - A"
+              ],
+              "dates": {
+                "coordinationOfBenefits": {
+                  "start": "2023-01-01"
+                }
+              },
+              "relatedEntities": [
+                {
+                  "name": {
+                    "organization": "UHC OF CALIFORNIA"
+                  },
+                  "type": "PRIMARY_PAYER",
+                  "address": {
+                    "addressLine1": "202 Main St",
+                    "city": "Sacramento",
+                    "state": "CA",
+                    "postalCode": "94203"
+                  },
+                  "contacts": [
+                    {
+                      "phoneNumbers": [
+                        "8006446644"
+                      ],
+                      "urls": [
+                        "UHC.com/Medicare"
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "additionalInformation": {
+                "plan": {
+                  "number": "A0505"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "id": "ec_01a1188b-4add-7160-aa53-dffeae59910b",
+    "eligibilitySearchId": "01a1188b-4ade-72fb-aa58-a835347fde91"
+  }
+}

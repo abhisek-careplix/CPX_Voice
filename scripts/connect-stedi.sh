@@ -90,6 +90,15 @@ MODES = {"": "test", "t": "test", "test": "test", "sandbox": "test", "y": "test"
 while (mode := MODES.get(ask("Key type: press Enter for a test key, or type p for production: ").lower().strip("[] "))) is None:
     print("  Just press Enter for a test key, or type p for production.")
 print(f"  Using {mode}.")
+# Test and production keys live under separate names and never stand in for each other.
+# STEDI_API_KEY is the older name for the test key; it's cleared so only one test key remains.
+KEYS = (
+    {"STEDI_TEST_API_KEY": key, "STEDI_API_KEY": "", "STEDI_ENV": "test"}
+    if mode == "test"
+    else {"STEDI_PROD_API_KEY": key, "STEDI_ENV": "production"}
+)
+if mode != "test":
+    print("  Note: careplix-labs refuses a production Stedi key (./infra/gcp/deploy-labs.sh).")
 
 # A test key is checked with Stedi's free mock eligibility request (no real payer or patient).
 # A production key is checked against the payer directory only, so no payer is contacted.
@@ -103,12 +112,12 @@ except StediError as exc:
     if exc.code in (401, 403):
         sys.exit(f"✗ Key rejected (HTTP {exc.code}); copy it again from Stedi → API keys. Nothing was saved.")
     # Any other HTTP error means authentication passed and the check itself was refused.
-    save({"STEDI_API_KEY": key, "STEDI_ENV": mode})
+    save(KEYS)
     sys.exit(f"✓ Key accepted and saved, but the check was refused (HTTP {exc.code}): {exc.message or 'no detail'}")
 except (urllib.error.URLError, ValueError) as exc:
     sys.exit(f"✗ Could not reach Stedi ({type(exc).__name__}). Nothing was saved.")
 
-save({"STEDI_API_KEY": key, "STEDI_ENV": mode})
+save(KEYS)
 print("✓ Key accepted and saved to .env (git-ignored, readable only by you).")
 
 if mode != "test":

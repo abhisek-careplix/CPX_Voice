@@ -1,0 +1,25 @@
+{
+  "_source": "Stedi's documented HTTP 429 example (api-reference/post-eligibility-check), x12 dropped. Synthetic data only.",
+  "http_status": 429,
+  "body": {
+    "eligibilitySearchId": "01a06d4a-a0fa-77d2-8b49-caa0546ed294",
+    "errors": [
+      {
+        "code": "42",
+        "description": "Unable to Respond at Current Time",
+        "followupAction": "Resubmission Allowed",
+        "location": "PAYER"
+      }
+    ],
+    "id": "ec_01a06d4a-a0fa-77d2-8b49-ca9a74c9888c",
+    "message": "Unable to Respond at Current Time",
+    "payer": {
+      "identification": "61101",
+      "name": {
+        "organization": "HUMANA"
+      },
+      "type": "PAYER"
+    },
+    "payerId": "61101"
+  }
+}
