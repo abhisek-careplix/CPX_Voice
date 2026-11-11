@@ -27,6 +27,11 @@ def compose(claim: dict[str, Any]) -> str:
     parts = [
         claim["instructions"]["platform_policy"].strip(),
         "## Task procedure\n" + claim["instructions"]["template"].strip(),
+        *(
+            ["## Guardrails\nThese rules apply on top of the policy above.\n" + rules.strip()]
+            if (rules := claim["instructions"].get("guardrails"))
+            else []
+        ),
         (
             "## Your persona\n"
             f"Your name is {identity['name']}. Your role: {identity['role']}.\n"

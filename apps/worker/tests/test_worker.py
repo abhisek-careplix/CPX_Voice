@@ -78,6 +78,19 @@ def test_persona_style_sits_with_the_persona_before_author_instructions():
     assert "Tone:" not in prompt.compose(CLAIM)  # no persona, no style lines
 
 
+def test_guardrails_sit_between_the_procedure_and_the_persona():
+    claim = {
+        **CLAIM,
+        "instructions": {
+            **CLAIM["instructions"],
+            "guardrails": "Clinical scope:\n- Never diagnose.",
+        },
+    }
+    text = prompt.compose(claim)
+    assert text.index("TEMPLATE") < text.index("## Guardrails") < text.index("## Your persona")
+    assert "## Guardrails" not in prompt.compose(CLAIM)
+
+
 def test_evidence_window_keeps_recent_segments_only():
     reporter = EventReporter(plane=None)
     for i in range(10):
