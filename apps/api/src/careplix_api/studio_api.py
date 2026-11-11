@@ -365,6 +365,7 @@ def _version_view(v: AgentVersion) -> dict[str, Any]:
         "updated_at": v.updated_at,
         "published_at": v.published_at,
         "policy_version": v.policy_version,
+        "suite": agents_service.suite_result(v),
     }
 
 
@@ -437,6 +438,8 @@ async def publish_preview(
 
 class PublishIn(BaseModel):
     change_note: str = Field(default="", max_length=500)
+    # Admins only: publish an outbound agent without a passed regression suite (audited).
+    override_reason: str = Field(default="", max_length=500)
 
 
 @router.post("/agents/{agent_id}/publish")
@@ -448,7 +451,9 @@ async def publish(
     settings: Settings = Depends(get_settings),
 ):
     agent = await agents_service.get_agent(session, principal, agent_id)
-    await agents_service.publish(session, principal, agent, settings, body.change_note)
+    await agents_service.publish(
+        session, principal, agent, settings, body.change_note, override_reason=body.override_reason
+    )
     await session.commit()
     return await _agent_view(session, agent, settings, full=True)
 

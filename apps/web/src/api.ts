@@ -78,6 +78,7 @@ export interface VersionRef {
   updated_at: string;
   published_at: string | null;
   policy_version: string | null;
+  suite?: SuiteResult;
 }
 
 export interface AgentConfig {
@@ -144,7 +145,78 @@ export interface PublishPreview {
   changes: { path: string; before: unknown; after: unknown }[];
   privilege_changes: { tools_added: string[]; tools_removed: string[]; disclosures_added: string[]; disclosures_removed: string[] };
   affected_routes: { id: string; name: string; number: string; direction: string }[];
-  evaluation: { status: string; untested: string[] };
+  evaluation: SuiteResult & { required: boolean; untested: string[] };
+}
+
+/** A version's regression-suite result. "outdated": the draft changed after the run. */
+export interface SuiteResult {
+  status: "not_run" | "passed" | "failed" | "outdated";
+  run_id?: string;
+  passed?: number;
+  total?: number;
+  repeats?: number;
+  finished_at?: string;
+}
+
+/** A Voice Studio scenario's pass rules, checked from the run's record before the AI judge. */
+export interface ScenarioExpect {
+  outcome: "achieved" | "achieved_or_partly" | "any";
+  findings: { field: string; pattern: string | null }[];
+  max_duration_s: number | null;
+  max_menu_presses: number | null;
+  no_refused_actions: boolean;
+}
+
+export type SuiteRunState = "queued" | "running" | "passed" | "failed" | "stale" | "cancelled";
+
+export interface SuiteScenarioResult {
+  scenario_id: string;
+  name: string;
+  role: "candidate" | "baseline";
+  passes: number;
+  runs: number;
+  required: number;
+  status: "pass" | "flaky" | "fail" | "error";
+}
+
+export interface SuiteCase {
+  id: string;
+  scenario_id: string;
+  role: "candidate" | "baseline";
+  repeat: number;
+  state: "queued" | "running" | "judging" | "done" | "cancelled";
+  verdict: "pass" | "fail" | "error" | null;
+  attempt_id: string | null;
+  rules: { rule: string; ok: boolean; detail: string }[];
+  judge: { state: string; verdict?: string | null; score?: number | null; summary?: string | null; error?: string | null } | null;
+  error: string | null;
+}
+
+export interface SuiteRun {
+  id: string;
+  agent_id: string;
+  version: { number: number; state: string };
+  baseline_version: number | null;
+  repeats: number;
+  required_passes: number;
+  state: SuiteRunState;
+  scenarios: { id: string; name: string }[];
+  summary: SuiteScenarioResult[] | null;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+  progress?: { done: number; total: number };
+  live_summary?: SuiteScenarioResult[];
+  cases?: SuiteCase[];
+}
+
+export interface AgentSuite {
+  scenarios: { id: string; name: string; category: string; expect: ScenarioExpect; checks: number }[];
+  required_to_publish: boolean;
+  draft: SuiteResult | null;
+  published: SuiteResult | null;
+  runs: SuiteRun[];
+  max_repeats: number;
 }
 
 export interface CaseItem {

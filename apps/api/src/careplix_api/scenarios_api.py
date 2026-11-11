@@ -34,6 +34,7 @@ class ScenarioIn(BaseModel):
     success_checks: list[str] = Field(default_factory=list, max_length=10)
     rehearsal_script: str | None = Field(default=None, max_length=1500)
     simulation: dict[str, Any] | None = None
+    expect: dict[str, Any] | None = None
 
 
 def _audit(session: AsyncSession, principal: Principal, action: str, target: str) -> None:

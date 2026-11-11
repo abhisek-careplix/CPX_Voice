@@ -84,6 +84,7 @@ async def _capacity_guard(session: AsyncSession, workspace_id: str, settings: Se
             .order_by(CallAttempt.created_at)
         )
     )
+    active = [a for a in active if not a.pins.get("eval_case_id")]  # suites have their own lane
     if len(active) >= settings.max_concurrent_calls:
         # Name the call that holds the slot, so the Studio can open or end it: a session that
         # went quiet otherwise blocks every new call until the reconciler's limits expire.
@@ -127,16 +128,20 @@ async def start_browser_session(
     *,
     scenario_id: str | None = None,
     simulated: bool = False,
+    version: AgentVersion | None = None,
+    eval_case_id: str | None = None,
 ) -> dict[str, Any]:
     """A sandbox session in a LiveKit room. ``simulated``: the other side is an AI counterpart
-    playing the scenario (VS2), dispatched into the same room, instead of a person's browser."""
+    playing the scenario (VS2), dispatched into the same room, instead of a person's browser.
+    A regression suite passes the exact ``version`` it evaluates and its case id; suite runs have
+    their own concurrency lane, so they neither wait for nor block the workspace's calls."""
     if not gateway.configured:
         raise ApiError(503, "voice_not_configured", "Voice connection is not configured.")
-    if use == "draft":
+    if version is None and use == "draft":
         version = await agents_service.latest_draft(session, agent)
         if version is None:
             raise ApiError(409, "no_draft", "This agent has no draft. Test the published version.")
-    else:
+    elif version is None:
         version = await agents_service.current_version(session, agent)
         if version is None:
             raise ApiError(409, "not_published", "This agent has no published version yet.")
@@ -147,7 +152,8 @@ async def start_browser_session(
     case = await _resolve_case(session, principal.workspace_id, case_id, required=False)
     scenario = await session.get(Scenario, scenario_id) if scenario_id else None
     await _workspace_guard(session, principal)
-    await _capacity_guard(session, principal.workspace_id, settings)
+    if eval_case_id is None:
+        await _capacity_guard(session, principal.workspace_id, settings)
 
     attempt_id = new_id()
     attempt = CallAttempt(
@@ -160,7 +166,11 @@ async def start_browser_session(
         sandbox=True,
         room_name=room_name_for(attempt_id),
         state="Created",
-        pins={**_pins(version, eff), **({"simulated": True} if simulated else {})},
+        pins={
+            **_pins(version, eff),
+            **({"simulated": True} if simulated else {}),
+            **({"eval_case_id": eval_case_id} if eval_case_id else {}),
+        },
         created_by=principal.user_id,
         scenario_id=scenario_id,
     )

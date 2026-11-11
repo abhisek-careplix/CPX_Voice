@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, CheckCircle2, CircleDashed, Clock, Hash, Library, Mic, PhoneOutgoing, Plus, Sparkles, Trash2, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, ApiError, type AgentSummary } from "../api";
+import { api, ApiError, type AgentSummary, type ScenarioExpect } from "../api";
 import { useCan } from "../App";
 import { BrowserTestSheet } from "../BrowserTest";
 import { CallBlocked } from "../CallBlocked";
@@ -24,6 +24,7 @@ interface ScenarioRow {
   success_checks: string[];
   rehearsal_script: string | null;
   simulation: { menu: string | null; hold_s: number; voice: string };
+  expect: ScenarioExpect;
   updated_at: string;
 }
 
@@ -173,6 +174,14 @@ const EMPTY: Omit<ScenarioRow, "id" | "updated_at"> = {
   success_checks: [],
   rehearsal_script: null,
   simulation: { menu: null, hold_s: 0, voice: "Charon" },
+  // New scenarios expect the goal achieved; the library leaves the goal to the judge.
+  expect: { outcome: "achieved", findings: [], max_duration_s: null, max_menu_presses: null, no_refused_actions: true },
+};
+
+const OUTCOME_LABEL: Record<ScenarioExpect["outcome"], string> = {
+  achieved: "Achieved",
+  achieved_or_partly: "Achieved or partly achieved",
+  any: "Any (leave the goal to the AI judge)",
 };
 
 const VOICES = ["Charon", "Kore", "Fenrir", "Aoede", "Leda", "Orus", "Zephyr", "Puck"];
@@ -193,7 +202,7 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
   useEffect(() => {
     if (!isNew && detail.data && form === null) {
       const { id: _id, updated_at: _u, runs: _r, ...rest } = detail.data;
-      setForm({ ...rest, facts: rest.facts ?? {}, simulation: rest.simulation ?? EMPTY.simulation });
+      setForm({ ...rest, facts: rest.facts ?? {}, simulation: rest.simulation ?? EMPTY.simulation, expect: rest.expect ?? EMPTY.expect });
     }
   }, [detail.data, form, isNew]);
 
@@ -376,6 +385,7 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
               <textarea className="textarea" rows={3} value={form.success_checks.join("\n")} onChange={(e) => set("success_checks", e.target.value.split("\n"))} disabled={!canEdit} />
             </Field>
           </div>
+          <PassRules expect={form.expect} canEdit={canEdit} onChange={(e) => set("expect", e)} />
           <Field label="How to play the other side" help="Shown to you in a browser rehearsal, and followed by the simulated counterpart.">
             <textarea className="textarea" rows={2} value={form.rehearsal_script ?? ""} onChange={(e) => set("rehearsal_script", e.target.value || null)} disabled={!canEdit} />
           </Field>
@@ -425,6 +435,61 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
         />
       )}
     </div>
+  );
+}
+
+/** Pass rules for the regression suite: checked from the run's record, before the AI judge. */
+function PassRules({ expect, canEdit, onChange }: { expect: ScenarioExpect; canEdit: boolean; onChange: (e: ScenarioExpect) => void }) {
+  const set = <K extends keyof ScenarioExpect>(k: K, v: ScenarioExpect[K]) => onChange({ ...expect, [k]: v });
+  const num = (v: string) => (v.trim() ? Math.max(1, Number(v) || 1) : null);
+  return (
+    <fieldset className="stack" style={{ gap: 10, border: "1px solid var(--separator)", borderRadius: 10, padding: 12, margin: 0 }}>
+      <legend className="field-label" style={{ padding: "0 4px" }}>
+        Pass rules (regression suite)
+      </legend>
+      <span className="field-help" style={{ marginTop: -4 }}>
+        Checked by the platform from what the call recorded. A suite run passes only when these hold and the AI judge passes it.
+      </span>
+      <div className="row" style={{ gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+        <Field label="Goal outcome the agent must record" flex={2}>
+          <select className="select" value={expect.outcome} onChange={(e) => set("outcome", e.target.value as ScenarioExpect["outcome"])} disabled={!canEdit}>
+            {(Object.keys(OUTCOME_LABEL) as ScenarioExpect["outcome"][]).map((o) => (
+              <option key={o} value={o}>
+                {OUTCOME_LABEL[o]}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Max call length (seconds)" flex={1}>
+          <input className="input" type="number" min={1} value={expect.max_duration_s ?? ""} onChange={(e) => set("max_duration_s", num(e.target.value))} placeholder="No limit" disabled={!canEdit} />
+        </Field>
+        <Field label="Max keypad presses" flex={1}>
+          <input className="input" type="number" min={1} value={expect.max_menu_presses ?? ""} onChange={(e) => set("max_menu_presses", num(e.target.value))} placeholder="No limit" disabled={!canEdit} />
+        </Field>
+      </div>
+      <div className="stack" style={{ gap: 6 }}>
+        <span className="field-label">Findings the agent must record</span>
+        {expect.findings.map((f, i) => (
+          <div className="row" key={i} style={{ gap: 6 }}>
+            <input className="input mono" style={{ maxWidth: 200 }} value={f.field} placeholder="reference_number" disabled={!canEdit} onChange={(e) => set("findings", expect.findings.map((x, j) => (j === i ? { ...x, field: e.target.value } : x)))} />
+            <input className="input mono" value={f.pattern ?? ""} placeholder="Pattern, optional (e.g. ^CLM-\d+$)" disabled={!canEdit} onChange={(e) => set("findings", expect.findings.map((x, j) => (j === i ? { ...x, pattern: e.target.value || null } : x)))} />
+            {canEdit && (
+              <button className="btn btn-plain btn-icon" aria-label="Remove finding rule" onClick={() => set("findings", expect.findings.filter((_, j) => j !== i))}>
+                <Trash2 size={15} />
+              </button>
+            )}
+          </div>
+        ))}
+        {canEdit && expect.findings.length < 10 && (
+          <button className="btn btn-secondary" style={{ alignSelf: "flex-start" }} onClick={() => set("findings", [...expect.findings, { field: "", pattern: null }])}>
+            <Plus size={14} aria-hidden /> Add finding rule
+          </button>
+        )}
+      </div>
+      <label className="row small" style={{ gap: 8 }}>
+        <input type="checkbox" checked={expect.no_refused_actions} onChange={(e) => set("no_refused_actions", e.target.checked)} disabled={!canEdit} /> Fail the run if the platform refused any action
+      </label>
+    </fieldset>
   );
 }
 

@@ -4,6 +4,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, ApiError, type AgentConfig, type AgentDetail, type CaseItem, type PublishPreview, type Template, type Tool } from "../api";
 import { useCan } from "../App";
+import { RegressionSuite, suiteLabel } from "../Suite";
 import { Banner, Card, Pill, Segmented, Sheet, Switch, Toolbar, humanize, timeAgo, useToast } from "../ui";
 
 // LiveKit client code loads only when a test starts.
@@ -470,11 +471,7 @@ function TestsTab({ agent, dirty, onTest }: { agent: AgentDetail; dirty: boolean
             </div>
           </div>
         </Card>
-        <Card title={<span className="row"><FlaskConical size={16} aria-hidden /> Scenario evaluations</span>} pad>
-          <p className="small muted" style={{ margin: 0 }}>
-            The synthetic scenario suite (IVR, hold, voicemail, injection and transfer-failure scripts) runs against the exact candidate before publishing once the counterpart simulator ships. Until then, publishing shows these areas as untested.
-          </p>
-        </Card>
+        <RegressionSuite agent={agent} />
       </div>
       <Card title="Version history" subtitle="Published versions are immutable. Activating one changes new calls only.">
         {agent.versions.length === 0 ? (
@@ -485,7 +482,7 @@ function TestsTab({ agent, dirty, onTest }: { agent: AgentDetail; dirty: boolean
               <li className="list-row" key={v.id} style={{ alignItems: "flex-start" }}>
                 <div className="row-main">
                   <div className="row-title">
-                    Version {v.number} {agent.current?.id === v.id && <Pill tone="green">Active</Pill>}
+                    Version {v.number} {agent.current?.id === v.id && <Pill tone="green">Active</Pill>} <Pill tone={suiteLabel(v.suite)[0]}>{suiteLabel(v.suite)[1]}</Pill>
                   </div>
                   <div className="row-sub" style={{ whiteSpace: "normal" }}>
                     {v.change_note ?? "No change note"} · {timeAgo(v.published_at)}
@@ -513,8 +510,10 @@ function PublishSheet({ agentId, onClose }: { agentId: string; onClose: () => vo
   const toast = useToast();
   const preview = useQuery({ queryKey: ["publish-preview", agentId], queryFn: () => api.get<PublishPreview>(`/agents/${agentId}/publish-preview`), gcTime: 0 });
   const [note, setNote] = useState("");
+  const [override, setOverride] = useState("");
+  const isAdmin = useCan("admin");
   const publish = useMutation({
-    mutationFn: () => api.post<AgentDetail>(`/agents/${agentId}/publish`, { change_note: note }),
+    mutationFn: () => api.post<AgentDetail>(`/agents/${agentId}/publish`, { change_note: note, override_reason: override }),
     onSuccess: (data) => {
       qc.setQueryData(["agent", agentId], data);
       qc.invalidateQueries({ queryKey: ["agents"] });
@@ -525,7 +524,9 @@ function PublishSheet({ agentId, onClose }: { agentId: string; onClose: () => vo
   const p = preview.data;
   const priv = p?.privilege_changes;
   const privilegeChanged = priv && (priv.tools_added.length || priv.disclosures_added.length);
-  const blocked = !p || p.issues.length > 0;
+  const suiteMissing = !!p && p.evaluation.required && p.evaluation.status !== "passed";
+  const blocked = !p || p.issues.length > 0 || (suiteMissing && !(isAdmin && override.trim()));
+  const [suiteTone, suiteText] = suiteLabel(p?.evaluation);
 
   return (
     <Sheet
@@ -554,6 +555,32 @@ function PublishSheet({ agentId, onClose }: { agentId: string; onClose: () => vo
         </Banner>
       )}
       {publish.error && <Banner tone="red" title={(publish.error as ApiError).message} />}
+      {p && (
+        <div className="row" style={{ gap: 8 }}>
+          <span className="field-label" style={{ margin: 0 }}>
+            Regression suite
+          </span>
+          <Pill tone={suiteTone}>{suiteText}</Pill>
+          {!p.evaluation.required && <span className="small muted">Not required for this agent.</span>}
+        </div>
+      )}
+      {suiteMissing && (
+        <Banner tone="orange" title="Run the regression suite on this draft first" icon={FlaskConical}>
+          {" "}
+          {p!.evaluation.status === "outdated"
+            ? "The draft changed after its last suite run, so that result no longer applies."
+            : p!.evaluation.status === "failed"
+              ? "The last suite run on this draft failed."
+              : "This draft hasn't been through the suite."}{" "}
+          Run it from the Tests tab.
+          {isAdmin && (
+            <label className="field" style={{ marginTop: 10 }}>
+              <span className="field-label">Publish anyway (admin): reason</span>
+              <input className="input" value={override} maxLength={500} onChange={(e) => setOverride(e.target.value)} placeholder="Recorded in the audit log" />
+            </label>
+          )}
+        </Banner>
+      )}
       {p && privilegeChanged ? (
         <Banner tone="orange" title="This version increases what the agent can do" icon={ShieldCheck}>
           {priv!.tools_added.length > 0 && ` Tools added: ${priv!.tools_added.join(", ")}.`}

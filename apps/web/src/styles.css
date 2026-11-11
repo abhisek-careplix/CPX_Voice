@@ -1450,3 +1450,21 @@ button.list-row {
   opacity: 0.6;
   cursor: default;
 }
+
+/* Regression suite results */
+.suite-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.suite-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--label-2);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--separator);
+}
+.suite-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--separator);
+  vertical-align: top;
+}
