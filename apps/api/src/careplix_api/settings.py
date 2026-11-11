@@ -36,6 +36,17 @@ class Settings(BaseSettings):
     judge_model: str = "gemini-2.5-flash"
     judge_location: str = ""
     judge_interval_s: float = 20.0  # how often finished Voice Studio runs are auto-scored
+    # With ANTHROPIC_API_KEY set the judge is Claude on the Anthropic API (careplix-labs serves no
+    # Gemini text model); without it, JUDGE_MODEL on Vertex.
+    judge_claude_model: str = "claude-opus-5-5"
+    # Regression suites (pre-publish evaluation): simulations of an agent version against its
+    # scenarios. They run in their own lane, beside (not counted against) max_concurrent_calls.
+    eval_concurrency: int = 3
+    eval_interval_s: float = 10.0
+    eval_case_timeout_s: float = 1800.0  # a simulation that hasn't ended by now is an error
+    eval_judge_wait_s: float = 900.0  # how long a finished simulation waits for its judgement
+    # Publishing an outbound agent needs a passed suite on the exact draft (admins may override).
+    publish_requires_eval: bool = False
     # Supervised browser agent (BROWSER_AGENT_PLAN). The runtime is the private careplix-browser
     # service; empty URL leaves the feature off.
     browser_runtime_url: str = ""

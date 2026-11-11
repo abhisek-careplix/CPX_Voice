@@ -26,6 +26,7 @@ from careplix_api.auth import Principal
 from careplix_api.calls_service import ACTIVE_STATES
 from careplix_api.db import as_utc, utcnow
 from careplix_api.errors import ApiError
+from careplix_api.evals import rules
 from careplix_api.judge import service as judge_service
 from careplix_api.livekit_gateway import LiveKitGateway
 from careplix_api.models import (
@@ -93,6 +94,7 @@ def view(scenario: Scenario, box: PhiBox, *, with_facts: bool = True) -> dict[st
         "success_checks": scenario.success_checks or [],
         "rehearsal_script": scenario.rehearsal_script,
         "simulation": simulation_settings(scenario),
+        "expect": rules.clean(scenario.expect),
         "updated_at": scenario.updated_at,
     }
 
@@ -124,6 +126,7 @@ def apply(scenario: Scenario, data: dict[str, Any], box: PhiBox) -> None:
         "hold_s": max(0, min(int(sim.get("hold_s") or 0), MAX_SIM_HOLD_S)),
         "voice": voice,
     }
+    scenario.expect = rules.clean(data.get("expect"))
     scenario.updated_at = utcnow()
 
 
@@ -318,7 +321,7 @@ async def ensure_errand_agent(
         # e.g. no approved model yet: the agent stays a draft to publish later
         with contextlib.suppress(ApiError):
             await agents_service.publish(
-                session, principal, agent, settings, "Voice Studio starter"
+                session, principal, agent, settings, "Voice Studio starter", enforce_suite=False
             )
     return agent
 
@@ -338,7 +341,10 @@ async def add_examples(
         if example["name"] in existing:
             continue
         scenario = Scenario(workspace_id=principal.workspace_id, created_by=principal.user_id)
-        apply(scenario, {**example, "agent_id": agent.id}, box)
+        # Library calls have honest "no" answers (no record on file, a denial upheld), so their goal
+        # is left to the judge; the platform still checks the call ended cleanly and safely.
+        expect = example.get("expect") or {"outcome": "any"}
+        apply(scenario, {**example, "agent_id": agent.id, "expect": expect}, box)
         session.add(scenario)
         added.append(scenario)
     await session.flush()

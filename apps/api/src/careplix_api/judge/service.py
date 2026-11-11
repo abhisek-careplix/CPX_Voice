@@ -6,7 +6,8 @@ verdict (pass / partial / fail), a 0–100 score, a status and quoted evidence f
 limit, and coaching notes. It never sees sealed fact values, only their names.
 
 The model call goes through the core model settings (workspace project and region, ADC or the
-configured service account), with a text model chosen by ``JUDGE_MODEL``.
+configured service account), with a text model chosen by ``JUDGE_MODEL``; or, when an Anthropic
+API key is set, through Claude (``JUDGE_CLAUDE_MODEL``) on the Anthropic API.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
@@ -92,12 +93,28 @@ agent's instructions (empty if none). Write in plain English."""
 JudgeFn = Callable[[str, "ModelTarget"], Awaitable[dict[str, Any]]]
 
 
+def _json_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """The Gemini response schema as standard JSON Schema, for Claude's structured outputs."""
+    out = {k: v for k, v in schema.items() if k not in ("type", "properties", "items")}
+    out["type"] = schema["type"].lower()
+    if "properties" in schema:
+        out["properties"] = {k: _json_schema(v) for k, v in schema["properties"].items()}
+        out["additionalProperties"] = False
+    if "items" in schema:
+        out["items"] = _json_schema(schema["items"])
+    return out
+
+
+JSON_SCHEMA = _json_schema(RESPONSE_SCHEMA)
+
+
 @dataclass(frozen=True)
 class ModelTarget:
     project: str
     location: str
     model_id: str
     credentials: Any = None
+    api_key: str = field(default="", repr=False)  # set: Claude on the Anthropic API
 
 
 class JudgeNotConfigured(Exception):
@@ -126,6 +143,38 @@ async def gemini_judge(prompt: str, target: ModelTarget) -> dict[str, Any]:
         ),
     )
     return json.loads(response.text or "{}")
+
+
+async def claude_judge(prompt: str, target: ModelTarget) -> dict[str, Any]:
+    """Claude on the Anthropic API, JSON output constrained to the same schema."""
+    from anthropic import AsyncAnthropic
+
+    client = AsyncAnthropic(api_key=target.api_key)
+    response = await client.messages.create(
+        model=target.model_id,
+        max_tokens=16000,
+        system=INSTRUCTIONS,
+        messages=[{"role": "user", "content": prompt}],
+        output_config={
+            "effort": "medium",
+            "format": {"type": "json_schema", "schema": JSON_SCHEMA},
+        },
+    )
+    if response.stop_reason == "refusal":
+        raise RuntimeError("the judge model declined to score this run")
+    return json.loads("".join(b.text for b in response.content if b.type == "text") or "{}")
+
+
+async def default_judge(prompt: str, target: ModelTarget) -> dict[str, Any]:
+    return await (claude_judge if target.api_key else gemini_judge)(prompt, target)
+
+
+async def judge_target(session: AsyncSession, workspace_id: str, settings: Settings) -> ModelTarget:
+    """Claude when an Anthropic key is set, else the Gemini text model on Vertex."""
+    key = settings.anthropic_api_key.get_secret_value()
+    if key:
+        return ModelTarget("", "", settings.judge_claude_model, api_key=key)
+    return await model_target(session, workspace_id, settings)
 
 
 async def model_target(session: AsyncSession, workspace_id: str, settings: Settings) -> ModelTarget:
@@ -298,7 +347,7 @@ async def judge_attempt(
     row.state, row.error, row.requested_by = "pending", None, requested_by
     await session.commit()
     try:
-        target = await model_target(session, attempt.workspace_id, settings)
+        target = await judge_target(session, attempt.workspace_id, settings)
         row.model_id = target.model_id
         prompt = await build_record(session, attempt, scenario)
         result = normalise(await judge_fn(prompt, target), scenario)

@@ -55,3 +55,9 @@ def test_the_studio_gets_the_anthropic_key_only_when_it_is_stored():
     guard = text.index("secrets describe cpx-anthropic-api-key", text.index("deploy() {"))
     assert guard < text.index("ANTHROPIC_API_KEY=cpx-anthropic-api-key:latest")
     assert "$studio_secrets" in _deploy_command("careplix-studio")
+
+
+def test_labs_gates_publishing_on_the_regression_suite():
+    # Studio runs the suite loop and the judge; outbound agents publish only after a passed suite.
+    command = _deploy_command("careplix-studio")
+    assert "PUBLISH_REQUIRES_EVAL=true" in command and "RUN_BACKGROUND=true" in command

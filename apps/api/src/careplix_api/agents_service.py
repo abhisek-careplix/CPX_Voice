@@ -253,6 +253,25 @@ async def save_draft(
     return draft
 
 
+def suite_result(version: AgentVersion | None) -> dict[str, Any]:
+    """The version's regression-suite result, and whether it still describes its exact config."""
+    if version is None:
+        return {"status": "not_run"}
+    evaluation = dict(version.evaluation or {})
+    if not evaluation.get("run_id"):
+        return {"status": "not_run"}
+    if evaluation.get("config_hash") != config_hash(version.config):
+        evaluation["status"] = "outdated"  # the draft changed after the run
+    return evaluation
+
+
+def suite_required(agent: Agent, settings: Settings) -> bool:
+    """Outbound agents need a passed suite to publish where the workspace policy asks for it."""
+    return settings.publish_requires_eval and (
+        templates.get_template(agent.template_id)["direction"] == "outbound"
+    )
+
+
 async def publish_preview(
     session: AsyncSession, agent: Agent, settings: Settings
 ) -> dict[str, Any]:
@@ -275,17 +294,22 @@ async def publish_preview(
             for r in routes
         ],
         "evaluation": {
-            "status": "not_run",
-            "untested": [
-                "Synthetic scenario suite (simulator arrives in G1)",
-                "Telephone audio quality",
-            ],
+            **suite_result(draft),
+            "required": suite_required(agent, settings),
+            "untested": ["Telephone audio quality on real phone lines"],
         },
     }
 
 
 async def publish(
-    session: AsyncSession, principal: Principal, agent: Agent, settings: Settings, change_note: str
+    session: AsyncSession,
+    principal: Principal,
+    agent: Agent,
+    settings: Settings,
+    change_note: str,
+    *,
+    override_reason: str = "",
+    enforce_suite: bool = True,
 ) -> AgentVersion:
     draft = await latest_draft(session, agent)
     if draft is None:
@@ -298,6 +322,28 @@ async def publish(
             "The draft has issues to fix before publishing.",
             {"issues": issues},
         )
+    result = suite_result(draft)
+    if enforce_suite and suite_required(agent, settings) and result["status"] != "passed":
+        reason = override_reason.strip()
+        if not reason:
+            raise ApiError(
+                422,
+                "suite_required",
+                "Run the regression suite on this draft and pass it before publishing. "
+                "An admin can publish anyway with a reason.",
+                {"evaluation": result},
+            )
+        if principal.role != "admin":
+            raise ApiError(
+                403, "override_admin_only", "Only an admin can publish without a passed suite."
+            )
+        await _audit(
+            session,
+            principal,
+            "agent.publish_override",
+            agent.id,
+            {"version": draft.number, "reason": reason[:500], "suite": result["status"]},
+        )
     previous = agent.current_version_id
     draft.state = "published"
     draft.config_hash = config_hash(draft.config)
@@ -305,7 +351,8 @@ async def publish(
     draft.change_note = change_note.strip() or None
     draft.published_by = principal.user_id
     draft.published_at = utcnow()
-    draft.evaluation = {"status": "not_run"}
+    if result["status"] == "not_run" or result["status"] == "outdated":
+        draft.evaluation = {"status": "not_run"}  # keep a result measured on this exact config
     agent.current_version_id = draft.id
     await _audit(
         session,

@@ -254,7 +254,7 @@ deploy() {
   fi
   $G run deploy careplix-studio --region "$REGION" --image "$REGISTRY/api:$TAG" \
     --service-account "$SA_STUDIO" --add-cloudsql-instances "$conn" $VPC_FLAGS \
-    --set-env-vars "$common_env,$practice_env,$browser_env,RUN_BACKGROUND=true,IAP_AUDIENCE=/projects/$NUMBER/locations/$REGION/services/careplix-studio" \
+    --set-env-vars "$common_env,$practice_env,$browser_env,RUN_BACKGROUND=true,PUBLISH_REQUIRES_EVAL=true,IAP_AUDIENCE=/projects/$NUMBER/locations/$REGION/services/careplix-studio" \
     --set-secrets "$secrets,$practice_secrets,$studio_secrets" --min-instances 1 --max-instances 1 --no-cpu-throttling \
     --timeout 3600 --no-allow-unauthenticated --iap
   $G run services add-iam-policy-binding careplix-studio --region "$REGION" \

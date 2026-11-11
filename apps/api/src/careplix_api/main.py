@@ -26,6 +26,8 @@ from careplix_api.browser.service import BrowserRunner
 from careplix_api.calls_service import CallRunner
 from careplix_api.db import Database
 from careplix_api.errors import ApiError
+from careplix_api.evals import api as evals_api
+from careplix_api.evals import service as evals_service
 from careplix_api.integrations.service import IntegrationWorker
 from careplix_api.judge import service as judge_service
 from careplix_api.livekit_gateway import LiveKitGateway
@@ -68,7 +70,7 @@ def create_app(
         app.state.gateway = gateway or LiveKitGateway(settings)
         app.state.runner = CallRunner(app.state.db, app.state.gateway, settings)
         app.state.model_prober = model_prober
-        app.state.judge = judge or judge_service.gemini_judge
+        app.state.judge = judge or judge_service.default_judge
         app.state.settings = settings
         app.state.browser_runtime = browser_runtime or HttpRuntime(
             settings.browser_runtime_url,
@@ -105,6 +107,9 @@ def create_app(
                 asyncio.create_task(app.state.practice_worker.run_forever()),
                 asyncio.create_task(
                     judge_service.judge_forever(app.state.db, settings, app.state.judge)
+                ),
+                asyncio.create_task(
+                    evals_service.run_forever(app.state.db, settings, app.state.gateway)
                 ),
             ]
             if settings.run_background
@@ -163,6 +168,7 @@ def create_app(
     app.include_router(practice_api.router, prefix="/api")
     app.include_router(browser_api.router, prefix="/api")
     app.include_router(scenarios_api.router, prefix="/api")
+    app.include_router(evals_api.router, prefix="/api")
     app.include_router(internal_api.router)
     if settings.is_dev:
         # Local webhook testing; in the cloud the public ingress is its own service (no IAP).
