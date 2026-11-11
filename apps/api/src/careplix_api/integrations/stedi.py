@@ -200,9 +200,11 @@ def patient_request(
     service_type: str = "30",
     service_date: str | None = None,
     pin: str | None = None,
+    services: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """A real patient's check. ``provider.name`` is left out on purpose: Stedi fills in the NPI's
-    NPPES name, which is what payers match on (send-eligibility-checks#provider-name)."""
+    NPPES name, which is what payers match on (send-eligibility-checks#provider-name).
+    ``services`` replaces the single STC with a list of ``{system: STC|HCPCS|CPT, value}``."""
     if payer_id == CMS:
         subscriber = {**subscriber, "member_id": normalize_mbi(subscriber["member_id"])}
     if provider_npi == MOCK_PROVIDER_NPI:
@@ -214,7 +216,7 @@ def patient_request(
         "payerId": payer_id,
         "provider": provider,
         "subscriber": _person(subscriber),
-        "encounter": {"services": [{"value": service_type, "system": "STC"}]},
+        "encounter": {"services": services or [{"value": service_type, "system": "STC"}]},
     }
     if subscriber.get("member_id"):
         body["subscriber"]["memberId"] = subscriber["member_id"]

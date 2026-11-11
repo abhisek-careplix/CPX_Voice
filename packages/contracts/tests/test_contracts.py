@@ -31,6 +31,7 @@ def test_tool_registry_loads_and_gates_pilot_tools():
         "get_assigned_context",
         "leave_message",
         "list_appointments",
+        "medicare_benefits",
         "record_finding",
         "reschedule_appointment",
         "send_dtmf",

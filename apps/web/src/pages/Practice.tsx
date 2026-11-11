@@ -9,6 +9,7 @@ import {
   CircleDashed,
   Database,
   FilePenLine,
+  HeartPulse,
   MessageSquareText,
   PhoneCall,
   RefreshCw,
@@ -22,6 +23,7 @@ import { api, ApiError, type EligibilitySettings, type EligibilityView, type Fro
 import { useCan } from "../App";
 import { PRACTICE_LABEL, usePractice, withPractice } from "../practice";
 import { Banner, Card, Empty, Pill, Segmented, Sheet, Toolbar, timeAgo, useToast } from "../ui";
+import MedicareBenefitsSheet from "./MedicareBenefits";
 
 type Range = "today" | "tomorrow" | "week";
 
@@ -69,6 +71,7 @@ export default function Practice() {
   const toast = useToast();
   const [range, setRange] = useState<Range>("week");
   const [alertFor, setAlertFor] = useState<HuddleRow | null>(null);
+  const [benefitsFor, setBenefitsFor] = useState<HuddleRow | null>(null);
   const [practice, setPractice] = usePractice();
   const at = (path: string) => withPractice(path, practice);
   const overview = useQuery({ queryKey: ["practice", practice], queryFn: () => api.get<PracticeOverview>(at("/practices")), refetchInterval: 5000 });
@@ -212,6 +215,7 @@ export default function Practice() {
                     checking={check.isPending && check.variables === a.id}
                     onCheck={() => check.mutate(a.id)}
                     onAlert={() => setAlertFor(a)}
+                    onBenefits={d?.clearinghouse ? () => setBenefitsFor(a) : undefined}
                   />
                 ))}
               </ul>
@@ -246,6 +250,7 @@ export default function Practice() {
         </div>
       </div>
       {alertFor && <AlertSheet row={alertFor} onClose={() => setAlertFor(null)} onDone={refresh} />}
+      {benefitsFor?.patient_id && <MedicareBenefitsSheet patientId={benefitsFor.patient_id} patient={benefitsFor.patient} appointmentId={benefitsFor.id} onClose={() => setBenefitsFor(null)} />}
     </>
   );
 }
@@ -282,7 +287,25 @@ function EligibilityPill({ e, status }: { e: EligibilityView | null; status: str
   return <Pill tone="orange" icon={AlertTriangle}>{s?.coverage ?? "Unknown"}</Pill>;
 }
 
-function HuddleItem({ a, tz, chart, canRun, checking, onCheck, onAlert }: { a: HuddleRow; tz: string; chart?: string | null; canRun: boolean; checking: boolean; onCheck: () => void; onAlert: () => void }) {
+function HuddleItem({
+  a,
+  tz,
+  chart,
+  canRun,
+  checking,
+  onCheck,
+  onAlert,
+  onBenefits,
+}: {
+  a: HuddleRow;
+  tz: string;
+  chart?: string | null;
+  canRun: boolean;
+  checking: boolean;
+  onCheck: () => void;
+  onAlert: () => void;
+  onBenefits?: () => void;
+}) {
   const time = new Intl.DateTimeFormat(undefined, { timeZone: tz, weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date(a.start));
   const s = a.eligibility?.summary;
   const muted = a.status === "cancelled" || a.status === "deleted";
@@ -337,6 +360,11 @@ function HuddleItem({ a, tz, chart, canRun, checking, onCheck, onAlert }: { a: H
           <button className="btn btn-tinted" onClick={onCheck} disabled={checking} title="Run an eligibility check now">
             {checking ? <span className="spinner" aria-label="Checking" /> : <ShieldCheck size={15} aria-hidden />} Check
           </button>
+          {a.patient_id && onBenefits && (
+            <button className="btn btn-plain btn-icon" onClick={onBenefits} aria-label="Medicare benefits" title="Medicare benefits: coverage, what's used and left, preventive dates">
+              <HeartPulse size={16} />
+            </button>
+          )}
           {a.patient_id && (
             <button className="btn btn-plain btn-icon" onClick={onAlert} aria-label="Add chart alert" title="Add chart alert">
               <FilePenLine size={16} />

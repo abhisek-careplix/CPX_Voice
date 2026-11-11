@@ -815,3 +815,104 @@ export interface ShadowPreview {
   total: number;
   max_items: number;
 }
+
+// ---------- Medicare benefits planner (CMS HETS) ----------
+
+export interface DateRange {
+  start: string | null;
+  end: string | null;
+}
+
+export interface MedicareBenefitItem {
+  key: string;
+  category: string;
+  label: string;
+  code: string | null;
+  modifier: string | null;
+  covered: boolean | null;
+  used: string | null;
+  remaining: string | null;
+  total: string | null;
+  unit: "dollars" | "days" | "units" | "sessions" | null;
+  amount: string | null;
+  next_eligible: string | null;
+  last_service: string | null;
+  period: DateRange | null;
+  other_npi: string | null;
+  blocker: boolean;
+  note: string | null;
+  source: string;
+  program?: string;
+}
+
+export interface MedicarePart {
+  covered: boolean | null;
+  status: string | null;
+  start?: string | null;
+  end?: string | null;
+  reason?: string | null;
+  esrd?: boolean;
+  part_b_id_only?: boolean;
+  source: string | null;
+}
+
+export interface MedicareDeductible {
+  total: string | null;
+  remaining: string | null;
+  used: string | null;
+  period: DateRange;
+  spell: boolean;
+  qmb: boolean;
+  source: string;
+}
+
+export interface MedicareBenefits {
+  date_of_service: string;
+  as_of: string;
+  coverage: string;
+  entitlement: { part_a?: MedicarePart; part_b?: MedicarePart };
+  deductibles: { part_a?: MedicareDeductible; part_b?: MedicareDeductible; part_b_coinsurance_pct?: string | null };
+  routing: {
+    medicare_advantage: { name: string | null; payer_id: string | null; phone: string | null; contract: string | null; plan_benefit_package: string | null; bill_option: string | null } | null;
+    secondary_payers: { type: string; payer: string | null; period: DateRange | null; active: boolean }[];
+    qmb: { plan: string | null; period: DateRange | null; active: boolean } | null;
+    part_d: { name: string | null; contract: string | null; period: DateRange | null; active: boolean }[];
+  };
+  items: MedicareBenefitItem[];
+  no_data: { program: string; label: string; codes: string[] }[];
+  not_in_hets: { key: string; label: string; note: string }[];
+  errors: string[];
+  message: string | null;
+}
+
+export interface PlanSuggestion {
+  kind: "due_now" | "due_on" | "limited" | "blocked" | "qmb" | "info";
+  title: string;
+  detail: string;
+  category: string;
+  items: string[];
+  date?: string;
+}
+
+export interface MedicareBenefitsView {
+  snapshot: {
+    id: string;
+    state: "done" | "failed";
+    mode: "test" | "production";
+    source: "stedi" | "sample";
+    test_data: boolean;
+    purpose: "appointment" | "upcoming_visit";
+    appointment_id: string | null;
+    date_of_service: string | null;
+    fetched_at: string;
+    message: string | null;
+    groups: { label: string; system: string; outcome: string; errors?: string[] }[];
+    summary: Record<string, unknown>;
+    reused: boolean;
+  } | null;
+  benefits: MedicareBenefits | null;
+  plan: { advisory: string; suggestions: PlanSuggestion[] };
+  mode?: "test" | "production" | null;
+  coverage?: { plan_kind: string; plan: string | null };
+  patient?: string;
+}

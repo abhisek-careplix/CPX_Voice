@@ -1,0 +1,3029 @@
+{
+ "_source": "Synthetic. Hand-built from the CMS HETS 270/271 Companion Guide v15-1 \u00a77.9, 7.11, 7.12, 7.16, 7.20, 7.21 and 7.26 example segments, mapped to Stedi's 2026-06-01 plans shape. Not Stedi responses; no real person.",
+ "bodies": {
+  "coordination": {
+   "payerId": "CMS",
+   "payer": {
+    "name": {
+     "organization": "CMS"
+    }
+   },
+   "subscriber": {
+    "name": {
+     "person": {
+      "firstName": "FNAME",
+      "lastName": "LNAME"
+     }
+    },
+    "memberId": "1EG4TE5MK73",
+    "dateOfBirth": "1940-04-01"
+   },
+   "plans": [
+    {
+     "benefits": {
+      "statuses": [
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "status": "INACTIVE",
+        "dates": {
+         "eligibility": {
+          "start": "2025-01-01",
+          "end": "2025-01-08"
+         }
+        },
+        "messages": [
+         "Inactive \u2013 Prisoner or in custody of a Federal, State or local authority"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "88"
+        },
+        "status": "ACTIVE_COVERAGE"
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2015-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "10"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2015-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "42"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2015-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "45"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2015-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "48"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2015-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "49"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2015-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "69"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2015-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "76"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2015-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "83"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2015-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "A5"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2015-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "A7"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2015-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AG"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2015-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "BU"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2015-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "BV"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2015-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "RN"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2015-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "2"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "3"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "5"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "10"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "14"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "23"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "24"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "25"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "26"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "27"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "28"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "33"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "36"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "37"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "38"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "39"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "40"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "42"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "50"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "51"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "52"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "53"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "64"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "67"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "69"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "73"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "76"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "83"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "86"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "98"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "A4"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "A6"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "A8"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AD"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AE"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AF"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AI"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AJ"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AK"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AL"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "BD"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "BF"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "BG"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "BT"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "BU"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "BV"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "DM"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "RN"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "UC"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2005-04-01"
+         }
+        },
+        "messages": [
+         "0 \u2013 Beneficiary insured due to age OASI"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "80"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "status": {
+          "start": "2026-03-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "CO"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "status": {
+          "start": "2026-03-31"
+         }
+        }
+       }
+      ],
+      "deductible": [
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "EPISODE",
+        "amount": "1736",
+        "dates": {
+         "plan": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "EPISODE",
+        "amount": "1676",
+        "dates": {
+         "plan": {
+          "start": "2025-01-01",
+          "end": "2025-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "REMAINING",
+        "amount": "1736",
+        "dates": {
+         "plan": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "REMAINING",
+        "amount": "1676",
+        "dates": {
+         "plan": {
+          "start": "2025-01-01",
+          "end": "2025-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "REMAINING",
+        "amount": "0",
+        "dates": {
+         "plan": {
+          "start": "2025-01-16",
+          "end": "2025-01-20"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "42"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "EPISODE",
+        "amount": "0",
+        "dates": {
+         "benefit": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "45"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "EPISODE",
+        "amount": "0",
+        "dates": {
+         "benefit": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "timePeriod": "CALENDAR_YEAR",
+        "amount": "283",
+        "dates": {
+         "plan": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "timePeriod": "CALENDAR_YEAR",
+        "amount": "257",
+        "dates": {
+         "plan": {
+          "start": "2025-01-01",
+          "end": "2025-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "timePeriod": "REMAINING",
+        "amount": "0",
+        "dates": {
+         "plan": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "timePeriod": "REMAINING",
+        "amount": "0",
+        "dates": {
+         "plan": {
+          "start": "2025-01-01",
+          "end": "2025-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "HCPCS",
+         "value": "74263"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "timePeriod": "CALENDAR_YEAR",
+        "amount": "0",
+        "dates": {
+         "benefit": {
+          "start": "2026-10-15"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "HCPCS",
+         "value": "G0475"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "timePeriod": "CALENDAR_YEAR",
+        "amount": "0",
+        "dates": {
+         "benefit": {
+          "start": "2026-10-15"
+         }
+        }
+       }
+      ],
+      "coInsurance": [
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "timePeriod": "VISIT",
+        "percent": "0.2",
+        "dates": {
+         "plan": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "timePeriod": "VISIT",
+        "percent": "0.2",
+        "dates": {
+         "plan": {
+          "start": "2025-01-01",
+          "end": "2025-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "42"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "timePeriod": "VISIT",
+        "percent": "0",
+        "dates": {
+         "benefit": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "HCPCS",
+         "value": "74263"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "timePeriod": "VISIT",
+        "percent": "0",
+        "dates": {
+         "benefit": {
+          "start": "2026-10-15"
+         }
+        }
+       }
+      ],
+      "coPayment": [
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "EPISODE",
+        "amount": "0",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EXCEEDED",
+            "value": 0
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "NOT_EXCEEDED",
+            "value": 60
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "DAY",
+        "amount": "434",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EXCEEDED",
+            "value": 60
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "NOT_EXCEEDED",
+            "value": 90
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "EPISODE",
+        "amount": "0",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EXCEEDED",
+            "value": 0
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "NOT_EXCEEDED",
+            "value": 60
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2025-01-01",
+          "end": "2025-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "DAY",
+        "amount": "419",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EXCEEDED",
+            "value": 60
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "NOT_EXCEEDED",
+            "value": 90
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2025-01-01",
+          "end": "2025-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "EPISODE",
+        "amount": "0",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "REMAINING",
+            "value": 60
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "DAY",
+        "amount": "434",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "REMAINING",
+            "value": 30
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "EPISODE",
+        "amount": "0",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "REMAINING",
+            "value": 60
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2025-01-01",
+          "end": "2025-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "DAY",
+        "amount": "419",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "REMAINING",
+            "value": 30
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2025-01-01",
+          "end": "2025-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "EPISODE",
+        "amount": "0",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "REMAINING",
+            "value": 56
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2025-01-16",
+          "end": "2025-01-20"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "DAY",
+        "amount": "419",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "REMAINING",
+            "value": 30
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2025-01-16",
+          "end": "2025-01-20"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AG"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "EPISODE",
+        "amount": "0",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EXCEEDED",
+            "value": 0
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "NOT_EXCEEDED",
+            "value": 20
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AG"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "DAY",
+        "amount": "217",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EXCEEDED",
+            "value": 20
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "NOT_EXCEEDED",
+            "value": 100
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AG"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "EPISODE",
+        "amount": "0",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EXCEEDED",
+            "value": 0
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "NOT_EXCEEDED",
+            "value": 20
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2025-01-01",
+          "end": "2025-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AG"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "DAY",
+        "amount": "209.5",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EXCEEDED",
+            "value": 20
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "NOT_EXCEEDED",
+            "value": 100
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2025-01-01",
+          "end": "2025-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AG"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "EPISODE",
+        "amount": "0",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "REMAINING",
+            "value": 20
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AG"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "DAY",
+        "amount": "217",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "REMAINING",
+            "value": 80
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AG"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "EPISODE",
+        "amount": "0",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "REMAINING",
+            "value": 20
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2025-01-01",
+          "end": "2025-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AG"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "DAY",
+        "amount": "209.5",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "REMAINING",
+            "value": 80
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2025-01-01",
+          "end": "2025-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AG"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "EPISODE",
+        "amount": "0",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "REMAINING",
+            "value": 16
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2025-01-16",
+          "end": "2025-01-20"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AG"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "DAY",
+        "amount": "209.5",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "REMAINING",
+            "value": 80
+           }
+          }
+         },
+         {
+          "delivery": {
+           "period": {
+            "qualifier": "EPISODE",
+            "value": 1
+           }
+          }
+         }
+        ],
+        "dates": {
+         "admission": {
+          "start": "2025-01-16",
+          "end": "2025-01-20"
+         }
+        }
+       }
+      ],
+      "reserve": [
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "LIFETIME",
+        "quantity": {
+         "qualifier": "DAYS",
+         "value": "60"
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "LIFETIME_REMAINING",
+        "quantity": {
+         "qualifier": "DAYS",
+         "value": "58"
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "DAY",
+        "amount": "868",
+        "dates": {
+         "admission": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "DAY",
+        "amount": "838",
+        "dates": {
+         "admission": {
+          "start": "2025-01-01",
+          "end": "2025-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "A7"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "LIFETIME",
+        "quantity": {
+         "qualifier": "DAYS",
+         "value": "190"
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "A7"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "LIFETIME_REMAINING",
+        "quantity": {
+         "qualifier": "DAYS",
+         "value": "180"
+        }
+       }
+      ],
+      "benefitDescription": [
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "dates": {
+         "benefit": {
+          "start": "2025-01-16",
+          "end": "2025-01-20"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "48"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "dates": {
+         "admission": {
+          "start": "2025-01-16",
+          "end": "2025-01-20"
+         }
+        },
+        "relatedEntities": [
+         {
+          "type": "FACILITY",
+          "npi": "1234567893"
+         }
+        ]
+       },
+       {
+        "service": {
+         "system": "HCPCS",
+         "value": "74263"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "dates": {
+         "benefit": {
+          "start": "2026-01-07"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AD"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "amount": "3100",
+        "dates": {
+         "benefit": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        },
+        "messages": [
+         "USED AMOUNT"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AD"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "amount": "950",
+        "dates": {
+         "benefit": {
+          "start": "2025-01-01",
+          "end": "2025-12-31"
+         }
+        },
+        "messages": [
+         "USED AMOUNT"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AE"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "amount": "2200",
+        "dates": {
+         "benefit": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        },
+        "messages": [
+         "USED AMOUNT"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "AE"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "amount": "500",
+        "dates": {
+         "benefit": {
+          "start": "2025-01-01",
+          "end": "2025-12-31"
+         }
+        },
+        "messages": [
+         "USED AMOUNT"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "RN"
+        },
+        "dates": {
+         "benefit": {
+          "start": "2024-03-01",
+          "end": "2024-03-15"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "HCPCS",
+         "value": "G0438"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "dates": {
+         "benefit": {
+          "start": "2023-06-26"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "HCPCS",
+         "value": "G0439"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "dates": {
+         "benefit": {
+          "start": "2026-11-08"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "HCPCS",
+         "value": "Q0091"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "dates": {
+         "benefit": {
+          "start": "2027-02-01"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "HCPCS",
+         "value": "Q0091"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "dates": {
+         "benefit": {
+          "start": "2026-12-01"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "HCPCS",
+         "value": "77067"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "dates": {
+         "benefit": {
+          "start": "2026-02-01"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "HCPCS",
+         "value": "91300"
+        },
+        "dates": {
+         "service": {
+          "start": "2025-08-23"
+         }
+        },
+        "relatedEntities": [
+         {
+          "type": "PROVIDER",
+          "npi": "1234567893"
+         }
+        ]
+       },
+       {
+        "service": {
+         "system": "HCPCS",
+         "value": "0003A"
+        },
+        "dates": {
+         "service": {
+          "start": "2025-08-23"
+         }
+        },
+        "relatedEntities": [
+         {
+          "type": "PROVIDER",
+          "npi": "1987654323"
+         }
+        ]
+       },
+       {
+        "service": {
+         "system": "HCPCS",
+         "value": "G0567"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "dates": {
+         "service": {
+          "start": "2025-11-05"
+         }
+        },
+        "relatedEntities": [
+         {
+          "type": "PROVIDER",
+          "npi": "1234567893"
+         }
+        ]
+       },
+       {
+        "service": {
+         "system": "HCPCS",
+         "value": "G0475"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "dates": {
+         "service": {
+          "start": "2025-01-05"
+         }
+        },
+        "relatedEntities": [
+         {
+          "type": "PROVIDER",
+          "npi": "1234567890"
+         }
+        ]
+       },
+       {
+        "service": {
+         "system": "HCPCS",
+         "value": "99483"
+        },
+        "dates": {
+         "service": {
+          "start": "2023-01-03"
+         }
+        },
+        "relatedEntities": [
+         {
+          "type": "PROVIDER",
+          "npi": "1234567893"
+         }
+        ]
+       },
+       {
+        "service": {
+         "system": "HCPCS",
+         "value": "90653"
+        },
+        "dates": {
+         "service": {
+          "start": "2025-09-01"
+         }
+        },
+        "relatedEntities": [
+         {
+          "type": "PROVIDER",
+          "npi": "1987654323"
+         }
+        ]
+       },
+       {
+        "service": {
+         "system": "HCPCS",
+         "value": "90674"
+        },
+        "dates": {
+         "service": {
+          "start": "2024-09-01"
+         }
+        },
+        "relatedEntities": [
+         {
+          "type": "PROVIDER",
+          "npi": "1987654323"
+         }
+        ]
+       },
+       {
+        "service": {
+         "system": "HCPCS",
+         "value": "90684"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "dates": {
+         "service": {
+          "start": "2026-01-05"
+         }
+        },
+        "relatedEntities": [
+         {
+          "type": "PROVIDER",
+          "npi": "1234567893"
+         }
+        ]
+       }
+      ],
+      "limitations": [
+       {
+        "service": {
+         "system": "STC",
+         "value": "67"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "timePeriod": "SERVICE_YEAR",
+        "quantity": {
+         "qualifier": "VISITS",
+         "value": "8"
+        },
+        "serviceLimits": [
+         {
+          "delivery": {
+           "quantity": {
+            "qualifier": "VISITS",
+            "value": "0"
+           },
+           "period": {
+            "qualifier": "REMAINING"
+           }
+          }
+         }
+        ],
+        "dates": {
+         "benefit": {
+          "start": "2025-05-01"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "BF"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "timePeriod": "REMAINING",
+        "quantity": {
+         "qualifier": "COVERED_ACTUAL",
+         "value": "72"
+        },
+        "messages": [
+         "Technical"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "BF"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "timePeriod": "REMAINING",
+        "quantity": {
+         "qualifier": "COVERED_ACTUAL",
+         "value": "72"
+        },
+        "messages": [
+         "Professional"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "BG"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "quantity": {
+         "qualifier": "QUANTITY_USED",
+         "value": "0"
+        },
+        "messages": [
+         "Technical"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "BG"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "quantity": {
+         "qualifier": "QUANTITY_USED",
+         "value": "0"
+        },
+        "messages": [
+         "Professional"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "BG"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "quantity": {
+         "qualifier": "QUANTITY_USED",
+         "value": "15"
+        },
+        "messages": [
+         "Intensive Cardiac Rehabilitation \u2013 Technical"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "BG"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "quantity": {
+         "qualifier": "QUANTITY_USED",
+         "value": "15"
+        },
+        "messages": [
+         "Intensive Cardiac Rehabilitation \u2013 Professional"
+        ]
+       }
+      ],
+      "healthCareFacility": [
+       {
+        "service": {
+         "system": "STC",
+         "value": "45"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "EPISODE",
+        "dates": {
+         "benefit": {
+          "start": "2026-10-01"
+         }
+        },
+        "messages": [
+         "Revocation Code \u2013 0"
+        ],
+        "relatedEntities": [
+         {
+          "type": "PROVIDER",
+          "npi": "1649726464"
+         }
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "45"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "timePeriod": "EPISODE",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "quantity": {
+            "qualifier": "DAYS",
+            "value": "41"
+           }
+          }
+         }
+        ],
+        "dates": {
+         "benefit": {
+          "start": "2026-10-01"
+         }
+        },
+        "relatedEntities": [
+         {
+          "type": "PROVIDER",
+          "npi": "1649726464"
+         }
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "42"
+        },
+        "timePeriod": "EPISODE",
+        "dates": {
+         "service": {
+          "start": "2026-10-20",
+          "end": "2026-12-18"
+         },
+         "period": {
+          "start": "2026-10-20"
+         }
+        },
+        "relatedEntities": [
+         {
+          "type": "PAYER",
+          "name": {
+           "organization": "MAC"
+          },
+          "payerId": "12345"
+         },
+         {
+          "type": "PROVIDER",
+          "npi": "1234567893"
+         }
+        ]
+       }
+      ],
+      "exclusions": [
+       {
+        "service": {
+         "system": "STC",
+         "value": "10"
+        },
+        "quantity": {
+         "qualifier": "DEDUCTIBLE_BLOOD_UNITS",
+         "value": "3"
+        },
+        "timePeriod": "CALENDAR_YEAR",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "quantity": {
+            "qualifier": "UNITS",
+            "value": "2"
+           },
+           "period": {
+            "qualifier": "REMAINING"
+           }
+          }
+         }
+        ],
+        "dates": {
+         "benefit": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "10"
+        },
+        "quantity": {
+         "qualifier": "DEDUCTIBLE_BLOOD_UNITS",
+         "value": "3"
+        },
+        "timePeriod": "CALENDAR_YEAR",
+        "serviceLimits": [
+         {
+          "delivery": {
+           "quantity": {
+            "qualifier": "UNITS",
+            "value": "1"
+           },
+           "period": {
+            "qualifier": "REMAINING"
+           }
+          }
+         }
+        ],
+        "dates": {
+         "benefit": {
+          "start": "2025-01-01",
+          "end": "2025-12-31"
+         }
+        }
+       }
+      ],
+      "otherOrAdditionalPayer": [
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_SECONDARY_WORKING_AGED_BENEFICIARY_OR_SPOUSE_WITH_EMPLOYER_GROUP_HEALTH_PLAN",
+        "dates": {
+         "coordinationOfBenefits": {
+          "start": "2025-02-11"
+         }
+        },
+        "messages": [
+         "ORM \u2013 Y"
+        ],
+        "relatedEntities": [
+         {
+          "type": "PRIMARY_PAYER",
+          "name": {
+           "organization": "XYZ HEALTHPLAN"
+          }
+         }
+        ]
+       },
+       {
+        "insuranceType": "QUALIFIED_MEDICARE_BENEFICIARY",
+        "planCoverageDescription": "MD QMB Plan",
+        "dates": {
+         "coordinationOfBenefits": {
+          "start": "2025-03-01"
+         }
+        }
+       }
+      ],
+      "nonCovered": [
+       {
+        "service": {
+         "system": "STC",
+         "value": "41"
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "54"
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "x12": "ISA*00*          *00*          *ZZ*CMS            *ZZ*SUBMITTERID    *260731*0734*^*00501*111111111*0*P*|~GS*HB*CMS*SUBMITTERID*20260731*07340000*1*X*005010X279A1~ST*271*0001*005010X279A1~EB*D***MB*********HC|74263~DTP*348*D8*20260107~EB*D***MB*********HC|G0438|26~DTP*348*D8*20230626~EB*D***MB*********HC|G0439|26~DTP*348*D8*20261108~EB*D***MB*********HC|Q0091|26~DTP*348*D8*20270201~EB*D***MB*********HC|Q0091|TC~DTP*348*D8*20261201~SE*10*0001~GE*1*1~IEA*1*111111111~",
+   "id": "ec_synthetic_hets_appendix_b"
+  },
+  "part_b_id": {
+   "payerId": "CMS",
+   "plans": [
+    {
+     "benefits": {
+      "statuses": [
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "status": "INACTIVE"
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2026-01-01"
+         }
+        },
+        "messages": [
+         "P\u2013Part B Immunosuppressive Drug Benefit"
+        ]
+       }
+      ],
+      "deductible": [
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "timePeriod": "CALENDAR_YEAR",
+        "amount": "283",
+        "dates": {
+         "plan": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "timePeriod": "REMAINING",
+        "amount": "283",
+        "dates": {
+         "plan": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       }
+      ],
+      "coInsurance": [
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "timePeriod": "VISIT",
+        "percent": "0.2",
+        "dates": {
+         "plan": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  "qmb_esrd": {
+   "payerId": "CMS",
+   "plans": [
+    {
+     "benefits": {
+      "statuses": [
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_A",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2019-01-01"
+         }
+        },
+        "messages": [
+         "1 \u2013 Beneficiary insured due to disability"
+        ]
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "MEDICARE_PART_B",
+        "status": "ACTIVE_COVERAGE",
+        "dates": {
+         "plan": {
+          "start": "2019-01-01"
+         }
+        },
+        "messages": [
+         "3 \u2013 Beneficiary insured due to disability and current ESRD"
+        ]
+       }
+      ],
+      "deductible": [
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "QUALIFIED_MEDICARE_BENEFICIARY",
+        "planCoverageDescription": "Medicare Part A",
+        "timePeriod": "EPISODE",
+        "amount": "0",
+        "dates": {
+         "plan": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       },
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "QUALIFIED_MEDICARE_BENEFICIARY",
+        "planCoverageDescription": "Medicare Part B",
+        "timePeriod": "CALENDAR_YEAR",
+        "amount": "0",
+        "dates": {
+         "plan": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       }
+      ],
+      "coInsurance": [
+       {
+        "service": {
+         "system": "STC",
+         "value": "30"
+        },
+        "insuranceType": "QUALIFIED_MEDICARE_BENEFICIARY",
+        "planCoverageDescription": "Medicare Part B",
+        "timePeriod": "VISIT",
+        "percent": "0",
+        "dates": {
+         "plan": {
+          "start": "2026-01-01",
+          "end": "2026-12-31"
+         }
+        }
+       }
+      ],
+      "otherOrAdditionalPayer": [
+       {
+        "insuranceType": "QUALIFIED_MEDICARE_BENEFICIARY",
+        "planCoverageDescription": "MA QMB Plan",
+        "dates": {
+         "coordinationOfBenefits": {
+          "start": "2025-03-01"
+         }
+        }
+       }
+      ],
+      "benefitDescription": [
+       {
+        "service": {
+         "system": "STC",
+         "value": "RN"
+        },
+        "dates": {
+         "benefit": {
+          "start": "2021-06-01"
+         },
+         "service": {
+          "start": "2021-06-01",
+          "end": "2023-02-28"
+         },
+         "discharge": {
+          "start": "2023-03-15"
+         }
+        }
+       }
+      ]
+     }
+    }
+   ]
+  }
+ }
+}

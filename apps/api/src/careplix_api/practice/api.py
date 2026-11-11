@@ -37,12 +37,13 @@ from careplix_api.practice import (
     backfill,
     eligibility,
     intents,
+    medicare,
     payers,
     receptionist,
     sync,
     webhooks,
 )
-from careplix_api.practice.connections import CLEARINGHOUSE, EHR_KINDS, OPENEMR, verify
+from careplix_api.practice.connections import CLEARINGHOUSE, EHR_KINDS, OPENEMR, is_test, verify
 from careplix_api.settings import Settings, get_settings
 from careplix_api.studio_api import Session
 
@@ -553,6 +554,90 @@ async def check_now(
     )
     await session.commit()
     return eligibility.view(check)
+
+
+# --- Medicare benefits planner (CMS HETS) -----------------------------------------------------
+
+
+class MedicareBenefitsIn(BaseModel):
+    """Why CMS is being asked (HETS Rules of Behavior): the patient's upcoming appointment, or an
+    explicit "planning for an upcoming visit". ``sample`` loads the synthetic 271 (test mode)."""
+
+    appointment_id: str | None = Field(default=None, max_length=40)
+    reason: Literal["upcoming_visit"] | None = None
+    sample: bool = False
+
+
+def _client_ip(request: Request) -> str | None:
+    """Every hop from the person who asked, for CMS traceability (X-Forwarded-For)."""
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded
+    return request.client.host if request.client else None
+
+
+@router.post("/patients/{patient_id}/medicare-benefits")
+async def medicare_benefits_refresh(
+    patient_id: str,
+    body: MedicareBenefitsIn,
+    request: Request,
+    practice: str | None = None,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    conn = await _conn(session, principal, practice=practice)
+    try:
+        snapshot, reused = await medicare.refresh(
+            session,
+            conn,
+            settings,
+            _transport(request),
+            user=principal.user_id,
+            patient_ref=patient_id,
+            appointment_id=body.appointment_id,
+            reason=body.reason,
+            forwarded_for=_client_ip(request),
+            sample=body.sample,
+        )
+    except medicare.Refused as err:
+        await session.commit()  # the refusal is audited
+        raise ApiError(err.status, err.code, err.message) from None
+    await session.commit()
+    return medicare.view(snapshot, settings, reused=reused)
+
+
+@router.get("/patients/{patient_id}/medicare-benefits")
+async def medicare_benefits(
+    patient_id: str,
+    practice: str | None = None,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """The latest snapshot (in the clearinghouse's current mode) and plan suggestions."""
+    conn = await _conn(session, principal, practice=practice)
+    patient = await session.scalar(
+        select(EhrRecord).where(
+            EhrRecord.connection_id == conn.id,
+            EhrRecord.resource == "patient",
+            EhrRecord.source_id == patient_id,
+        )
+    )
+    if patient is None:
+        raise ApiError(404, "not_found", "Patient not found in the practice mirror.")
+    clearinghouse = await eligibility.clearinghouse(session, principal.workspace_id)
+    mode = None
+    if clearinghouse is not None:
+        mode = stedi.TEST if is_test(clearinghouse) else stedi.PRODUCTION
+    _, kind, plan_name = await medicare.medicare_coverage(session, conn, patient_id)
+    out = medicare.view(await medicare.latest(session, conn, patient_id, mode), settings)
+    return {
+        **out,
+        "mode": mode,
+        "coverage": {"plan_kind": kind, "plan": plan_name},
+        "patient": initials(PhiBox(settings).open(patient.pii)),
+    }
 
 
 # --- eligibility settings and payer mapping --------------------------------------------------

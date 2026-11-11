@@ -2063,6 +2063,38 @@ input[type="range"] {
   grid-template-columns: 300px minmax(0, 1fr);
 }
 
+/* ---------- Medicare benefits panel ---------- */
+
+.benefit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.benefit-tile {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+.meter {
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--fill);
+  overflow: hidden;
+}
+
+.meter > div {
+  height: 100%;
+  background: var(--accent-text);
+  border-radius: var(--r-full);
+  transition: width var(--medium) var(--spring);
+}
+
+.meter.meter-warn > div {
+  background: var(--orange);
+}
+
 @media (max-width: 1100px) {
   .split-list {
     grid-template-columns: 1fr;
