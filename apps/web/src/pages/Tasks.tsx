@@ -3,7 +3,7 @@ import { ChevronRight, ListChecks, Plus } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api, type Task } from "../api";
 import { useCan } from "../App";
-import { Card, Empty, TaskPill, Toolbar, timeAgo } from "../ui";
+import { Card, Empty, ErrorState, ListSkeleton, TaskPill, Toolbar, timeAgo } from "../ui";
 
 export default function Tasks() {
   const tasks = useQuery({ queryKey: ["tasks"], queryFn: () => api.get<Task[]>("/tasks"), refetchInterval: 5000 });
@@ -11,20 +11,23 @@ export default function Tasks() {
   return (
     <>
       <Toolbar
+        eyebrow="Operate"
         title="Tasks"
-        eyebrow="Business objectives. One task can take several calls."
+        description="A task is a business objective, such as an authorization status for one case. One task can take several calls; its result waits under Results for a reviewer."
         actions={
           canStart && (
             <Link to="/tasks/new" className="btn btn-primary">
-              <Plus size={16} aria-hidden /> New Task
+              <Plus size={16} aria-hidden /> New task
             </Link>
           )
         }
       />
       <div className="content">
         <Card>
+          {tasks.isPending && <ListSkeleton rows={4} icon={false} />}
+          {tasks.error && <ErrorState error={tasks.error} onRetry={() => tasks.refetch()} title="Couldn't load tasks" />}
           {tasks.data?.length === 0 ? (
-            <Empty icon={ListChecks} title="No tasks yet" action={canStart && <Link to="/tasks/new" className="btn btn-tinted">Create a task</Link>}>
+            <Empty icon={ListChecks} title="No tasks yet" action={canStart && <Link to="/tasks/new" className="btn btn-primary"><Plus size={16} aria-hidden /> Create a task</Link>}>
               A task names a case, a published agent and an approved destination. Inbound calls create tasks automatically.
             </Empty>
           ) : (

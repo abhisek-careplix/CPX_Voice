@@ -5,7 +5,7 @@ import { Link, useParams } from "react-router-dom";
 import { api, ApiError, type CallEvent, type CheckPhase, type Finding, type TaskResult } from "../api";
 import { useCan } from "../App";
 import { Transcript } from "../live";
-import { AttemptPill, Banner, Card, DIRECTION_LABEL, FindingPill, Segmented, TaskPill, Toolbar, duration, humanize, timeAgo, useToast } from "../ui";
+import { AttemptPill, Banner, Card, ErrorState, DIRECTION_LABEL, FindingPill, Segmented, TaskPill, Toolbar, duration, humanize, timeAgo, useToast } from "../ui";
 
 type Outcome = "Completed" | "Partial" | "Unsuccessful";
 
@@ -33,7 +33,19 @@ export default function ResultDetail() {
     [r?.transcript],
   );
 
-  if (!r) return <Toolbar title={<span className="skeleton" style={{ display: "inline-block", width: 260, height: 32 }} />} />;
+  if (!r)
+    return (
+      <>
+        <Toolbar eyebrow={<Link to="/results" className="row" style={{ gap: 2 }}><ChevronLeft size={15} aria-hidden /> Results</Link>} title={result.error ? "Not available" : <span className="skeleton" style={{ display: "inline-block", width: 260, height: 28 }} aria-label="Loading" />} />
+        {result.error && (
+          <div className="content">
+            <Card>
+              <ErrorState error={result.error} onRetry={() => result.refetch()} />
+            </Card>
+          </div>
+        )}
+      </>
+    );
   const latest = new Map<string, Finding>();
   // Call findings carry transcript evidence; payer-system values are shown in the payer check panel.
   for (const f of r.findings) if (f.source !== "system") latest.set(f.field, f);

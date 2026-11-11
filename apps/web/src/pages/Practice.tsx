@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -99,12 +100,13 @@ export default function Practice() {
   if (overview.isSuccess && !d?.ehr) {
     return (
       <>
-        <Toolbar eyebrow="Front office" title="Practice" />
+        <Toolbar eyebrow="Front office" title="Practice" description="Today's schedule, coverage checks and front-desk messages from your connected practice system." />
         <div className="content">
-          <Empty icon={Stethoscope} title="No practice connected">
-            Run <code className="mono">make openemr-setup</code> or <code className="mono">make connect-nexhealth</code> (and{" "}
-            <code className="mono">make connect-stedi</code>), then restart the API.
-          </Empty>
+          <Card>
+            <Empty icon={Stethoscope} title="No practice connected" action={<Link to="/hub" className="btn btn-secondary">Open EHR hub</Link>}>
+              Connect a practice management system or EHR (and a clearinghouse for eligibility) to see the day here. Your CarePlix team sets up the connection.
+            </Empty>
+          </Card>
         </div>
       </>
     );
@@ -161,10 +163,10 @@ export default function Practice() {
         {err && <Banner tone="red" title={err.message} />}
 
         <div className="grid-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
-          <Stat icon={CalendarClock} tint="#0071e3" value={h?.counts.scheduled} label="Visits scheduled" />
-          <Stat icon={BadgeCheck} tint="#34c759" value={h?.counts.verified_active} label="Coverage verified active" />
-          <Stat icon={AlertTriangle} tint="#ff9500" value={h?.counts.needs_attention} label="Need attention" />
-          <Stat icon={CalendarX2} tint="#8e8e93" value={h?.counts.cancelled} label="Cancelled (backfill next)" />
+          <Stat icon={CalendarClock} tint="var(--tile-blue)" value={h?.counts.scheduled} label="Visits scheduled" />
+          <Stat icon={BadgeCheck} tint="var(--tile-green)" value={h?.counts.verified_active} label="Coverage verified active" />
+          <Stat icon={AlertTriangle} tint="var(--tile-orange)" value={h?.counts.needs_attention} label="Need attention" />
+          <Stat icon={CalendarX2} tint="var(--tile-gray)" value={h?.counts.cancelled} label="Cancelled (backfill next)" />
         </div>
 
         <div className="split">
@@ -240,7 +242,7 @@ export default function Practice() {
 function Stat({ icon: Icon, tint, value, label }: { icon: typeof CalendarClock; tint: string; value: number | undefined; label: string }) {
   return (
     <div className="card stat row" style={{ gap: 14 }}>
-      <div className="row-icon" style={{ background: tint, width: 40, height: 40, borderRadius: 11 }}>
+      <div className="row-icon" style={{ background: tint, width: 40, height: 40 }}>
         <Icon size={20} aria-hidden />
       </div>
       <div>
@@ -340,7 +342,7 @@ function ConnectionsCard({ d, isAdmin, verifying, onVerify }: { d?: PracticeOver
             <div className="row-main">
               <div className="row-title">Stedi</div>
               <div className="row-sub">
-                Not connected · run <code className="mono">make connect-stedi</code>
+                Not connected · ask your CarePlix team to connect a clearinghouse
               </div>
             </div>
           </li>
@@ -449,7 +451,7 @@ function FrontDeskMessages({ canRun }: { canRun: boolean }) {
         <ul className="list">
           {rows.slice(0, 8).map((m) => (
             <li className="list-row" key={m.id}>
-              <div className="row-icon" style={{ background: m.callback_requested ? "#ff9500" : "#8e8e93" }}>
+              <div className="row-icon" style={{ background: m.callback_requested ? "var(--tile-orange)" : "var(--tile-gray)" }}>
                 {m.callback_requested ? <PhoneCall size={16} /> : <MessageSquareText size={16} />}
               </div>
               <div className="row-main">

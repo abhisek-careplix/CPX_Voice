@@ -3,7 +3,7 @@ import { ChevronRight, ClipboardCheck } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Task } from "../api";
-import { Card, Empty, Segmented, TaskPill, Toolbar, timeAgo } from "../ui";
+import { Card, Empty, ErrorState, ListSkeleton, Segmented, TaskPill, Toolbar, timeAgo } from "../ui";
 
 export default function Results() {
   const tasks = useQuery({ queryKey: ["tasks"], queryFn: () => api.get<Task[]>("/tasks"), refetchInterval: 5000 });
@@ -11,7 +11,7 @@ export default function Results() {
   const rows = (tasks.data ?? []).filter((t) => (filter === "review" ? t.state === "Review" : ["Completed", "Partial", "Unsuccessful", "Cancelled"].includes(t.state)));
   return (
     <>
-      <Toolbar title="Results" eyebrow="Evidence-backed business outcomes" />
+      <Toolbar eyebrow="Operate" title="Results" description="Business outcomes backed by evidence from the call. A finished call isn't a finished task: each result waits here until a reviewer records the outcome." />
       <div className="content">
         <Segmented
           label="Filter results"
@@ -23,9 +23,11 @@ export default function Results() {
           ]}
         />
         <Card>
-          {rows.length === 0 ? (
+          {tasks.isPending && <ListSkeleton rows={3} icon={false} />}
+          {tasks.error && <ErrorState error={tasks.error} onRetry={() => tasks.refetch()} title="Couldn't load results" />}
+          {tasks.data && rows.length === 0 ? (
             <Empty icon={ClipboardCheck} title={filter === "review" ? "Nothing to review" : "No closed results"}>
-              A finished call is not a finished task: results wait here until a reviewer records the outcome.
+              {filter === "review" ? "Nothing is waiting for a reviewer right now." : "Results appear here once a reviewer records the outcome."}
             </Empty>
           ) : (
             <ul className="list">

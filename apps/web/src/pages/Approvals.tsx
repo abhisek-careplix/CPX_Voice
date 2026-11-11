@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Inbox } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
-import { Card, Empty, Pill, Toolbar } from "../ui";
+import { Card, Empty, ErrorState, ListSkeleton, Pill, Toolbar } from "../ui";
 import { RISK } from "./BrowserAgent";
 
 interface Item {
@@ -23,10 +23,13 @@ export default function Approvals() {
   const q = useQuery({ queryKey: ["approvals"], queryFn: () => api.get<{ items: Item[] }>("/browser/approvals"), refetchInterval: 3000 });
   const items = q.data?.items ?? [];
   return (
-    <div className="stack" style={{ gap: 16 }}>
-      <Toolbar eyebrow="Approvals" title="Waiting for a person" />
-      <Card title="Inbox" subtitle="Plans and steps the agents are waiting on, longest wait first. Approve from the run's live view.">
-        {items.length === 0 ? (
+    <>
+      <Toolbar eyebrow="Labs" title="Approvals" description="Plans and steps the browser agent is waiting on, longest wait first. Open a run to approve from its live view." />
+      <div className="content">
+      <Card title="Waiting for a person">
+        {q.isPending && <ListSkeleton rows={2} icon={false} />}
+        {q.error && <ErrorState error={q.error} onRetry={() => q.refetch()} title="Couldn't load approvals" />}
+        {q.data && items.length === 0 ? (
           <Empty icon={Inbox} title="Nothing is waiting">When an agent needs a decision it appears here.</Empty>
         ) : (
           <ul className="list">
@@ -47,6 +50,7 @@ export default function Approvals() {
           </ul>
         )}
       </Card>
-    </div>
+      </div>
+    </>
   );
 }

@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, ChevronRight, PhoneIncoming, PhoneOutgoing, Plus } from "lucide-react";
+import { Bot, CircleDashed, CheckCircle2, ChevronRight, PencilLine, PhoneIncoming, PhoneOutgoing, Plus } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, type AgentDetail, type AgentSummary, type Template } from "../api";
 import { useCan } from "../App";
-import { Card, Empty, Pill, Sheet, Toolbar, timeAgo } from "../ui";
+import { Card, Empty, ErrorState, ListSkeleton, Pill, Sheet, Toolbar, timeAgo } from "../ui";
 
 export default function Agents() {
   const agents = useQuery({ queryKey: ["agents"], queryFn: () => api.get<AgentSummary[]>("/agents") });
@@ -14,28 +14,41 @@ export default function Agents() {
   return (
     <>
       <Toolbar
+        eyebrow="Build"
         title="Agents"
-        eyebrow="Reusable voice configurations"
+        description="Each agent is a reusable voice configuration: who it is, what it may do and say, and the version your calls use. Test a draft, pass its regression suite, then publish."
         actions={
           canEdit && (
             <button className="btn btn-primary" onClick={() => setCreating(true)}>
-              <Plus size={16} aria-hidden /> New Agent
+              <Plus size={16} aria-hidden /> New agent
             </button>
           )
         }
       />
       <div className="content">
         <Card>
+          {agents.isPending && <ListSkeleton rows={3} />}
+          {agents.error && <ErrorState error={agents.error} onRetry={() => agents.refetch()} title="Couldn't load agents" />}
           {agents.data?.length === 0 ? (
-            <Empty icon={Bot} title="No agents yet">
-              Create an agent from a task template.
+            <Empty
+              icon={Bot}
+              title="No agents yet"
+              action={
+                canEdit && (
+                  <button className="btn btn-primary" onClick={() => setCreating(true)}>
+                    <Plus size={16} aria-hidden /> Create your first agent
+                  </button>
+                )
+              }
+            >
+              An agent starts from a task template, which sets the procedure, the tools it may use and what it may disclose.
             </Empty>
           ) : (
             <ul className="list">
               {agents.data?.map((a) => (
                 <li key={a.id}>
                   <Link to={`/agents/${a.id}`} className="list-row" style={{ minHeight: 68 }}>
-                    <div className="row-icon" style={{ background: a.template.direction === "inbound" ? "#30b0c7" : "#0071e3", width: 40, height: 40, borderRadius: 11 }}>
+                    <div className="row-icon" style={{ background: a.template.direction === "inbound" ? "var(--tile-teal)" : "var(--tile-blue)", width: 40, height: 40 }}>
                       {a.template.direction === "inbound" ? <PhoneIncoming size={19} /> : <PhoneOutgoing size={19} />}
                     </div>
                     <div className="row-main">
@@ -45,8 +58,20 @@ export default function Agents() {
                       </div>
                     </div>
                     <div className="row">
-                      {a.current ? <Pill tone="green">Published v{a.current.number}</Pill> : <Pill tone="gray">Not published</Pill>}
-                      {a.draft && <Pill tone="orange">Draft v{a.draft.number}</Pill>}
+                      {a.draft && (
+                        <Pill tone="orange" icon={PencilLine}>
+                          Draft v{a.draft.number}
+                        </Pill>
+                      )}
+                      {a.current ? (
+                        <Pill tone="green" icon={CheckCircle2}>
+                          Published v{a.current.number}
+                        </Pill>
+                      ) : (
+                        <Pill tone="gray" icon={CircleDashed}>
+                          Not published
+                        </Pill>
+                      )}
                     </div>
                     <ChevronRight size={16} className="chevron" aria-hidden />
                   </Link>
@@ -76,7 +101,7 @@ function NewAgent({ onClose }: { onClose: () => void }) {
   });
   return (
     <Sheet
-      title="New Agent"
+      title="New agent"
       subtitle="Start from a task template. Templates set the procedure, tools and what may be disclosed."
       onClose={onClose}
       footer={
@@ -97,10 +122,11 @@ function NewAgent({ onClose }: { onClose: () => void }) {
       </label>
       <div className="field">
         <span className="field-label">Template</span>
-        <div className="card" style={{ boxShadow: "none" }}>
+        <div className="card" style={{ boxShadow: "none" }} role="group" aria-label="Templates">
+          {templates.isPending && <ListSkeleton rows={2} />}
           {templates.data?.map((t) => (
-            <button key={t.id} type="button" className="list-row" onClick={() => setTemplateId(t.id)} aria-pressed={templateId === t.id} style={{ background: templateId === t.id ? "var(--accent-tint)" : undefined }}>
-              <div className="row-icon" style={{ background: t.direction === "inbound" ? "#30b0c7" : "#0071e3" }}>
+            <button key={t.id} type="button" className="list-row" onClick={() => setTemplateId(t.id)} aria-pressed={templateId === t.id}>
+              <div className="row-icon" style={{ background: t.direction === "inbound" ? "var(--tile-teal)" : "var(--tile-blue)" }}>
                 {t.direction === "inbound" ? <PhoneIncoming size={17} /> : <PhoneOutgoing size={17} />}
               </div>
               <div className="row-main">

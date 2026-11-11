@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, AudioLines, Check, ChevronLeft, FlaskConical, Lock, RotateCcw, Rocket, Save, ShieldCheck } from "lucide-react";
+import { AlertTriangle, AudioLines, Check, ChevronLeft, FlaskConical, History, Lock, PencilLine, RotateCcw, Rocket, Save, ShieldCheck, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, ApiError, type AgentConfig, type AgentDetail, type CaseItem, type PublishPreview, type Template, type Tool } from "../api";
 import { useCan } from "../App";
 import { RegressionSuite, suiteLabel } from "../Suite";
-import { Banner, Card, Pill, Segmented, Sheet, Switch, Toolbar, humanize, timeAgo, useToast } from "../ui";
+import { Banner, Card, Empty, ErrorState, Pill, Segmented, Sheet, Switch, Toolbar, humanize, timeAgo, useToast } from "../ui";
 
 // LiveKit client code loads only when a test starts.
 const BrowserTestSheet = lazy(() => import("../BrowserTest").then((m) => ({ default: m.BrowserTestSheet })));
@@ -67,8 +67,20 @@ export default function AgentEditor() {
     return () => window.removeEventListener("keydown", onKey);
   }, [dirty, canEdit, save]);
 
+  if (agent.error) {
+    return (
+      <>
+        <Toolbar eyebrow={<Link to="/agents" className="row" style={{ gap: 2 }}><ChevronLeft size={15} aria-hidden /> Agents</Link>} title="Agent" />
+        <div className="content">
+          <Card>
+            <ErrorState error={agent.error} onRetry={() => agent.refetch()} title="Couldn't load this agent" />
+          </Card>
+        </div>
+      </>
+    );
+  }
   if (!agent.data || !config || !template) {
-    return <Toolbar title={<span className="skeleton" style={{ display: "inline-block", width: 220, height: 32 }} />} />;
+    return <Toolbar title={<span className="skeleton" style={{ display: "inline-block", width: 220, height: 28 }} aria-label="Loading" />} />;
   }
   const a = agent.data;
   const update = (fn: (c: AgentConfig) => void) =>
@@ -92,20 +104,21 @@ export default function AgentEditor() {
         title={
           <span className="row" style={{ gap: 12 }}>
             {a.name}
-            {a.draft ? <Pill tone="orange">Draft v{a.draft.number}</Pill> : null}
+            {a.draft ? <Pill tone="orange" icon={PencilLine}>Draft v{a.draft.number}</Pill> : null}
             {a.current ? <Pill tone="green" icon={Check}>Published v{a.current.number}</Pill> : <Pill tone="gray">Not published</Pill>}
           </span>
         }
+        description={template.objective}
         actions={
           <>
+            <button className="btn btn-secondary" onClick={() => setTab("tests")}>
+              <FlaskConical size={15} aria-hidden /> Test
+            </button>
             {canEdit && (
               <button className="btn btn-secondary" disabled={!dirty || save.isPending} onClick={() => save.mutate()} title="Save draft (⌘S)">
-                <Save size={15} aria-hidden /> {save.isPending ? "Saving…" : dirty ? "Save Draft" : "Saved"}
+                {dirty ? <Save size={15} aria-hidden /> : <Check size={15} aria-hidden />} {save.isPending ? "Saving…" : dirty ? "Save draft" : "Saved"}
               </button>
             )}
-            <button className="btn btn-tinted" onClick={() => setTab("tests")}>
-              <AudioLines size={15} aria-hidden /> Test
-            </button>
             {canPublish && (
               <button className="btn btn-primary" disabled={dirty || !a.draft} onClick={() => setPublishing(true)} title={dirty ? "Save the draft before publishing" : undefined}>
                 <Rocket size={15} aria-hidden /> Publish
@@ -376,8 +389,8 @@ function GuardrailsTab({ config, update, template }: TabProps & { template: Temp
             {triggers.map((t) => (
               <span className="chip" key={t}>
                 {t}
-                <button type="button" className="btn-plain" style={{ border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--label-3)" }} aria-label={`Remove ${t}`} onClick={() => update((c) => void (c.guardrails.escalation_triggers = triggers.filter((x) => x !== t)))}>
-                  ✕
+                <button type="button" style={{ display: "inline-grid", placeItems: "center", border: 0, background: "none", cursor: "pointer", padding: 0, color: "var(--label-2)" }} aria-label={`Remove ${t}`} onClick={() => update((c) => void (c.guardrails.escalation_triggers = triggers.filter((x) => x !== t)))}>
+                  <X size={12} aria-hidden />
                 </button>
               </span>
             ))}
@@ -431,7 +444,7 @@ function TestsTab({ agent, dirty, onTest }: { agent: AgentDetail; dirty: boolean
   return (
     <div className="split">
       <div className="stack" style={{ gap: 20 }}>
-        <Card title="Browser Test" subtitle="Talk to the agent through your microphone. Uses LiveKit and Gemini Live for real; runs as a sandbox call with synthetic data." pad>
+        <Card title="Browser test" subtitle="Talk to the agent through your microphone, on the real voice stack. It runs as a sandbox call with synthetic data." pad>
           <div className="stack" style={{ gap: 14 }}>
             <div className="field">
               <span className="field-label">Configuration</span>
@@ -444,7 +457,7 @@ function TestsTab({ agent, dirty, onTest }: { agent: AgentDetail; dirty: boolean
                   { value: "published", label: `Published${agent.current ? ` v${agent.current.number}` : ""}` },
                 ]}
               />
-              {use === "draft" && dirty && <span className="field-help" style={{ color: "var(--orange)" }}>You have unsaved changes. The test uses the last saved draft.</span>}
+              {use === "draft" && dirty && <span className="field-help" style={{ color: "var(--orange)" }} role="status">You have unsaved changes. The test uses the last saved draft.</span>}
             </div>
             {outbound && (
               <label className="field">
@@ -465,7 +478,7 @@ function TestsTab({ agent, dirty, onTest }: { agent: AgentDetail; dirty: boolean
             )}
             <div>
               <button className="btn btn-primary btn-lg" disabled={!canTest || !testable} onClick={() => onTest({ use, caseId: caseId || undefined })}>
-                <AudioLines size={18} aria-hidden /> Start Browser Test
+                <AudioLines size={18} aria-hidden /> Start browser test
               </button>
               {!testable && <div className="field-help" style={{ marginTop: 6 }}>{use === "published" ? "Publish a version first." : "No draft to test."}</div>}
             </div>
@@ -475,14 +488,18 @@ function TestsTab({ agent, dirty, onTest }: { agent: AgentDetail; dirty: boolean
       </div>
       <Card title="Version history" subtitle="Published versions are immutable. Activating one changes new calls only.">
         {agent.versions.length === 0 ? (
-          <div className="empty small">Nothing published yet.</div>
+          <Empty icon={History} title="Nothing published yet">
+            Published versions appear here. You can make an earlier one active again.
+          </Empty>
         ) : (
           <ul className="list">
             {agent.versions.map((v) => (
               <li className="list-row" key={v.id} style={{ alignItems: "flex-start" }}>
                 <div className="row-main">
-                  <div className="row-title">
-                    Version {v.number} {agent.current?.id === v.id && <Pill tone="green">Active</Pill>} <Pill tone={suiteLabel(v.suite)[0]}>{suiteLabel(v.suite)[1]}</Pill>
+                  <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+                    <span className="row-title">Version {v.number}</span>
+                    {agent.current?.id === v.id && <Pill tone="green" icon={Check}>Active</Pill>}
+                    <Pill tone={suiteLabel(v.suite)[0]} icon={FlaskConical}>{suiteLabel(v.suite)[1]}</Pill>
                   </div>
                   <div className="row-sub" style={{ whiteSpace: "normal" }}>
                     {v.change_note ?? "No change note"} · {timeAgo(v.published_at)}
@@ -560,7 +577,7 @@ function PublishSheet({ agentId, onClose }: { agentId: string; onClose: () => vo
           <span className="field-label" style={{ margin: 0 }}>
             Regression suite
           </span>
-          <Pill tone={suiteTone}>{suiteText}</Pill>
+          <Pill tone={suiteTone} icon={FlaskConical}>{suiteText}</Pill>
           {!p.evaluation.required && <span className="small muted">Not required for this agent.</span>}
         </div>
       )}

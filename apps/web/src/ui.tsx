@@ -6,6 +6,8 @@ import {
   Clock,
   Info,
   PhoneOff,
+  RefreshCw,
+  X,
   XCircle,
   type LucideIcon,
 } from "lucide-react";
@@ -92,19 +94,15 @@ export function FindingPill({ status }: { status: Finding["status"] }) {
 
 // ---------- Layout primitives ----------
 
-export function Toolbar({ eyebrow, title, actions }: { eyebrow?: ReactNode; title: ReactNode; actions?: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [scrolled, setScrolled] = useState(false);
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+/** Page header: optional breadcrumb or section label, the page title, one sentence on what the
+ * page is for, and the page's actions at the end (one primary action at most). */
+export function Toolbar({ eyebrow, title, description, actions }: { eyebrow?: ReactNode; title: ReactNode; description?: ReactNode; actions?: ReactNode }) {
   return (
-    <header ref={ref} className={`toolbar${scrolled ? " scrolled" : ""}`}>
+    <header className="toolbar">
       <div className="toolbar-titles">
         {eyebrow && <div className="eyebrow">{eyebrow}</div>}
         <h1 className="large-title">{title}</h1>
+        {description && <p className="page-description">{description}</p>}
       </div>
       {actions && <div className="toolbar-actions">{actions}</div>}
     </header>
@@ -132,11 +130,47 @@ export function Empty({ icon: Icon, title, children, action }: { icon: LucideIco
   return (
     <div className="empty">
       <div className="empty-icon">
-        <Icon size={24} aria-hidden />
+        <Icon size={22} aria-hidden />
       </div>
       <h3>{title}</h3>
       {children && <p>{children}</p>}
       {action}
+    </div>
+  );
+}
+
+/** A query that failed: what happened, in the API's words, and a way to try again. */
+export function ErrorState({ error, onRetry, title = "Couldn't load this" }: { error: unknown; onRetry?: () => void; title?: string }) {
+  const message = error instanceof Error ? error.message : "Something went wrong.";
+  return (
+    <div className="empty tone-error" role="alert">
+      <div className="empty-icon">
+        <AlertTriangle size={22} aria-hidden />
+      </div>
+      <h3>{title}</h3>
+      <p>{message}</p>
+      {onRetry && (
+        <button type="button" className="btn btn-secondary" onClick={onRetry}>
+          <RefreshCw size={14} aria-hidden /> Try again
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Placeholder rows while a list loads; keeps the list's shape so nothing jumps. */
+export function ListSkeleton({ rows = 3, icon = true }: { rows?: number; icon?: boolean }) {
+  return (
+    <div aria-busy="true" aria-label="Loading">
+      {Array.from({ length: rows }, (_, i) => (
+        <div className="skeleton-row" key={i}>
+          {icon && <div className="skeleton" style={{ width: 36, height: 36, borderRadius: 10, flex: "none" }} />}
+          <div className="stack" style={{ gap: 6, flex: 1 }}>
+            <div className="skeleton" style={{ height: 12, width: `${55 - i * 8}%` }} />
+            <div className="skeleton" style={{ height: 10, width: `${35 - i * 4}%` }} />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -158,21 +192,29 @@ export function Switch({ checked, onChange, label, disabled }: { checked: boolea
 }
 
 export function Sheet({ title, subtitle, onClose, children, footer, wide }: { title: ReactNode; subtitle?: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
+  const dialog = useRef<HTMLDivElement>(null);
+  // Captured on first render, before a field inside the dialog autofocuses.
+  const [opener] = useState(() => document.activeElement as HTMLElement | null);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+  // Move focus into the dialog (unless a field there took it) and give it back on close.
+  useEffect(() => {
+    if (!dialog.current?.contains(document.activeElement)) dialog.current?.focus();
+    return () => opener?.focus?.();
+  }, [opener]);
   return (
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`sheet${wide ? " sheet-wide" : ""}`} role="dialog" aria-modal="true" aria-label={typeof title === "string" ? title : undefined}>
+      <div ref={dialog} tabIndex={-1} className={`sheet${wide ? " sheet-wide" : ""}`} role="dialog" aria-modal="true" aria-label={typeof title === "string" ? title : undefined} style={{ outline: "none" }}>
         <div className="sheet-head">
           <div style={{ flex: 1, minWidth: 0 }}>
             <h2 className="card-title">{title}</h2>
             {subtitle && <p className="card-sub">{subtitle}</p>}
           </div>
-          <button className="btn btn-secondary btn-icon" onClick={onClose} aria-label="Close">
-            ✕
+          <button className="btn btn-plain btn-icon" onClick={onClose} aria-label="Close" style={{ color: "var(--label-2)" }}>
+            <X size={18} aria-hidden />
           </button>
         </div>
         <div className="sheet-body">{children}</div>
@@ -186,9 +228,9 @@ export function Banner({ tone, title, children, icon: Icon = Info }: { tone: Ton
   return (
     <div className={`banner tone-${tone}`} role={tone === "red" ? "alert" : "status"}>
       <Icon size={18} style={{ flex: "none", marginTop: 1 }} aria-hidden />
-      <div style={{ color: "var(--label)" }}>
+      <div style={{ color: "var(--label)", minWidth: 0 }}>
         <strong>{title}</strong>
-        {children && <span className="muted">{children}</span>}
+        {children && <div className="muted">{children}</div>}
       </div>
     </div>
   );

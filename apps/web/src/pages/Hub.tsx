@@ -27,10 +27,10 @@ const CONFIRM: Record<HubProfile["confirm"], string> = {
 };
 
 function Cell({ s }: { s: HubSupport }) {
-  if (s === "yes") return <CircleCheck size={16} color="#34c759" aria-label="Supported" />;
-  if (s === "existing_patients") return <UserCheck size={16} color="#34c759" aria-label="Existing patients only" />;
-  if (s === "verify") return <CircleHelp size={16} color="#ff9500" aria-label="Verify per practice" />;
-  return <Minus size={16} color="#8e8e93" aria-label="Not supported" />;
+  if (s === "yes") return <CircleCheck size={16} color="var(--green)" aria-label="Supported" />;
+  if (s === "existing_patients") return <UserCheck size={16} color="var(--green)" aria-label="Existing patients only" />;
+  if (s === "verify") return <CircleHelp size={16} color="var(--orange)" aria-label="Verify per practice" />;
+  return <Minus size={16} color="var(--label-3)" aria-label="Not supported" />;
 }
 
 function status(p: HubProfile, conns: HubConnection[]): { tone: "green" | "purple" | "blue" | "gray"; label: string } {
@@ -65,7 +65,7 @@ export default function Hub() {
 
   return (
     <>
-      <Toolbar eyebrow="CarePlix Connect" title="EHR hub" />
+      <Toolbar eyebrow="Settings" title="EHR hub" description="Which EHRs are connected, and what each one supports for scheduling, eligibility and patient records." />
       <div className="content">
         <Banner tone="blue" title="One integration layer for every CarePlix product." icon={Network}>
           {" "}
@@ -188,16 +188,16 @@ export default function Hub() {
             </div>
             <div className="card-pad small muted row" style={{ gap: 14, flexWrap: "wrap" }}>
               <span className="row" style={{ gap: 4 }}>
-                <CircleCheck size={14} color="#34c759" /> Supported
+                <CircleCheck size={14} color="var(--green)" /> Supported
               </span>
               <span className="row" style={{ gap: 4 }}>
-                <UserCheck size={14} color="#34c759" /> Existing patients only
+                <UserCheck size={14} color="var(--green)" /> Existing patients only
               </span>
               <span className="row" style={{ gap: 4 }}>
-                <CircleHelp size={14} color="#ff9500" /> Verify per practice
+                <CircleHelp size={14} color="var(--orange)" /> Verify per practice
               </span>
               <span className="row" style={{ gap: 4 }}>
-                <Minus size={14} color="#8e8e93" /> Not supported: becomes a staff task
+                <Minus size={14} color="var(--label-3)" /> Not supported: becomes a staff task
               </span>
             </div>
           </Card>

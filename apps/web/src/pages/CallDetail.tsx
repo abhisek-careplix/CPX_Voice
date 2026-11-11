@@ -5,7 +5,7 @@ import { Link, useParams } from "react-router-dom";
 import { api, type AgentSummary, type CallDetail as Detail, type Template } from "../api";
 import { useCan } from "../App";
 import { FindingsChecklist, ToolActivity, Transcript, useCallEvents } from "../live";
-import { AttemptPill, Banner, Card, DIRECTION_LABEL, duration, Toolbar, useNow, useToast } from "../ui";
+import { AttemptPill, Banner, Card, ErrorState, DIRECTION_LABEL, duration, Toolbar, useNow, useToast } from "../ui";
 
 const ACTIVE = ["Created", "Queued", "Dialing", "Connected", "Ending"];
 const DISPOSITION: Record<string, string> = {
@@ -42,7 +42,19 @@ export default function CallDetail() {
   const templateId = agents.data?.find((a) => a.id === c?.agent.id)?.template.id;
   const template = templates.data?.find((t) => t.id === templateId);
 
-  if (!c) return <Toolbar title={<span className="skeleton" style={{ display: "inline-block", width: 260, height: 32 }} />} />;
+  if (!c)
+    return (
+      <>
+        <Toolbar eyebrow={<Link to="/calls" className="row" style={{ gap: 2 }}><ChevronLeft size={15} aria-hidden /> Calls</Link>} title={detail.error ? "Not available" : <span className="skeleton" style={{ display: "inline-block", width: 260, height: 28 }} aria-label="Loading" />} />
+        {detail.error && (
+          <div className="content">
+            <Card>
+              <ErrorState error={detail.error} onRetry={() => detail.refetch()} />
+            </Card>
+          </div>
+        )}
+      </>
+    );
 
   return (
     <>
