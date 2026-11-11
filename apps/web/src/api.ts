@@ -96,6 +96,40 @@ export interface AgentConfig {
   model: { provider: "google_vertex"; model_id: string; connection_id: string };
   outcome: { success_conditions: string[]; critical_fields: string[] };
   instructions: { agent_text: string };
+  persona?: PersonaStyle;
+}
+
+/** VS4: how an agent sounds. Style only; never tools, disclosures or authority. */
+export interface PersonaStyle {
+  source_id?: string;
+  source_name?: string;
+  warmth?: "warm" | "neutral" | "brisk";
+  formality?: "formal" | "neutral" | "casual";
+  pace?: "slow" | "normal" | "fast";
+  empathy?: "standard" | "high";
+  languages?: string[];
+  avoid?: string[];
+  signature_phrases?: string[];
+  character?: string;
+}
+
+export interface Persona extends Required<Pick<PersonaStyle, "warmth" | "formality" | "pace" | "empathy" | "languages" | "avoid" | "signature_phrases">> {
+  id: string;
+  name: string;
+  description: string | null;
+  agent_name: string;
+  role: string;
+  voice: string;
+  greeting: string;
+  character: string | null;
+  config: { identity: { name: string; role: string; greeting: string }; voice: string; persona: PersonaStyle };
+  updated_at: string;
+}
+
+export interface PersonaLibrary {
+  personas: Persona[];
+  voices: string[];
+  languages: { code: string; label: string }[];
 }
 
 export interface AgentSummary {
