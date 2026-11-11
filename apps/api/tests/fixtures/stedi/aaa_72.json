@@ -1,0 +1,33 @@
+{
+  "_source": "Shaped from the AAA error examples in docs/healthcare/eligibility-troubleshooting for Stedi's AAA 72 mock request (api-reference/mock-requests-eligibility-checks). Synthetic data only.",
+  "http_status": 200,
+  "body": {
+    "id": "ec_uhc_aaa72_mock",
+    "payerId": "87726",
+    "payer": {
+      "type": "PAYER",
+      "name": {
+        "organization": "UNITEDHEALTHCARE"
+      }
+    },
+    "subscriber": {
+      "memberId": "UHCAAA72",
+      "dateOfBirth": "1990-01-01",
+      "name": {
+        "person": {
+          "firstName": "John",
+          "lastName": "Doe"
+        }
+      }
+    },
+    "errors": [
+      {
+        "code": "72",
+        "description": "Invalid/Missing Subscriber/Insured ID",
+        "followupAction": "Please Correct and Resubmit",
+        "location": "SUBSCRIBER",
+        "possibleResolutions": "Guidance text; Stedi says not to build logic on it."
+      }
+    ]
+  }
+}

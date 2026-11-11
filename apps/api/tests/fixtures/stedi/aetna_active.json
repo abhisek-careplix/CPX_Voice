@@ -1,0 +1,52 @@
+{
+  "_source": "Recorded from Stedi's Aetna mock (Jane Doe, AETNA12345, 2004-04-04) on 31 Oct 2026 and abridged; coverage levels and the family and out-of-network lines follow the shapes in docs/healthcare/eligibility-patient-responsibility-benefits. Synthetic data only.",
+  "http_status": 200,
+  "body": {
+    "id": "ec_aetna_mock",
+    "payerId": "60054",
+    "payer": {"type": "PAYER", "name": {"organization": "AETNA INC"}},
+    "subscriber": {
+      "memberId": "AETNA12345",
+      "dateOfBirth": "2004-04-04",
+      "name": {"person": {"firstName": "JANE", "lastName": "DOE"}},
+      "dates": {"plan": {"start": "2026-01-01", "end": "2026-12-31"}}
+    },
+    "plans": [
+      {
+        "name": "Gold Plan",
+        "benefits": {
+          "statuses": [
+            {
+              "coverageLevel": "INDIVIDUAL",
+              "service": {"system": "STC", "value": "30", "definition": "Health Benefit Plan Coverage"},
+              "network": {"indicator": "IN_AND_OUT_OF_NETWORK"},
+              "insuranceType": "PREFERRED_PROVIDER_ORGANIZATION_PPO",
+              "status": "ACTIVE_COVERAGE"
+            }
+          ],
+          "coPayment": [
+            {"coverageLevel": "INDIVIDUAL", "network": {"indicator": "IN_NETWORK"}, "service": {"system": "STC", "value": "33", "definition": "Chiropractic"}, "amount": "25"},
+            {"coverageLevel": "INDIVIDUAL", "network": {"indicator": "IN_NETWORK"}, "service": {"system": "STC", "value": "98", "definition": "Professional (Physician) Visit - Office"}, "amount": "30"},
+            {"coverageLevel": "INDIVIDUAL", "network": {"indicator": "OUT_OF_NETWORK"}, "service": {"system": "STC", "value": "98", "definition": "Professional (Physician) Visit - Office"}, "amount": "60"}
+          ],
+          "coInsurance": [
+            {"coverageLevel": "INDIVIDUAL", "network": {"indicator": "IN_NETWORK"}, "service": {"system": "STC", "value": "98"}, "percent": "0"}
+          ],
+          "deductible": [
+            {"coverageLevel": "FAMILY", "network": {"indicator": "IN_NETWORK"}, "service": {"system": "STC", "value": "30"}, "timePeriod": "CALENDAR_YEAR", "amount": "1500"},
+            {"coverageLevel": "FAMILY", "network": {"indicator": "IN_NETWORK"}, "service": {"system": "STC", "value": "30"}, "timePeriod": "REMAINING", "amount": "1100"},
+            {"coverageLevel": "INDIVIDUAL", "network": {"indicator": "IN_NETWORK"}, "service": {"system": "STC", "value": "30"}, "timePeriod": "CALENDAR_YEAR", "amount": "500"},
+            {"coverageLevel": "INDIVIDUAL", "network": {"indicator": "IN_NETWORK"}, "service": {"system": "STC", "value": "30"}, "timePeriod": "REMAINING", "amount": "350"},
+            {"coverageLevel": "INDIVIDUAL", "network": {"indicator": "OUT_OF_NETWORK"}, "service": {"system": "STC", "value": "30"}, "timePeriod": "CALENDAR_YEAR", "amount": "1000"},
+            {"coverageLevel": "INDIVIDUAL", "network": {"indicator": "OUT_OF_NETWORK"}, "service": {"system": "STC", "value": "30"}, "timePeriod": "REMAINING", "amount": "1000"}
+          ],
+          "outOfPocket": [
+            {"coverageLevel": "INDIVIDUAL", "network": {"indicator": "IN_NETWORK"}, "service": {"system": "STC", "value": "30"}, "timePeriod": "SERVICE_YEAR", "amount": "7000"},
+            {"coverageLevel": "INDIVIDUAL", "network": {"indicator": "IN_NETWORK"}, "service": {"system": "STC", "value": "30"}, "timePeriod": "REMAINING", "amount": "6200"},
+            {"coverageLevel": "FAMILY", "network": {"indicator": "IN_NETWORK"}, "service": {"system": "STC", "value": "30"}, "timePeriod": "YEARS", "amount": "14000"}
+          ]
+        }
+      }
+    ]
+  }
+}

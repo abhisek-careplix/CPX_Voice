@@ -1,0 +1,34 @@
+{
+  "_source": "Shaped from the AAA error examples in docs/healthcare/eligibility-troubleshooting for Stedi's AAA 79 mock request (api-reference/mock-requests-eligibility-checks). Synthetic data only.",
+  "http_status": 400,
+  "body": {
+    "id": "ec_uhc_aaa79_mock",
+    "payerId": "87726",
+    "payer": {
+      "type": "PAYER",
+      "name": {
+        "organization": "UNITEDHEALTHCARE"
+      }
+    },
+    "subscriber": {
+      "memberId": "UHCAAA79",
+      "dateOfBirth": "1970-01-01",
+      "name": {
+        "person": {
+          "firstName": "John",
+          "lastName": "Doe"
+        }
+      }
+    },
+    "errors": [
+      {
+        "code": "79",
+        "description": "Invalid Participant Identification",
+        "followupAction": "Please Correct and Resubmit",
+        "location": "PAYER",
+        "possibleResolutions": "Guidance text; Stedi says not to build logic on it."
+      }
+    ],
+    "message": "One of the participants in the request could not be identified. Check the payer ID, provider identifiers and member details against the payer's requirements."
+  }
+}

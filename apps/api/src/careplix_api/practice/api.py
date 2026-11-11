@@ -17,6 +17,7 @@ from careplix_api.connect.catalog import OPERATIONS, PROFILES
 from careplix_api.connect.connectors import connector_for
 from careplix_api.db import as_utc, utcnow
 from careplix_api.errors import ApiError
+from careplix_api.integrations import stedi
 from careplix_api.models import (
     AuditEvent,
     BackfillOffer,
@@ -25,12 +26,22 @@ from careplix_api.models import (
     EligibilityCheck,
     FrontDeskMessage,
     PayerConnection,
+    PayerMapping,
     SyncCursor,
     WebhookEvent,
+    Workspace,
     WriteIntent,
 )
 from careplix_api.phi import PhiBox, initials
-from careplix_api.practice import backfill, eligibility, intents, receptionist, sync, webhooks
+from careplix_api.practice import (
+    backfill,
+    eligibility,
+    intents,
+    payers,
+    receptionist,
+    sync,
+    webhooks,
+)
 from careplix_api.practice.connections import CLEARINGHOUSE, EHR_KINDS, OPENEMR, verify
 from careplix_api.settings import Settings, get_settings
 from careplix_api.studio_api import Session
@@ -368,12 +379,18 @@ def _flags(
         flags.append("check_pending")
     elif check.state == "failed":
         flags.append("check_failed")
+    elif check.state == "skipped" and (check.summary or {}).get("coverage") == "payer_unmapped":
+        flags.append("payer_unmapped")
     elif check.state == "done":
         summary = check.summary or {}
         if summary.get("coverage") == "inactive":
             flags.append("coverage_inactive")
         if summary.get("auth_required_services"):
             flags.append("auth_required")
+        if summary.get("redirect"):
+            flags.append("coverage_redirect")
+        if (summary.get("medicaid") or {}).get("card_reported_stolen"):
+            flags.append("card_reported_stolen")
     return flags
 
 
@@ -526,9 +543,168 @@ async def check_now(
     )
     session.add(check)
     await session.flush()
-    await eligibility.run_check(session, check, settings, _transport(request))
+    # CMS wants every IP from the person who asked through to Stedi (traceability rules).
+    await eligibility.run_check(
+        session,
+        check,
+        settings,
+        _transport(request),
+        forwarded_for=request.headers.get("x-forwarded-for"),
+    )
     await session.commit()
     return eligibility.view(check)
+
+
+# --- eligibility settings and payer mapping --------------------------------------------------
+
+
+class EligibilitySettingsIn(BaseModel):
+    billing_npi: str | None = Field(default=None, max_length=10)
+    test_scenario: str | None = Field(default=None, max_length=40)
+
+
+async def _eligibility_settings(
+    session: AsyncSession, workspace_id: str, settings: Settings
+) -> dict[str, Any]:
+    workspace = await session.get(Workspace, workspace_id)
+    clearinghouse = await eligibility.clearinghouse(session, workspace_id)
+    return {
+        "mode": (clearinghouse.auth_ref or {}).get("env") if clearinghouse else None,
+        "billing_npi": workspace.billing_npi,
+        "practice_npi_fallback": settings.practice_npi or None,
+        "effective_npi": await eligibility.billing_npi(session, workspace_id, settings),
+        "test_scenario": workspace.stedi_test_scenario or stedi.AUTO,
+        "scenarios": [{"key": stedi.AUTO, "label": "Match the patient's plan"}]
+        + [{"key": k, "label": m.label} for k, m in stedi.MOCKS.items()],
+    }
+
+
+@router.get("/eligibility/settings")
+async def get_eligibility_settings(
+    principal: Principal = Depends(require("view")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    return await _eligibility_settings(session, principal.workspace_id, settings)
+
+
+@router.put("/eligibility/settings")
+async def put_eligibility_settings(
+    body: EligibilitySettingsIn,
+    principal: Principal = Depends(require("admin")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    workspace = await session.get(Workspace, principal.workspace_id)
+    fields = body.model_fields_set
+    if "billing_npi" in fields:
+        npi = (body.billing_npi or "").strip()
+        if npi and not stedi.valid_npi(npi):
+            raise ApiError(422, "invalid_npi", "That isn't a valid 10-digit NPI.")
+        workspace.billing_npi = npi or None
+    if "test_scenario" in fields:
+        scenario = body.test_scenario or stedi.AUTO
+        if scenario != stedi.AUTO and scenario not in stedi.MOCKS:
+            raise ApiError(422, "unknown_scenario", "Pick one of Stedi's published mock requests.")
+        workspace.stedi_test_scenario = scenario
+    session.add(
+        AuditEvent(
+            workspace_id=principal.workspace_id,
+            actor=principal.user_id,
+            action="practice.eligibility_settings",
+            target=principal.workspace_id,
+            detail={"fields": sorted(fields)},
+        )
+    )
+    await session.commit()
+    return await _eligibility_settings(session, principal.workspace_id, settings)
+
+
+@router.get("/payers")
+async def list_payers(
+    principal: Principal = Depends(require("view")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    npi = await eligibility.billing_npi(session, principal.workspace_id, settings)
+    rows = []
+    for m in await session.scalars(
+        select(PayerMapping)
+        .where(PayerMapping.workspace_id == principal.workspace_id)
+        .order_by(PayerMapping.created_at)
+    ):
+        enrolled = (
+            await payers.enrollment(session, principal.workspace_id, npi, m.stedi_payer_id)
+            if npi and m.stedi_payer_id
+            else None
+        )
+        rows.append(payers.view(m, enrolled))
+    return {"billing_npi": npi, "payers": rows}
+
+
+async def _mapping(session: AsyncSession, principal: Principal, mapping_id: str) -> PayerMapping:
+    mapping = await session.get(PayerMapping, mapping_id)
+    if mapping is None or mapping.workspace_id != principal.workspace_id:
+        raise ApiError(404, "not_found", "Payer mapping not found.")
+    return mapping
+
+
+class ConfirmPayerIn(BaseModel):
+    payer_id: str = Field(min_length=1, max_length=40)
+
+
+@router.post("/payers/{mapping_id}/confirm")
+async def confirm_payer(
+    mapping_id: str,
+    body: ConfirmPayerIn,
+    principal: Principal = Depends(require("admin")),
+    session: AsyncSession = Session,
+):
+    mapping = await _mapping(session, principal, mapping_id)
+    try:
+        payers.confirm(mapping, body.payer_id.strip(), principal.user_id)
+    except ValueError as err:
+        raise ApiError(422, "payer_not_allowed", str(err)) from None
+    session.add(
+        AuditEvent(
+            workspace_id=principal.workspace_id,
+            actor=principal.user_id,
+            action="practice.payer_confirmed",
+            target=mapping.id,
+            detail={"payer_id": mapping.stedi_payer_id},
+        )
+    )
+    await session.commit()
+    return payers.view(mapping)
+
+
+class PayerPinIn(BaseModel):
+    pin: str | None = Field(default=None, max_length=80)
+
+
+@router.put("/payers/{mapping_id}/pin")
+async def set_payer_pin(
+    mapping_id: str,
+    body: PayerPinIn,
+    principal: Principal = Depends(require("admin")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """The provider PIN some Medicaid payers require (Medi-Cal: the portal password). Sealed at
+    rest, never returned: the Studio only learns whether one is set."""
+    mapping = await _mapping(session, principal, mapping_id)
+    mapping.pin = PhiBox(settings).seal({"pin": body.pin}) if body.pin else None
+    session.add(
+        AuditEvent(
+            workspace_id=principal.workspace_id,
+            actor=principal.user_id,
+            action="practice.payer_pin",
+            target=mapping.id,
+            detail={"set": bool(body.pin)},
+        )
+    )
+    await session.commit()
+    return payers.view(mapping)
 
 
 class IntentIn(BaseModel):

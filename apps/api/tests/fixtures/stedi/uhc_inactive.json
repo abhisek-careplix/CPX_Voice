@@ -1,0 +1,29 @@
+{
+  "_source": "Shaped from the inactive-coverage example in docs/healthcare/eligibility-active-coverage-benefits for Stedi's UHC inactive mock (Jane Doe, UHCINACTIVE, 1971-01-01). Synthetic data only.",
+  "http_status": 200,
+  "body": {
+    "id": "ec_uhc_inactive_mock",
+    "payerId": "87726",
+    "payer": {"type": "PAYER", "name": {"organization": "UNITEDHEALTHCARE"}},
+    "subscriber": {
+      "memberId": "UHCINACTIVE",
+      "dateOfBirth": "1971-01-01",
+      "name": {"person": {"firstName": "JANE", "lastName": "DOE"}},
+      "dates": {"plan": {"start": "2024-01-01", "end": "2025-12-31"}}
+    },
+    "plans": [
+      {
+        "benefits": {
+          "statuses": [
+            {
+              "status": "INACTIVE",
+              "coverageLevel": "INDIVIDUAL",
+              "network": {"indicator": "IN_AND_OUT_OF_NETWORK"},
+              "service": {"system": "STC", "value": "30", "definition": "Health Benefit Plan Coverage"}
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

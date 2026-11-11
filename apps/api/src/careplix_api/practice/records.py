@@ -243,6 +243,18 @@ def map_insurance_plan(r: dict[str, Any]) -> Mirrored:
     )
 
 
+def split_name(name: Any) -> tuple[str | None, str | None]:
+    """'Sam Poe' or 'Poe, Sam' → ('Sam', 'Poe'). The sync prefers the subscriber's own chart."""
+    text = " ".join(str(name or "").split())
+    if not text:
+        return None, None
+    if "," in text:
+        last, _, first = text.partition(",")
+        return first.strip() or None, last.strip() or None
+    first, _, last = text.partition(" ")
+    return first or None, last or None
+
+
 def subscriber_is_patient(r: dict[str, Any]) -> bool:
     return str(r.get("subscription_relation") or "self").lower() == "self"
 
@@ -256,15 +268,25 @@ def map_coverage(r: dict[str, Any]) -> Mirrored:
     - ``attrs.subscriber_is_patient``: true when ``subscription_relation`` is ``self``.
     - ``attrs.subscriber_details``: ``loaded`` (name and birth date below), ``self`` (use the
       patient's own record) or ``pending`` (not read yet; the next sync pass reads it).
-    - ``pii.subscriber_name`` and ``pii.subscriber_date_of_birth`` (``YYYY-MM-DD``), sealed.
+    - ``pii.subscriber_name``, ``pii.subscriber_first_name``, ``pii.subscriber_last_name``,
+      ``pii.subscriber_date_of_birth`` (``YYYY-MM-DD``) and ``pii.subscriber_member_id``, sealed.
+      First and last come from the subscriber's own chart when the mirror has it, else from
+      splitting the full name.
     """
     subscriber = r.get("subscriber") if isinstance(r.get("subscriber"), dict) else None
     is_patient = subscriber_is_patient(r)
     details = "loaded" if subscriber is not None else ("self" if is_patient else "pending")
     pii: dict[str, Any] = {"member_id": r.get("subscriber_num")}
     if subscriber is not None:
-        pii["subscriber_name"] = subscriber.get("name")
-        pii["subscriber_date_of_birth"] = subscriber.get("date_of_birth")
+        first, last = split_name(subscriber.get("name"))
+        pii.update(
+            subscriber_name=subscriber.get("name"),
+            subscriber_first_name=first,
+            subscriber_last_name=last,
+            subscriber_date_of_birth=subscriber.get("date_of_birth"),
+            # NexHealth's subscriber_num is the policyholder's member ID.
+            subscriber_member_id=r.get("subscriber_num"),
+        )
     if subscriber is not None:
         subscriber_id = _id(subscriber.get("id"))
     else:

@@ -1,0 +1,33 @@
+{
+  "_source": "Shaped from the AAA error examples in docs/healthcare/eligibility-troubleshooting for Stedi's AAA 42 mock request (api-reference/mock-requests-eligibility-checks). Synthetic data only.",
+  "http_status": 200,
+  "body": {
+    "id": "ec_uhc_aaa42_mock",
+    "payerId": "87726",
+    "payer": {
+      "type": "PAYER",
+      "name": {
+        "organization": "UNITEDHEALTHCARE"
+      }
+    },
+    "subscriber": {
+      "memberId": "UHCAAA42",
+      "dateOfBirth": "2001-01-01",
+      "name": {
+        "person": {
+          "firstName": "Jane",
+          "lastName": "Doe"
+        }
+      }
+    },
+    "errors": [
+      {
+        "code": "42",
+        "description": "Unable to Respond at Current Time",
+        "followupAction": "Resubmission Allowed",
+        "location": "PAYER",
+        "possibleResolutions": "Guidance text; Stedi says not to build logic on it."
+      }
+    ]
+  }
+}

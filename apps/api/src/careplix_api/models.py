@@ -35,6 +35,10 @@ class Workspace(IdMixin, Base):
     sandbox_code: Mapped[str | None] = mapped_column(String(8), index=True)
     sandbox_agent_id: Mapped[str | None] = mapped_column(String(36))
     sandbox_outbound: Mapped[bool | None] = mapped_column(Boolean)
+    # Eligibility: the billing NPI sent to payers (falls back to PRACTICE_NPI), and which Stedi
+    # mock member test mode sends (``auto`` picks one that matches the plan).
+    billing_npi: Mapped[str | None] = mapped_column(String(10))
+    stedi_test_scenario: Mapped[str | None] = mapped_column(String(40))
 
 
 class WorkerProbe(IdMixin, Base):
@@ -414,6 +418,56 @@ class EligibilityCheck(IdMixin, Base):
     reused_from: Mapped[str | None] = mapped_column(String(36))
     created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
     completed_at: Mapped[datetime | None] = mapped_column()
+    # Retries for payer connectivity errors (AAA 42/80, HTTP 429): the check stays pending until
+    # next_attempt_at, with the wait growing from 1 minute to 30 (Stedi's retry strategy).
+    attempts: Mapped[int | None] = mapped_column(Integer)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(index=True)
+
+
+class PayerMapping(IdMixin, Base):
+    """How an EHR payer (its payer ID and plan name) maps to a Stedi payer, per workspace.
+
+    Resolved with Stedi's payer search. A match that isn't unique waits for a person to pick one
+    (``ambiguous``); confirmed choices are never overwritten. ``pin`` is the provider PIN some
+    Medicaid payers require (Medi-Cal: the portal password), sealed like patient identifiers.
+    """
+
+    __tablename__ = "payer_mappings"
+    __table_args__ = (UniqueConstraint("workspace_id", "source_key"),)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    source_key: Mapped[str] = mapped_column(String(160))
+    ehr_payer_id: Mapped[str | None] = mapped_column(String(40))
+    ehr_name: Mapped[str | None] = mapped_column(String(160))
+    # resolved | confirmed | ambiguous | not_found | error
+    state: Mapped[str] = mapped_column(String(12), default="resolved")
+    plan_kind: Mapped[str | None] = mapped_column(String(24))  # medicare | medicare_advantage | …
+    stedi_payer_id: Mapped[str | None] = mapped_column(String(40))
+    stedi_name: Mapped[str | None] = mapped_column(String(160))
+    programs: Mapped[list[str] | None] = mapped_column(JSON)
+    enrollment_required: Mapped[bool | None] = mapped_column(Boolean)
+    candidates: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
+    pin: Mapped[str | None] = mapped_column(Text)
+    last_error: Mapped[str | None] = mapped_column(String(200))
+    confirmed_by: Mapped[str | None] = mapped_column(String(36))
+    resolved_at: Mapped[datetime | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class ProviderEnrollment(IdMixin, Base):
+    """Eligibility enrollment for one billing NPI with one payer (CMS attestation, …).
+
+    ``required`` from the payer directory, ``action_required`` when the payer refused the NPI
+    (AAA 41, or 97 for a suspended CMS attestation), ``active`` after an accepted check.
+    """
+
+    __tablename__ = "provider_enrollments"
+    __table_args__ = (UniqueConstraint("workspace_id", "npi", "payer_id"),)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    npi: Mapped[str] = mapped_column(String(10))
+    payer_id: Mapped[str] = mapped_column(String(40))
+    status: Mapped[str] = mapped_column(String(20))
+    detail: Mapped[str | None] = mapped_column(String(200))
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
 
 class BackfillOpening(IdMixin, Base):

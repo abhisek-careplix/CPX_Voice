@@ -93,12 +93,20 @@ class Settings(BaseSettings):
     openemr_facility_id: str = ""
     openemr_ui_url: str = ""  # where staff open OpenEMR screens; defaults to the API base URL
     openemr_sync_interval_s: float = 30.0  # local and free, so cancellations show up quickly
-    # Clearinghouse via Stedi. Set by scripts/connect-stedi.sh.
-    stedi_api_key: SecretStr = SecretStr("")
+    # Clearinghouse via Stedi. Set by scripts/connect-stedi.sh. Test and production keys are
+    # separate settings and never stand in for each other: STEDI_ENV=production uses only
+    # STEDI_PROD_API_KEY; test mode uses STEDI_TEST_API_KEY (or the older STEDI_API_KEY, which is
+    # always treated as a test key).
+    stedi_test_api_key: SecretStr = SecretStr("")
+    stedi_prod_api_key: SecretStr = SecretStr("")
+    stedi_api_key: SecretStr = SecretStr("")  # legacy name for the test key
     stedi_env: str = "test"  # test (mock payers only) | production
     stedi_base_url: str = "https://healthcare.us.stedi.com"
     stedi_webhook_secret: SecretStr = SecretStr("")  # Standard Webhooks secret (whsec_…)
-    # Billing provider sent on eligibility checks (practice NPI). Test mode uses Stedi's mock NPI.
+    stedi_max_in_flight: int = 8  # per process; Stedi's real-time pool is 50 per account
+    stedi_voice_timeout_s: float = 25.0  # a caller waits on the line; the tool limit is 30 s
+    # Billing provider NPI sent on eligibility checks when the workspace hasn't set its own
+    # (Practice → Eligibility settings). Test mode always sends Stedi's mock NPI.
     practice_npi: str = ""
     practice_name: str = "CarePlix Practice"
     # Encrypts patient identifiers in the practice mirror (Fernet key). Dev derives one.
@@ -160,8 +168,21 @@ class Settings(BaseSettings):
         return bool(self.openemr_base_url and self.openemr_client_id and self.openemr_username)
 
     @property
+    def stedi_mode(self) -> str:
+        return "production" if self.stedi_env == "production" else "test"
+
+    @property
+    def stedi_key_env(self) -> str:
+        """The one setting that holds the key for this mode (production never falls back)."""
+        if self.stedi_mode == "production":
+            return "STEDI_PROD_API_KEY"
+        return (
+            "STEDI_TEST_API_KEY" if self.stedi_test_api_key.get_secret_value() else "STEDI_API_KEY"
+        )
+
+    @property
     def stedi_configured(self) -> bool:
-        return bool(self.stedi_api_key.get_secret_value())
+        return bool(getattr(self, self.stedi_key_env.lower()).get_secret_value())
 
     @property
     def approved_destinations(self) -> set[str]:

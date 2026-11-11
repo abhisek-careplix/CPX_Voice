@@ -359,11 +359,10 @@ class FakeNexHealth:
             coverage = self.coverages.get(int(parts[1]))
             if coverage is None:
                 return httpx.Response(404, json={"error": ["not found"]})
-            subscriber = self.subscribers.get(coverage["id"]) or {
-                "id": coverage["patient_id"],
-                "name": "Policy Holder",
-                "date_of_birth": None,
-            }
+            default = {"id": coverage["patient_id"], "name": "Policy Holder", "date_of_birth": None}
+            subscriber = self.subscribers.get(coverage["id"], default)
+            if subscriber is None:  # the EHR has no policyholder on file
+                return httpx.Response(200, json={"data": coverage})
             return httpx.Response(200, json={"data": {**coverage, "subscriber": subscriber}})
         if parts[0] == "patients" and len(parts) == 2:
             patient = self.patients.get(int(parts[1])) or self.unsynced.get(int(parts[1]))
@@ -398,16 +397,29 @@ class FakeNexHealth:
         return httpx.Response(404, json={"error": ["not found"]})
 
 
+# Abridged Stedi payer record (Search Payers, 2024-04-01).
+AETNA = {
+    "displayName": "Aetna",
+    "names": ["Aetna", "Aetna PPO", "Aetna Better Health"],
+    "primaryPayerId": "60054",
+    "stediId": "HPQRS",
+    "aliases": ["60054", "AETNA"],
+    "programs": [],
+    "operatingStates": ["NATIONAL"],
+    "transactionSupport": {"eligibilityCheck": "SUPPORTED"},
+}
+
+
 class FakeStedi:
     def __init__(self):
         self.eligibility_bodies: list[dict] = []
+        self.searches: list[dict] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         assert request.headers["authorization"] == "Key st-test"
         if request.url.path == "/2024-04-01/payers/search":
-            return httpx.Response(
-                200, json={"items": [{"payer": {"name": "Aetna"}}], "stats": {"total": 1}}
-            )
+            self.searches.append(dict(request.url.params))
+            return httpx.Response(200, json={"items": [{"payer": AETNA}], "stats": {"total": 1}})
         body = json.loads(request.content)
         self.eligibility_bodies.append(body)
         if body["subscriber"]["memberId"] == "M-INACTIVE":
@@ -679,7 +691,9 @@ def test_eligibility_autopilot_checks_every_upcoming_visit_in_mock_mode(tmp_path
 
 
 def test_production_eligibility_flags_inactive_coverage_for_review(tmp_path):
-    c, router = _client(tmp_path, stedi_env="production")
+    c, router = _client(
+        tmp_path, stedi_env="production", stedi_api_key="", stedi_prod_api_key="st-test"
+    )
     with c:
         c.post("/api/auth/dev-login")
         _worker(c)

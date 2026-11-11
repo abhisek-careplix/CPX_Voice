@@ -263,6 +263,32 @@ async def _with_subscribers(
     return out
 
 
+async def subscriber_names(
+    session: AsyncSession, conn: PayerConnection, box: PhiBox, items: list[records.Mirrored]
+) -> None:
+    """Take a subscriber's first and last name from their own chart when the mirror has it
+    (NexHealth gives the subscriber's name as one string)."""
+    ids = [
+        str(m.attrs["subscriber_id"])
+        for m in items
+        if m.attrs.get("subscriber_details") == "loaded" and m.attrs.get("subscriber_id")
+    ]
+    if not ids:
+        return
+    charts = await _existing(session, conn, "patient", ids)
+    for m in items:
+        chart = charts.get(str(m.attrs.get("subscriber_id") or ""))
+        if chart is None or m.attrs.get("subscriber_details") != "loaded":
+            continue
+        pii = box.open(chart.pii)
+        if pii.get("first_name") and pii.get("last_name"):
+            m.pii["subscriber_first_name"] = pii["first_name"]
+            m.pii["subscriber_last_name"] = pii["last_name"]
+            m.pii["subscriber_date_of_birth"] = m.pii.get("subscriber_date_of_birth") or pii.get(
+                "date_of_birth"
+            )
+
+
 def _identity(pii: dict[str, Any]) -> tuple[str, str, str] | None:
     first = "".join(ch for ch in str(pii.get("first_name") or "").lower() if ch.isalpha())
     last = "".join(ch for ch in str(pii.get("last_name") or "").lower() if ch.isalpha())
@@ -543,6 +569,8 @@ async def sync_nexhealth(
                 )
                 continue
             items = [mapper(r) for r in rows if r.get("id") is not None]
+            if resource == "coverage":
+                await subscriber_names(session, conn, box, items)
             transitions = await records.upsert(session, conn, resource, items, box)
             if resource == "appointment":
                 report["transitions"] = transitions
@@ -640,6 +668,8 @@ async def refresh_records(
                 continue
             if isinstance(data, dict) and data.get("id") is not None:
                 items.append(mapper(data))
+        if resource == "coverage":
+            await subscriber_names(session, conn, box, items)
         transitions = await records.upsert(session, conn, resource, items, box)
         for rec in (await _existing(session, conn, resource, gone)).values():
             if rec.status != "deleted":

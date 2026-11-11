@@ -22,7 +22,7 @@ from careplix_api.integrations import nexhealth
 from careplix_api.integrations.nexhealth import NexHealthClient, NexHealthError
 from careplix_api.models import EhrRecord, PayerConnection, SyncCursor, WebhookEvent, WriteIntent
 from careplix_api.phi import PhiBox
-from careplix_api.practice import intents
+from careplix_api.practice import eligibility, intents
 from careplix_api.practice.receptionist import spoken
 from careplix_api.practice.webhooks import verify_nexhealth
 
@@ -226,6 +226,25 @@ def test_a_failed_list_leaves_the_cursor_where_it_was(practice):
 
 
 # --- webhooks: signatures, identity, health ---------------------------------------------------
+
+
+def test_a_subscriber_name_splits_when_their_chart_is_not_mirrored():
+    from careplix_api.practice.records import map_coverage, split_name
+
+    assert split_name("Poe, Sam") == ("Sam", "Poe") and split_name(" Ana  de la Cruz ") == (
+        "Ana",
+        "de la Cruz",
+    )
+    coverage = map_coverage(
+        {
+            "id": 9,
+            "patient_id": 3,
+            "subscription_relation": "spouse",
+            "subscriber": {"id": 77, "name": "Lee Park", "date_of_birth": "1970-01-01"},
+        }
+    )
+    assert coverage.pii["subscriber_first_name"] == "Lee"
+    assert coverage.attrs["subscriber_id"] == "77"
 
 
 def test_signature_matches_the_documented_scheme():
@@ -462,6 +481,15 @@ def test_coverage_subscriber_is_read_and_sealed_and_ended_coverage_turns_inactiv
         pii = box.open(child.pii)
         assert pii["subscriber_name"] == "Sam Poe"
         assert pii["subscriber_date_of_birth"] == "1975-05-06"
+        # The names eligibility reads (from Sam's own chart, patient 2).
+        assert (pii["subscriber_first_name"], pii["subscriber_last_name"]) == ("Sam", "Poe")
+        holder = eligibility.subscriber_identity(pii)
+        assert holder == {
+            "first_name": "Sam",
+            "last_name": "Poe",
+            "date_of_birth": "1975-05-06",
+            "member_id": "M-CHILD",
+        }
         assert "Sam Poe" not in json.dumps(child.attrs) and "Sam Poe" not in (child.pii or "")
         own = _record(c, "coverage", "70")
         assert own.attrs["subscriber_details"] == "self" and own.attrs["subscriber_id"] == "1"

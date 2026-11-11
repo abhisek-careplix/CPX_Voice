@@ -61,10 +61,35 @@ def openemr_client(
     )
 
 
+def stedi_mode(conn: PayerConnection) -> str:
+    return stedi.TEST if is_test(conn) else stedi.PRODUCTION
+
+
 def stedi_client(
-    conn: PayerConnection, settings: Settings, transport: httpx.AsyncBaseTransport | None
+    conn: PayerConnection,
+    settings: Settings,
+    transport: httpx.AsyncBaseTransport | None,
+    *,
+    timeout_s: float = stedi.TIMEOUT_S,
 ) -> stedi.StediClient:
-    return stedi.StediClient(conn.base_url, secret(settings, conn.auth_ref), transport=transport)
+    """A client locked to the connection's mode, with that mode's key only: a production
+    connection reads STEDI_PROD_API_KEY and nothing else, a test one never reads it."""
+    mode = stedi_mode(conn)
+    if mode == stedi.PRODUCTION:
+        key = settings.stedi_prod_api_key.get_secret_value()
+    else:
+        key = (
+            settings.stedi_test_api_key.get_secret_value()
+            or settings.stedi_api_key.get_secret_value()
+        )
+    return stedi.StediClient(
+        conn.base_url,
+        key,
+        mode=mode,
+        transport=transport,
+        timeout_s=timeout_s,
+        max_in_flight=settings.stedi_max_in_flight,
+    )
 
 
 def location_id(conn: PayerConnection) -> str:
@@ -150,10 +175,10 @@ async def ensure_practice_connections(session: AsyncSession, settings: Settings)
         wanted.append(
             (
                 CLEARINGHOUSE,
-                "Stedi" + (" (test mode: mock payers)" if settings.stedi_env == "test" else ""),
+                "Stedi" + (" (test mode: mock payers)" if settings.stedi_mode == "test" else ""),
                 settings.stedi_base_url,
-                {"key_env": "STEDI_API_KEY", "env": settings.stedi_env},
-                settings.stedi_env == "test",
+                {"key_env": settings.stedi_key_env, "env": settings.stedi_mode},
+                settings.stedi_mode == "test",
             )
         )
     for workspace in list(await session.scalars(select(Workspace))):
@@ -196,14 +221,7 @@ async def verify_stedi(
     client = stedi_client(conn, settings, transport)
     try:
         if is_test(conn):
-            body, ms = await client.eligibility(
-                stedi.eligibility_request(
-                    payer_id=stedi.MOCK_PAYER_ID,
-                    provider_npi=stedi.MOCK_PROVIDER_NPI,
-                    provider_name=settings.practice_name,
-                    subscriber=stedi.MOCK_SUBSCRIBER,
-                )
-            )
+            body, ms = await client.eligibility(stedi.mock_request("aetna_active"))
             summary = stedi.summarize_eligibility(body)
             ok = summary["coverage"] == "active"
             detail = {"mock": True, "coverage": summary["coverage"], "plan": summary["plan"]}

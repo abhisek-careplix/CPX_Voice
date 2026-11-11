@@ -1,0 +1,33 @@
+{
+  "_source": "Shaped from the AAA error examples in docs/healthcare/eligibility-troubleshooting for Stedi's AAA 43 mock request (api-reference/mock-requests-eligibility-checks). Synthetic data only.",
+  "http_status": 200,
+  "body": {
+    "id": "ec_uhc_aaa43_mock",
+    "payerId": "87726",
+    "payer": {
+      "type": "PAYER",
+      "name": {
+        "organization": "UNITEDHEALTHCARE"
+      }
+    },
+    "subscriber": {
+      "memberId": "UHCAAA43",
+      "dateOfBirth": "1970-01-01",
+      "name": {
+        "person": {
+          "firstName": "Jane",
+          "lastName": "Doe"
+        }
+      }
+    },
+    "errors": [
+      {
+        "code": "43",
+        "description": "Invalid/Missing Provider Identification",
+        "followupAction": "Please Correct and Resubmit",
+        "location": "PROVIDER",
+        "possibleResolutions": "Guidance text; Stedi says not to build logic on it."
+      }
+    ]
+  }
+}

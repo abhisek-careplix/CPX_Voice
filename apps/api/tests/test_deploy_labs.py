@@ -1,7 +1,11 @@
 """The careplix-labs deploy script gives each Cloud Run service what its code needs at runtime."""
 
+import os
 import pathlib
 import re
+import subprocess
+
+import pytest
 
 SCRIPT = pathlib.Path(__file__).parents[3] / "infra" / "gcp" / "deploy-labs.sh"
 
@@ -71,3 +75,72 @@ def test_the_webhook_ingress_can_open_the_sealed_endpoint_secret():
 
 def test_labs_still_refuses_a_production_nexhealth_key():
     assert 'if [ "$(env_value NEXHEALTH_ENV)" = "production" ]; then' in SCRIPT.read_text()
+
+
+# --- Stedi: careplix-labs takes a test key only ---------------------------------------------------
+
+FAKE_GCLOUD = """#!/bin/sh
+echo "$*" >> "$GCLOUD_LOG"
+case "$*" in
+  *"versions add cpx-stedi-api-key"*) cat > "$STEDI_SECRET" ;;
+  *"versions add"*) cat > /dev/null ;;
+  *"projects describe"*) echo 123456 ;;
+esac
+exit 0
+"""
+
+
+def _run_setup(tmp_path, env_lines: list[str]):
+    """Run ``deploy-labs.sh setup`` in a copy of the repo layout with a fake gcloud."""
+    root = tmp_path / "repo"
+    (root / "infra" / "gcp").mkdir(parents=True)
+    script = root / "infra" / "gcp" / "deploy-labs.sh"
+    script.write_text(SCRIPT.read_text())
+    base = ["LIVEKIT_API_KEY=lk", "LIVEKIT_API_SECRET=lks", "NEXHEALTH_API_KEY=nh"]
+    (root / ".env").write_text("\n".join(base + env_lines) + "\n")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    gcloud = bin_dir / "gcloud"
+    gcloud.write_text(FAKE_GCLOUD)
+    gcloud.chmod(0o755)
+    log, secret = tmp_path / "gcloud.log", tmp_path / "stedi.secret"
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "GCLOUD_LOG": str(log),
+        "STEDI_SECRET": str(secret),
+        "TAG": "test",
+    }
+    result = subprocess.run(
+        ["bash", str(script), "setup"], env=env, capture_output=True, text=True, check=False
+    )
+    calls = log.read_text() if log.exists() else ""
+    return result, calls, secret.read_text() if secret.exists() else None
+
+
+@pytest.mark.parametrize("line", ["STEDI_ENV=production", "STEDI_PROD_API_KEY=prod-key-not-here"])
+def test_labs_refuses_a_production_stedi_key_before_touching_anything(tmp_path, line):
+    result, calls, secret = _run_setup(tmp_path, ["STEDI_TEST_API_KEY=test-key", line])
+    assert result.returncode == 1
+    assert "Stedi test key only" in result.stderr
+    assert "secrets" not in calls and "run deploy" not in calls  # nothing was changed
+    assert secret is None
+
+
+def test_labs_stores_the_stedi_test_key_and_accepts_the_legacy_name(tmp_path):
+    result, _, secret = _run_setup(tmp_path, ["STEDI_ENV=test", "STEDI_TEST_API_KEY=test-key"])
+    assert result.returncode == 0, result.stderr
+    assert secret == "test-key"
+    legacy = tmp_path / "legacy"
+    legacy.mkdir()
+    result, _, secret = _run_setup(legacy, ["STEDI_API_KEY=old-test-key"])
+    assert result.returncode == 0, result.stderr
+    assert secret == "old-test-key"
+
+
+def test_labs_runs_stedi_in_test_mode_under_the_test_key_name():
+    for name in ("practice_env", "practice_secrets"):
+        value = _variable(name)
+        assert "STEDI_PROD_API_KEY" not in value and "STEDI_ENV=production" not in value
+    assert "STEDI_ENV=test," in _variable("practice_env")
+    assert "STEDI_TEST_API_KEY=cpx-stedi-api-key:latest" in _variable("practice_secrets")
