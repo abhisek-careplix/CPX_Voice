@@ -578,16 +578,39 @@ export interface PracticeOverview {
   intents: WriteIntentRow[];
 }
 
+export interface Accumulator {
+  total: string | null;
+  remaining: string | null;
+}
+
+export interface CoverageRedirect {
+  kind: "medicare_advantage" | "managed_care" | "contact_payer";
+  name: string | null;
+  payer_id: string | null;
+  phone: string | null;
+  bill_option?: string;
+  contract?: string | null;
+}
+
 export interface EligibilitySummary {
-  coverage: "active" | "inactive" | "unknown" | "error" | "none_on_file";
+  coverage: "active" | "inactive" | "unknown" | "error" | "none_on_file" | "payer_unmapped" | "invalid_mbi";
   plan?: string | null;
+  plan_dates?: { start: string | null; end: string | null } | null;
   ehr_plan?: string;
   office_copay?: string | null;
+  office_copay_out_of_network?: string | null;
   office_coinsurance_pct?: string | null;
-  deductible?: { total: string | null; remaining: string | null };
-  out_of_pocket?: { total: string | null; remaining: string | null };
+  deductible?: Accumulator;
+  deductible_family?: Accumulator;
+  deductible_out_of_network?: Accumulator;
+  out_of_pocket?: Accumulator;
   auth_required_services?: string[];
   payer?: string | null;
+  medicare?: { advantage: boolean; bill_option: string | null; secondary: string[]; mbi_returned: boolean; qmb?: boolean; part_d?: string | null };
+  medicaid?: { cost_containment: string | null; spend_down: string | null; card_reported_stolen: boolean };
+  redirect?: CoverageRedirect | null;
+  error_class?: "retry" | "correct" | "not_found" | null;
+  message?: string | null;
   mock?: boolean;
 }
 
@@ -599,7 +622,34 @@ export interface EligibilityView {
   summary: EligibilitySummary | null;
   reason: string | null;
   reused: boolean;
+  attempts: number;
+  next_attempt_at: string | null;
   completed_at: string | null;
+}
+
+export interface EligibilitySettings {
+  mode: "test" | "production" | null;
+  billing_npi: string | null;
+  practice_npi_fallback: string | null;
+  effective_npi: string | null;
+  test_scenario: string;
+  scenarios: { key: string; label: string }[];
+}
+
+export interface PayerMappingRow {
+  id: string;
+  ehr_payer_id: string | null;
+  ehr_name: string | null;
+  state: "resolved" | "confirmed" | "ambiguous" | "not_found" | "error" | "new";
+  plan_kind: string | null;
+  stedi_payer_id: string | null;
+  stedi_name: string | null;
+  programs: string[];
+  enrollment_required: boolean;
+  enrollment: { status: string; detail: string | null } | null;
+  candidates: { payer_id: string; name: string | null; programs: string[]; states: string[]; enrollment_required: boolean }[];
+  has_pin: boolean;
+  last_error: string | null;
 }
 
 export interface HuddleRow {

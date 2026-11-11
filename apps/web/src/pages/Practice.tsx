@@ -18,7 +18,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useState } from "react";
-import { api, ApiError, type EligibilityView, type FrontDeskMessage, type Huddle, type HuddleRow, type PracticeConnection, type PracticeOverview, type WriteIntentRow } from "../api";
+import { api, ApiError, type EligibilitySettings, type EligibilityView, type FrontDeskMessage, type PayerMappingRow, type Huddle, type HuddleRow, type PracticeConnection, type PracticeOverview, type WriteIntentRow } from "../api";
 import { useCan } from "../App";
 import { PRACTICE_LABEL, usePractice, withPractice } from "../practice";
 import { Banner, Card, Empty, Pill, Segmented, Sheet, Toolbar, timeAgo, useToast } from "../ui";
@@ -32,6 +32,16 @@ const FLAG_LABEL: Record<string, string> = {
   check_failed: "Check failed",
   coverage_inactive: "Coverage inactive",
   auth_required: "Auth required",
+  check_pending: "Retrying",
+  payer_unmapped: "Confirm payer",
+  coverage_redirect: "Other plan responsible",
+  card_reported_stolen: "Card reported stolen",
+};
+
+const REDIRECT_LABEL: Record<string, string> = {
+  medicare_advantage: "Medicare Advantage",
+  managed_care: "Medicaid managed care",
+  contact_payer: "Contact payer",
 };
 
 const RESOURCE_LABEL: Record<string, string> = {
@@ -210,6 +220,7 @@ export default function Practice() {
 
           <div style={{ display: "grid", gap: 20 }}>
             <ConnectionsCard d={d} isAdmin={isAdmin} verifying={verify.isPending} onVerify={(k) => verify.mutate(k)} />
+            {d?.clearinghouse && <EligibilityCard isAdmin={isAdmin} />}
             <FrontDeskMessages canRun={canRun} />
             <WriteQueue intents={d?.intents ?? []} isAdmin={isAdmin} onDone={refresh} />
             <Card title="Practice mirror" subtitle={`Allow-listed fields only; patient identifiers encrypted. ${d?.api_calls_total ?? 0} EHR API calls so far.`}>
@@ -257,7 +268,7 @@ function EligibilityPill({ e, status }: { e: EligibilityView | null; status: str
   if (status === "cancelled") return <Pill tone="gray">Cancelled</Pill>;
   if (status === "deleted") return <Pill tone="gray">Deleted</Pill>;
   if (!e) return <Pill tone="gray" icon={CircleDashed}>Not checked</Pill>;
-  if (e.state === "pending") return <Pill tone="blue" icon={CircleDashed}>Checking</Pill>;
+  if (e.state === "pending") return <Pill tone="blue" icon={CircleDashed}>{e.attempts ? `Retrying (${e.attempts})` : "Checking"}</Pill>;
   if (e.state === "failed") return <Pill tone="red" icon={XCircle}>Check failed</Pill>;
   if (e.state === "skipped") return <Pill tone="orange" icon={AlertTriangle}>Skipped</Pill>;
   const s = e.summary;
@@ -291,12 +302,24 @@ function HuddleItem({ a, tz, chart, canRun, checking, onCheck, onAlert }: { a: H
         {s && a.eligibility?.state === "done" && (
           <div className="small muted" style={{ marginTop: 4 }}>
             {s.plan ?? s.ehr_plan}
-            {s.deductible?.remaining ? ` · deductible left $${s.deductible.remaining} of $${s.deductible.total}` : ""}
+            {s.deductible?.remaining ? ` · deductible left $${s.deductible.remaining}${s.deductible.total ? ` of $${s.deductible.total}` : ""}` : ""}
+            {s.deductible_family?.remaining ? ` · family deductible left $${s.deductible_family.remaining}` : ""}
             {s.office_coinsurance_pct ? ` · coinsurance ${s.office_coinsurance_pct}%` : ""}
+            {s.medicare?.qmb ? " · QMB: no Medicare cost sharing" : ""}
+            {s.medicaid?.spend_down ? ` · spend down $${s.medicaid.spend_down}` : ""}
             {a.eligibility.reused ? " · reused from today's check" : ""}
           </div>
         )}
-        {a.eligibility?.state === "skipped" && <div className="small muted" style={{ marginTop: 4 }}>{a.eligibility.reason}</div>}
+        {s?.redirect && a.eligibility?.state === "done" && (
+          <div className="small" style={{ marginTop: 4 }}>
+            {REDIRECT_LABEL[s.redirect.kind] ?? "Other plan"}: {s.redirect.name ?? "another plan"}
+            {s.redirect.payer_id ? ` (payer ${s.redirect.payer_id})` : ""}
+            {s.redirect.phone ? ` · ${s.redirect.phone}` : ""} · re-check with that plan
+          </div>
+        )}
+        {(a.eligibility?.state === "skipped" || a.eligibility?.state === "failed" || (a.eligibility?.state === "pending" && a.eligibility.attempts > 0)) && (
+          <div className="small muted" style={{ marginTop: 4 }}>{a.eligibility.reason}</div>
+        )}
         <div className="row" style={{ flexWrap: "wrap", gap: 6, marginTop: 6 }}>
           <EligibilityPill e={a.eligibility} status={a.status} />
           {a.eligibility?.mock && <span className="sample-label">Mock payer</span>}
@@ -393,6 +416,165 @@ function ConnectionRow({ c, isAdmin, verifying, onVerify }: { c: PracticeConnect
         </button>
       )}
     </li>
+  );
+}
+
+const MAPPING_TONE: Record<PayerMappingRow["state"], "green" | "orange" | "red" | "blue" | "gray"> = {
+  resolved: "green",
+  confirmed: "green",
+  ambiguous: "orange",
+  not_found: "red",
+  error: "red",
+  new: "gray",
+};
+
+/** Billing NPI, the test-mode mock member, and how each EHR payer maps to a Stedi payer. */
+function EligibilityCard({ isAdmin }: { isAdmin: boolean }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const settings = useQuery({ queryKey: ["eligibility-settings"], queryFn: () => api.get<EligibilitySettings>("/practices/eligibility/settings") });
+  const mappings = useQuery({ queryKey: ["payer-mappings"], queryFn: () => api.get<{ payers: PayerMappingRow[] }>("/practices/payers"), refetchInterval: 15000 });
+  const [npi, setNpi] = useState<string | null>(null);
+  const [manual, setManual] = useState<Record<string, string>>({});
+  const [pins, setPins] = useState<Record<string, string>>({});
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["eligibility-settings"] });
+    qc.invalidateQueries({ queryKey: ["payer-mappings"] });
+  };
+  const save = useMutation({
+    mutationFn: (body: { billing_npi?: string | null; test_scenario?: string }) => api.put<EligibilitySettings>("/practices/eligibility/settings", body),
+    onSuccess: () => {
+      toast("Eligibility settings saved");
+      setNpi(null);
+      refresh();
+    },
+  });
+  const confirm = useMutation({
+    mutationFn: ({ id, payer_id }: { id: string; payer_id: string }) => api.post<PayerMappingRow>(`/practices/payers/${id}/confirm`, { payer_id }),
+    onSuccess: (r) => {
+      toast(`Payer set to ${r.stedi_payer_id}`);
+      refresh();
+    },
+  });
+  const pin = useMutation({
+    mutationFn: ({ id, value }: { id: string; value: string | null }) => api.put<PayerMappingRow>(`/practices/payers/${id}/pin`, { pin: value }),
+    onSuccess: (r) => {
+      toast(r.has_pin ? "Provider PIN saved (encrypted)" : "Provider PIN removed");
+      setPins({});
+      refresh();
+    },
+  });
+  const s = settings.data;
+  const err = (save.error ?? confirm.error ?? pin.error) as ApiError | null;
+  return (
+    <Card title="Eligibility" subtitle={s?.mode === "test" ? "Stedi test mode: checks go out as Stedi's mock members." : "Billing provider and payer mapping."}>
+      <div style={{ display: "grid", gap: 14 }}>
+        <label className="field">
+          <span className="field-label">Billing NPI</span>
+          <div className="row" style={{ gap: 6 }}>
+            <input
+              className="input"
+              inputMode="numeric"
+              maxLength={10}
+              disabled={!isAdmin}
+              value={npi ?? s?.billing_npi ?? ""}
+              placeholder={s?.practice_npi_fallback ?? "10-digit NPI"}
+              onChange={(e) => setNpi(e.target.value.replace(/\D/g, ""))}
+            />
+            {isAdmin && npi !== null && (
+              <button className="btn btn-tinted" disabled={save.isPending} onClick={() => save.mutate({ billing_npi: npi || null })}>
+                Save
+              </button>
+            )}
+          </div>
+          <span className="field-help">
+            Sent on production checks; Stedi uses the NPI's NPPES name. {s?.effective_npi ? `In use: ${s.effective_npi}.` : "Not set: production checks are skipped."}
+          </span>
+        </label>
+        {s?.mode === "test" && (
+          <label className="field">
+            <span className="field-label">Test scenario</span>
+            <select className="select" disabled={!isAdmin || save.isPending} value={s.test_scenario} onChange={(e) => save.mutate({ test_scenario: e.target.value })}>
+              {s.scenarios.map((o) => (
+                <option key={o.key} value={o.key}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <span className="field-help">Which of Stedi's published mock members each check sends. No patient data leaves CarePlix in test mode.</span>
+          </label>
+        )}
+        {err && <div className="field-error">{err.message}</div>}
+        <div>
+          <div className="field-label" style={{ marginBottom: 6 }}>
+            Payers
+          </div>
+          {mappings.data && mappings.data.payers.length === 0 ? (
+            <div className="small muted">Payers appear here after the first eligibility check.</div>
+          ) : (
+            <ul className="list">
+              {mappings.data?.payers.map((m) => (
+                <li className="list-row" key={m.id} style={{ alignItems: "flex-start", paddingTop: 10, paddingBottom: 10 }}>
+                  <div className="row-main">
+                    <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+                      <span style={{ fontWeight: 600 }}>{m.ehr_name ?? m.ehr_payer_id ?? "Payer"}</span>
+                      <Pill tone={MAPPING_TONE[m.state] ?? "gray"}>{m.state === "ambiguous" ? "Needs a choice" : m.state.replace("_", " ")}</Pill>
+                      {m.plan_kind && m.plan_kind !== "commercial" && <span className="chip">{m.plan_kind.replace("_", " ")}</span>}
+                    </div>
+                    <div className="row-sub" style={{ marginTop: 4 }}>
+                      {m.stedi_payer_id ? `Stedi ${m.stedi_payer_id}${m.stedi_name ? ` · ${m.stedi_name}` : ""}` : "No Stedi payer yet"}
+                      {m.enrollment_required ? " · enrollment required" : ""}
+                      {m.enrollment ? ` · NPI ${m.enrollment.status.replace("_", " ")}` : ""}
+                      {m.has_pin ? " · PIN set" : ""}
+                    </div>
+                    {m.enrollment?.detail && <div className="field-error" style={{ marginTop: 4 }}>{m.enrollment.detail}</div>}
+                    {m.last_error && <div className="field-error" style={{ marginTop: 4 }}>{m.last_error}</div>}
+                    {isAdmin && m.state === "ambiguous" && m.candidates.length > 0 && (
+                      <div className="row" style={{ flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                        {m.candidates.map((c) => (
+                          <button key={c.payer_id} className="btn btn-tinted" disabled={confirm.isPending} onClick={() => confirm.mutate({ id: m.id, payer_id: c.payer_id })}>
+                            {c.name ?? c.payer_id} ({c.payer_id})
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {isAdmin && (m.state === "ambiguous" || m.state === "not_found" || m.state === "error") && (
+                      <div className="row" style={{ gap: 6, marginTop: 6 }}>
+                        <input className="input" style={{ maxWidth: 160 }} placeholder="Stedi payer ID" value={manual[m.id] ?? ""} onChange={(e) => setManual({ ...manual, [m.id]: e.target.value })} />
+                        <button className="btn btn-secondary" disabled={!manual[m.id] || confirm.isPending} onClick={() => confirm.mutate({ id: m.id, payer_id: manual[m.id] })}>
+                          Use this ID
+                        </button>
+                      </div>
+                    )}
+                    {isAdmin && m.programs.includes("MEDICAID") && (
+                      <div className="row" style={{ gap: 6, marginTop: 6 }}>
+                        <input
+                          className="input"
+                          type="password"
+                          autoComplete="off"
+                          style={{ maxWidth: 160 }}
+                          placeholder={m.has_pin ? "PIN set (hidden)" : "Provider PIN"}
+                          value={pins[m.id] ?? ""}
+                          onChange={(e) => setPins({ ...pins, [m.id]: e.target.value })}
+                        />
+                        <button className="btn btn-secondary" disabled={!pins[m.id] || pin.isPending} onClick={() => pin.mutate({ id: m.id, value: pins[m.id] })}>
+                          Save PIN
+                        </button>
+                        {m.has_pin && (
+                          <button className="btn btn-plain" disabled={pin.isPending} onClick={() => pin.mutate({ id: m.id, value: null })}>
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </Card>
   );
 }
 

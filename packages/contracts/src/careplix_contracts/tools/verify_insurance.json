@@ -1,0 +1,83 @@
+{
+  "name": "verify_insurance",
+  "version": "1.0.0",
+  "description": "Check the verified patient's insurance with the insurer in real time: whether coverage is active, the office visit copay and the deductible left. Only works after find_patient passed. Ask for the insurance company's name and the member ID exactly as printed on the card (for Medicare, the 11-character Medicare number on the red, white and blue card). Say only what the result says; it is not a guarantee of payment. Two checks per call.",
+  "classification": "read",
+  "execution": "api",
+  "allowed_roles": [
+    "agent_runtime"
+  ],
+  "timeout_ms": 30000,
+  "idempotency": "keyed",
+  "limits": {
+    "max_attempts_per_call": 2
+  },
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "payer_name",
+      "member_id"
+    ],
+    "properties": {
+      "payer_name": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 80,
+        "description": "Insurance company or plan name as the caller says it, e.g. Aetna or Medicare."
+      },
+      "member_id": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 30,
+        "description": "Member ID (or Medicare number) as printed on the card."
+      }
+    }
+  },
+  "result_schema": {
+    "type": "object",
+    "required": [
+      "state",
+      "message"
+    ],
+    "properties": {
+      "state": {
+        "enum": [
+          "checked",
+          "not_found",
+          "unavailable",
+          "needs_staff",
+          "invalid_member_id"
+        ]
+      },
+      "coverage": {
+        "enum": [
+          "active",
+          "inactive",
+          "unknown"
+        ]
+      },
+      "plan": {
+        "type": "string"
+      },
+      "office_copay": {
+        "type": "string"
+      },
+      "deductible_remaining": {
+        "type": "string"
+      },
+      "other_plan": {
+        "type": "object"
+      },
+      "test_data": {
+        "type": "boolean"
+      },
+      "message": {
+        "type": "string"
+      }
+    }
+  },
+  "owner": "front-office",
+  "release": "D",
+  "enabled_in_demo": true
+}
