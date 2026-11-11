@@ -25,7 +25,6 @@ import urllib.request
 BASE = "https://nexhealth.info"
 HEADERS = {
     "Nex-Api-Version": "v3.0.0",
-    "Accept": "application/vnd.Nexhealth+json;version=2",
     "User-Agent": "CarePlix-Voice/1.0",  # NexHealth's edge blocks the default urllib agent
 }
 ENV = pathlib.Path(".env")

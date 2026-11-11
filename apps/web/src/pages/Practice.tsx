@@ -409,6 +409,11 @@ function ConnectionRow({ c, isAdmin, verifying, onVerify }: { c: PracticeConnect
           )}
         </div>
         {c.last_error && <div className="field-error" style={{ marginTop: 4 }}>{c.last_error}</div>}
+        {c.webhook.health && !["ok", "not_registered"].includes(c.webhook.health.status) && (
+          <div className="field-error" style={{ marginTop: 4 }}>
+            Webhooks: {c.webhook.health.message ?? c.webhook.health.status}
+          </div>
+        )}
       </div>
       {isAdmin && (
         <button className="btn btn-tinted" onClick={onVerify} disabled={verifying}>

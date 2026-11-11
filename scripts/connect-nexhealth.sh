@@ -25,7 +25,6 @@ BASE = "https://nexhealth.info"
 # NexHealth's edge blocks the default Python-urllib user agent (Cloudflare 1010) before auth.
 HEADERS = {
     "Nex-Api-Version": "v3.0.0",
-    "Accept": "application/vnd.Nexhealth+json;version=2",
     "User-Agent": "CarePlix-Voice/1.0",
 }
 ENV = pathlib.Path(".env")

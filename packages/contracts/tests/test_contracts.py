@@ -23,6 +23,7 @@ def test_tool_registry_loads_and_gates_pilot_tools():
     tools = contracts.tool_registry()
     assert set(contracts.demo_tools()) == {
         "book_appointment",
+        "book_new_patient",
         "cancel_appointment",
         "end_call",
         "find_patient",

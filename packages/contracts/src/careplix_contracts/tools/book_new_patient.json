@@ -1,0 +1,98 @@
+{
+  "name": "book_new_patient",
+  "version": "1.0.0",
+  "description": "Register a new patient and book one of the times returned by find_slots, in one step. Use only after find_patient did not verify the caller and they say they are new to the practice. Collect first and last name, date of birth, an email address (spell it back) and a phone number if different from the one they are calling from; ask for sex (male, female or other) when the result says the practice's system needs it. Read the time back and get a clear yes before calling. Report the result exactly as returned; if new patients can't be registered here, offer leave_message.",
+  "classification": "write",
+  "execution": "api",
+  "allowed_roles": [
+    "agent_runtime"
+  ],
+  "timeout_ms": 25000,
+  "idempotency": "keyed",
+  "limits": {
+    "max_writes_per_call": 3
+  },
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "first_name",
+      "last_name",
+      "date_of_birth",
+      "email",
+      "slot_id"
+    ],
+    "properties": {
+      "first_name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 60
+      },
+      "last_name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 60
+      },
+      "date_of_birth": {
+        "type": "string",
+        "format": "date"
+      },
+      "email": {
+        "type": "string",
+        "format": "email",
+        "maxLength": 120
+      },
+      "phone_number": {
+        "type": "string",
+        "maxLength": 20,
+        "description": "Ten-digit phone number. Leave out to use the number the caller is calling from."
+      },
+      "gender": {
+        "enum": [
+          "Male",
+          "Female",
+          "Other"
+        ],
+        "description": "Only when the caller gives it, or the practice's system needs it."
+      },
+      "slot_id": {
+        "type": "string",
+        "pattern": "^S[0-9]{1,3}$",
+        "description": "A slot_id returned by find_slots on this call."
+      }
+    }
+  },
+  "result_schema": {
+    "type": "object",
+    "required": [
+      "state"
+    ],
+    "properties": {
+      "state": {
+        "enum": [
+          "booked",
+          "pending",
+          "slot_taken",
+          "failed",
+          "needs_staff",
+          "front_desk"
+        ]
+      },
+      "patient": {
+        "enum": [
+          "registered",
+          "existing"
+        ]
+      },
+      "when": {
+        "type": "string"
+      },
+      "message": {
+        "type": "string"
+      }
+    }
+  },
+  "owner": "front-office",
+  "release": "D",
+  "enabled_in_demo": true
+}

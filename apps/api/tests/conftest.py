@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from careplix_api.auth import DEV_WORKER_TOKEN
+from careplix_api.integrations import nexhealth
 from careplix_api.livekit_gateway import DialOutcome, LiveKitGateway
 from careplix_api.main import create_app
 from careplix_api.settings import Settings
@@ -100,6 +101,19 @@ def make_settings(tmp_path, **overrides) -> Settings:
     }
     values.update(overrides)
     return Settings(**values)
+
+
+@pytest.fixture(autouse=True)
+def _nexhealth_process_state(monkeypatch):
+    """Each test starts with no cached NexHealth token, and retries never really wait."""
+    nexhealth.reset_process_state()
+
+    async def no_wait(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(nexhealth, "sleep", no_wait)
+    yield
+    nexhealth.reset_process_state()
 
 
 @pytest.fixture

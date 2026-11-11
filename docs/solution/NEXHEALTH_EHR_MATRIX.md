@@ -44,11 +44,24 @@ Notes that change how automations behave:
   extension. Writes queued after hours land the next morning.
 - **New patients** reach the EHR only with their first booked appointment; Curve Hero, Dolphin and
   PracticeWorks can't take new patients at all. Backfill offers only existing patients, so it's unaffected.
+  The receptionist registers a new patient (`POST /patients` with `return_existing_if_match`) and books them
+  in one step where the catalog allows it (`patient.create`); **Dentrix and Eaglesoft need the patient's
+  gender** (NexHealth stores `Female` otherwise), so the receptionist asks for it there.
+- **Placeholders:** a patient created through the API is deleted by NexHealth once the office's real chart
+  links to it (`_np` foreign ids on Dentrix and Denticon). The mirror marks it deleted and moves its visits to
+  the real chart.
 - **Chart alerts** (eligibility "coverage inactive") aren't in NexHealth's per-system table: verify per EHR.
 - **Insurance writes and communication logs** are v3.1 beta (Dentrix, Eaglesoft, Open Dental; logs Open Dental
   only) and need NexHealth to enable beta access for the organization.
 - CarePlix backfill releases by **cancel, then book**, never by reschedule, so the reschedule column matters
-  only for receptionist reschedules (FO-3).
+  only for receptionist reschedules (FO-3). There, Denticon, Dentrix, Dentrix Enterprise, Eaglesoft and Open
+  Dental move the visit in place (`PATCH start_time/end_time`, once the visit has a `foreign_id`); every other
+  EHR books the new time, then cancels the old one.
+- **Every `PATCH /appointments` write** (cancel, confirm, check-in, time change) is confirmed only by
+  `appointment_updated` naming the field in `previous_attributes`; `.failed`, `.timed_out` and `.incomplete`
+  send it to the write queue for a person. Reading the visit back never counts as confirmation.
+- **Not used (v3.1 beta only):** forms and form responses, patient insertion, insurance writes. They need
+  NexHealth to enable beta access for the organization.
 
 ## 3. Making a NexHealth EHR live (per practice)
 

@@ -354,6 +354,9 @@ class WebhookEvent(IdMixin, Base):
     event_name: Mapped[str] = mapped_column(String(80))
     resource_type: Mapped[str | None] = mapped_column(String(40))
     resource_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Field names only, never values: {"changed": [...] from previous_attributes,
+    # "delivery_errors": n} (n > 0 means NexHealth is retrying a delivery we failed).
+    detail: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     received_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
     processed_at: Mapped[datetime | None] = mapped_column()
     outcome: Mapped[str | None] = mapped_column(String(30))

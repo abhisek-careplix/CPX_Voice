@@ -9,6 +9,7 @@ const SHORT: Record<string, string> = {
   "schedule.read": "Sync",
   "eligibility.check": "Eligibility",
   "appointment.book": "Book",
+  "patient.create": "New patients",
   "appointment.cancel": "Cancel",
   "appointment.confirm": "Confirm",
   "appointment.check_in": "Check-in",

@@ -892,6 +892,7 @@ def test_a_medicaid_child_is_the_subscriber_and_the_pin_is_sent_sealed(tmp_path)
 def test_a_dependent_known_by_the_policyholders_id(tmp_path):
     def setup(router):
         router.nexhealth.coverages[70]["subscription_relation"] = "child"
+        router.nexhealth.subscribers[70] = None  # no policyholder on file in the EHR
 
     with production(tmp_path, setup=setup) as (c, router):
         assert check(c)["state"] == "skipped"  # no policyholder details in the mirror yet
@@ -902,6 +903,26 @@ def test_a_dependent_known_by_the_policyholders_id(tmp_path):
         assert sent["subscriber"]["memberId"] == "M-ACTIVE"
         assert sent["dependent"]["name"]["person"]["firstName"] == "Jane"
         assert sent["dependent"]["relationToSubscriber"] == "CHILD"
+
+
+def test_the_sync_supplies_the_policyholder_for_a_dependent(tmp_path):
+    # GET /insurance_coverages/{id} names the subscriber; the sync seals it on the coverage
+    # (subscriber_first_name / subscriber_last_name / subscriber_date_of_birth).
+    def setup(router):
+        router.nexhealth.coverages[70]["subscription_relation"] = "child"
+        router.nexhealth.subscribers[70] = {
+            "id": 77,
+            "name": "Pat Roe",
+            "date_of_birth": "1950-02-03",
+        }
+
+    with production(tmp_path, setup=setup) as (c, router):
+        assert check(c)["state"] == "done"
+        sent = router.stedi.bodies[-1]
+        assert sent["subscriber"]["name"]["person"]["firstName"] == "Pat"
+        assert sent["subscriber"]["name"]["person"]["lastName"] == "Roe"
+        assert sent["subscriber"]["memberId"] == "M-ACTIVE"
+        assert sent["dependent"]["name"]["person"]["firstName"] == "Jane"
 
 
 # --- M6: the voice tool ---------------------------------------------------------------------------

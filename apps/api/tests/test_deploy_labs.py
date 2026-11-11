@@ -67,6 +67,16 @@ def test_labs_gates_publishing_on_the_regression_suite():
     assert "PUBLISH_REQUIRES_EVAL=true" in command and "RUN_BACKGROUND=true" in command
 
 
+def test_the_webhook_ingress_can_open_the_sealed_endpoint_secret():
+    # NexHealth deliveries are verified with the endpoint's secret_key, stored sealed.
+    assert "DATA_ENCRYPTION_KEY=cpx-data-key:latest" in _deploy_command("careplix-webhooks")
+    assert "for secret in cpx-database-url cpx-data-key; do" in SCRIPT.read_text()
+
+
+def test_labs_still_refuses_a_production_nexhealth_key():
+    assert 'if [ "$(env_value NEXHEALTH_ENV)" = "production" ]; then' in SCRIPT.read_text()
+
+
 # --- Stedi: careplix-labs takes a test key only ---------------------------------------------------
 
 FAKE_GCLOUD = """#!/bin/sh

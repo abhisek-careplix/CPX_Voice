@@ -127,6 +127,7 @@ class Connector:
         minutes: int,
         providers: list[str],
         tz: tzinfo,
+        type_ref: str | None = None,
     ) -> list[tuple[datetime, str, str]]:
         """Bookable times in ``[start, end]``: ``(start_utc, provider_ref, operatory_ref)``, sorted.
 
@@ -134,6 +135,16 @@ class Connector:
         agree (the receptionist offers these, then re-checks before booking).
         """
         raise NotImplementedError
+
+    def schedule_online(self) -> bool:
+        """False while the EHR's sync is down: times offered now could be stale or not land."""
+        return True
+
+    async def find_patients(
+        self, first_name: str, last_name: str, date_of_birth: str
+    ) -> list[dict[str, Any]]:
+        """Live patient search when the mirror misses (raw source records). None by default."""
+        return []
 
 
 def profile(profile_id: str | None) -> Profile | None:

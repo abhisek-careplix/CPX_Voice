@@ -120,7 +120,10 @@ setup() {
   for secret in cpx-worker-token cpx-livekit-api-key cpx-livekit-api-secret; do
     $G secrets add-iam-policy-binding "$secret" --member "serviceAccount:$SA_WORKER" --role roles/secretmanager.secretAccessor >/dev/null
   done
-  $G secrets add-iam-policy-binding cpx-database-url --member "serviceAccount:$SA_WEBHOOKS" --role roles/secretmanager.secretAccessor >/dev/null
+  # The webhook ingress opens the sealed NexHealth endpoint secret to check signatures.
+  for secret in cpx-database-url cpx-data-key; do
+    $G secrets add-iam-policy-binding "$secret" --member "serviceAccount:$SA_WEBHOOKS" --role roles/secretmanager.secretAccessor >/dev/null
+  done
   $G secrets add-iam-policy-binding cpx-browser-token --member "serviceAccount:$SA_BROWSER" --role roles/secretmanager.secretAccessor >/dev/null
   echo "setup complete"
 }
@@ -229,7 +232,7 @@ deploy() {
   # 2. Webhook ingress: the only public service. Verifies, dedupes and records IDs; no IAP, no PHI.
   $G run deploy careplix-webhooks --region "$REGION" --image "$REGISTRY/api:$TAG" \
     --service-account "$SA_WEBHOOKS" --add-cloudsql-instances "$conn" --allow-unauthenticated \
-    --set-env-vars "CAREPLIX_ENV=labs" --set-secrets "DATABASE_URL=cpx-database-url:latest" \
+    --set-env-vars "CAREPLIX_ENV=labs" --set-secrets "DATABASE_URL=cpx-database-url:latest,DATA_ENCRYPTION_KEY=cpx-data-key:latest" \
     --min-instances 0 --max-instances 2 \
     --command sh --args='-c,uvicorn careplix_api.practice.webhooks:app --host 0.0.0.0 --port $PORT'
   webhooks_url=$(url_of careplix-webhooks)

@@ -84,6 +84,7 @@ def test_claim_carries_the_front_desk_tools_with_their_timeouts(practice):
         "list_appointments",
         "find_slots",
         "book_appointment",
+        "book_new_patient",
         "reschedule_appointment",
         "cancel_appointment",
         "leave_message",
