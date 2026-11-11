@@ -32,6 +32,7 @@ def compose(claim: dict[str, Any]) -> str:
             f"Your name is {identity['name']}. Your role: {identity['role']}.\n"
             "When disclosing that you are automated, say: "
             f'"{identity["automated_identity_disclosure"]}"\n'
+            + "".join(f"{line}\n" for line in claim.get("persona_style") or [])
             + claim["instructions"]["agent"].strip()
         ),
     ]

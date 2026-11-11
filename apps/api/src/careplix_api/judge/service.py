@@ -25,7 +25,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from careplix_api import connections
 from careplix_api.db import Database, utcnow
 from careplix_api.judge.models import RunJudgement
-from careplix_api.models import CallAttempt, CallEvent, Finding, Scenario, TranscriptSegment
+from careplix_api.models import (
+    AgentVersion,
+    CallAttempt,
+    CallEvent,
+    Finding,
+    Scenario,
+    TranscriptSegment,
+)
+from careplix_api.personas.service import prompt_lines as persona_lines
 from careplix_api.settings import Settings
 from careplix_common.safe_logging import scrub
 
@@ -248,6 +256,10 @@ async def build_record(session: AsyncSession, attempt: CallAttempt, scenario: Sc
     if len(transcript) > MAX_TRANSCRIPT_CHARS:
         transcript = transcript[:MAX_TRANSCRIPT_CHARS] + "\n[transcript truncated]"
 
+    version = await session.get(AgentVersion, attempt.agent_version_id)
+    persona = (version.config or {}).get("persona") if version else None
+    avoid = [f'- Never say "{p}"' for p in (persona or {}).get("avoid") or []]
+    style = persona_lines({k: v for k, v in (persona or {}).items() if k != "avoid"})
     lines = [
         "SCENARIO",
         f"Name: {scenario.name}",
@@ -256,7 +268,12 @@ async def build_record(session: AsyncSession, attempt: CallAttempt, scenario: Sc
         "Success checks:",
         *([f"- {c}" for c in scenario.success_checks or []] or ["- (none listed)"]),
         "Limits:",
-        *([f"- {c}" for c in scenario.limits or []] or ["- (none listed)"]),
+        *([f"- {c}" for c in scenario.limits or []] + avoid or ["- (none listed)"]),
+        *(
+            ["Persona the agent should keep (note lapses in coaching, not as limits):", *style]
+            if style
+            else []
+        ),
         "",
         "RECORD",
         f"Run mode: {'simulation' if attempt.pins.get('simulated') else attempt.direction}",

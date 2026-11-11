@@ -34,6 +34,7 @@ from careplix_api.models import (
     TranscriptSegment,
     Workspace,
 )
+from careplix_api.personas.service import prompt_lines as persona_lines
 from careplix_api.phi import PhiBox
 from careplix_api.settings import Settings
 
@@ -627,6 +628,8 @@ async def _claim_payload(
             "agent": config["instructions"]["agent_text"],
         },
         "identity": config["identity"],
+        # VS4: how the agent sounds, already phrased for the model (style only, never authority).
+        "persona_style": persona_lines(config.get("persona")),
         "conversation": config["conversation"],
         "model_id": attempt.pins["model_id"],
         "vertex": {"project": eff.gcp_project, "location": eff.vertex_location},
