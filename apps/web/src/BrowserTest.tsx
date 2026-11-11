@@ -20,12 +20,14 @@ const AGENT_STATE_TEXT: Record<string, string> = {
   failed: "Agent failed to start",
 };
 
-/** Real two-way browser conversation through LiveKit with the selected draft or published config. */
+/** Real browser conversation through LiveKit with the selected draft or published config. In a
+ * simulation you only listen: the agent talks to the AI counterpart and your microphone stays off. */
 export function BrowserTestSheet({
   agentId,
   use,
   caseId,
   scenarioId,
+  simulate,
   rehearsalNote,
   template,
   onClose,
@@ -33,8 +35,9 @@ export function BrowserTestSheet({
   agentId: string;
   use: "draft" | "published";
   caseId?: string;
-  /** Voice Studio rehearsal: the agent works the scenario and you play the other side. */
+  /** Voice Studio: the agent works the scenario. You play the other side, or listen (simulate). */
   scenarioId?: string;
+  simulate?: boolean;
   rehearsalNote?: string | null;
   template?: Template;
   onClose: () => void;
@@ -44,7 +47,7 @@ export function BrowserTestSheet({
   const start = useMutation({
     mutationFn: () =>
       scenarioId
-        ? api.post<BrowserSession>(`/scenarios/${scenarioId}/runs`, { mode: "rehearse", use })
+        ? api.post<BrowserSession>(`/scenarios/${scenarioId}/runs`, { mode: simulate ? "simulate" : "rehearse", use })
         : api.post<BrowserSession>("/browser-sessions", { agent_id: agentId, use, case_id: caseId }),
   });
   const end = useMutation({
@@ -62,7 +65,14 @@ export function BrowserTestSheet({
   }, [start]);
 
   const session = start.data;
+  const listening = !!session?.listen_only;
+  // Closing a rehearsal hangs up. Closing a simulation only stops listening: the run carries on
+  // and is scored; "End" stops it.
   const close = () => {
+    if (session && !listening) end.mutate(session.attempt_id);
+    onClose();
+  };
+  const endRun = () => {
     if (session) end.mutate(session.attempt_id);
     onClose();
   };
@@ -73,10 +83,14 @@ export function BrowserTestSheet({
       onClose={close}
       title={
         <span className="row">
-          Browser Test <span className="sample-label">Synthetic data</span>
+          {simulate ? "Simulation" : "Browser Test"} <span className="sample-label">Synthetic data</span>
         </span>
       }
-      subtitle={session ? `${use === "draft" ? "Draft" : "Published"} v${session.version.number}${session.case_ref ? ` · case ${session.case_ref}` : ""} · real audio through LiveKit and Gemini Live` : "Preparing a sandbox call…"}
+      subtitle={
+        session
+          ? `${use === "draft" ? "Draft" : "Published"} v${session.version.number} · ${session.persona} calling for ${session.acting_for}${session.case_ref ? ` (case ${session.case_ref})` : ""} · real audio through LiveKit and Gemini Live`
+          : "Preparing a sandbox call…"
+      }
     >
       {start.error && ["capacity_exhausted", "emergency_stop"].includes((start.error as ApiError).code) && (
         <Banner tone="red" title="Call could not start">
@@ -92,7 +106,13 @@ export function BrowserTestSheet({
           ) : null}
         </Banner>
       )}
-      {rehearsalNote && session && (
+      {listening && (
+        <Banner tone="blue" title="You're listening in">
+          {" "}
+          The agent is talking to the simulated other side. Your microphone is off. Press "Allow audio playback" if you hear nothing.
+        </Banner>
+      )}
+      {rehearsalNote && session && !listening && (
         <Banner tone="blue" title="You play the other side">
           {" "}
           {rehearsalNote}
@@ -115,20 +135,20 @@ export function BrowserTestSheet({
           serverUrl={session.url}
           token={session.token}
           connect
-          audio
+          audio={!listening}
           video={false}
           onMediaDeviceFailure={(failure) => setDeviceError(failure ? String(failure) : "No microphone was found.")}
           onDisconnected={() => qc.invalidateQueries({ queryKey: ["call", session.attempt_id] })}
         >
           <RoomAudioRenderer />
-          <TestRoom attemptId={session.attempt_id} template={template} onEnd={close} />
+          <TestRoom attemptId={session.attempt_id} template={template} listening={listening} onEnd={endRun} />
         </LiveKitRoom>
       )}
     </Sheet>
   );
 }
 
-function TestRoom({ attemptId, template, onEnd }: { attemptId: string; template?: Template; onEnd: () => void }) {
+function TestRoom({ attemptId, template, listening, onEnd }: { attemptId: string; template?: Template; listening: boolean; onEnd: () => void }) {
   const { state, audioTrack } = useVoiceAssistant();
   const level = useTrackVolume(audioTrack);
   const { localParticipant, isMicrophoneEnabled } = useLocalParticipant();
@@ -157,13 +177,15 @@ function TestRoom({ attemptId, template, onEnd }: { attemptId: string; template?
           </div>
         </div>
         <div className="control-bar">
-          <button className={`round-btn${isMicrophoneEnabled ? "" : " on"}`} onClick={() => localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled)} aria-label={isMicrophoneEnabled ? "Mute microphone" : "Unmute microphone"} aria-pressed={!isMicrophoneEnabled} disabled={ended}>
-            {isMicrophoneEnabled ? <Mic size={22} /> : <MicOff size={22} />}
-          </button>
-          <button className="round-btn end" onClick={onEnd} aria-label="End session">
+          {!listening && (
+            <button className={`round-btn${isMicrophoneEnabled ? "" : " on"}`} onClick={() => localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled)} aria-label={isMicrophoneEnabled ? "Mute microphone" : "Unmute microphone"} aria-pressed={!isMicrophoneEnabled} disabled={ended}>
+              {isMicrophoneEnabled ? <Mic size={22} /> : <MicOff size={22} />}
+            </button>
+          )}
+          <button className="round-btn end" onClick={onEnd} aria-label={listening ? "End simulation" : "End session"}>
             <PhoneOff size={24} />
           </button>
-          {mics.devices.length > 1 && (
+          {!listening && mics.devices.length > 1 && (
             <select className="select" style={{ width: 200 }} value={mics.activeDeviceId} onChange={(e) => mics.setActiveMediaDevice(e.target.value)} aria-label="Microphone">
               {mics.devices.map((d) => (
                 <option key={d.deviceId} value={d.deviceId}>

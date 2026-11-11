@@ -148,8 +148,13 @@ def test_simulation_dispatches_agent_and_counterpart_into_one_room(client, gatew
     assert run.status_code == 200, run.text
     attempt_id = run.json()["attempt_id"]
     kinds = [c[0] for c in gateway.calls]
-    assert kinds[-2:] == ["dispatch", "counterpart"]
-    assert gateway.calls[-1][1] == gateway.calls[-2][1]  # same room
+    assert kinds[-3:] == ["dispatch", "counterpart", "token"]
+    assert gateway.calls[-2][1] == gateway.calls[-3][1]  # same room
+    # The Studio listens in: a token that can hear both sides but never speak (VS2).
+    _, _, identity, listen_only = gateway.calls[-1]
+    assert run.json()["listen_only"] is True and listen_only and identity.startswith("lsn_")
+    assert run.json()["acting_for"] == "Lakeside Family Medicine (NPI 1234567893)"
+    assert run.json()["case_ref"] is None  # a scenario run carries no hidden synthetic case
 
     agent = _claim(client, attempt_id)
     assert agent["speak_first"] is False  # the counterpart answers, like a real callee

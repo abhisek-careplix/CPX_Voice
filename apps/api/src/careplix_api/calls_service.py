@@ -29,6 +29,7 @@ from careplix_api.models import (
     CallAttempt,
     Case,
     Route,
+    Scenario,
     Task,
     TranscriptSegment,
     Workspace,
@@ -40,6 +41,7 @@ log = logging.getLogger("careplix.calls")
 
 ACTIVE_STATES = ("Created", "Queued", "Dialing", "Connected", "Ending")
 TERMINAL_TASK_STATES = ("Completed", "Partial", "Unsuccessful", "Cancelled")
+PROVIDER_FALLBACK = "the provider's office"  # no case and no scenario: nobody named
 RESTRICTED_ACTIONS = [
     "Do not transfer the call or promise a transfer.",
     "Do not dial or repeat back any phone number spoken on the call.",
@@ -143,6 +145,7 @@ async def start_browser_session(
         raise ApiError(503, "model_not_configured", "No approved voice model is configured.")
 
     case = await _resolve_case(session, principal.workspace_id, case_id, required=False)
+    scenario = await session.get(Scenario, scenario_id) if scenario_id else None
     await _workspace_guard(session, principal)
     await _capacity_guard(session, principal.workspace_id, settings)
 
@@ -185,12 +188,25 @@ async def start_browser_session(
         "url": settings.livekit_url,
         "token": gateway.browser_token(
             attempt.room_name,
-            f"usr_{principal.user_id[:8]}_{attempt.id[:8]}",
+            f"{'lsn' if simulated else 'usr'}_{principal.user_id[:8]}_{attempt.id[:8]}",
             principal.display_name,
+            listen_only=simulated,
         ),
+        "listen_only": simulated,
         "version": {"number": version.number, "state": version.state},
         "case_ref": case.case_ref if case else None,
+        "acting_for": acting_for(case, scenario),
+        "persona": version.config["identity"]["name"],
     }
+
+
+def acting_for(case: Case | None, scenario: Scenario | None) -> str:
+    """Who the agent says it represents: the scenario's party, else the case's provider."""
+    if scenario is not None:
+        return scenario.on_behalf_of
+    if case is not None:
+        return templates.case_context(case.data)["provider_name"]
+    return PROVIDER_FALLBACK
 
 
 async def _resolve_case(
@@ -204,9 +220,9 @@ async def _resolve_case(
         return case
     if required:
         raise ApiError(422, "case_required", "Select a case for this task.")
-    return await session.scalar(
-        select(Case).where(Case.workspace_id == workspace_id).order_by(Case.case_ref).limit(1)
-    )
+    # No silent default: a test without a chosen case gets no patient or provider details
+    # (it used to take the first synthetic case, whose provider the agent then claimed to call for).
+    return None
 
 
 # --- Outbound tasks ------------------------------------------------------------------------------
@@ -503,6 +519,7 @@ async def _claim_payload(
     scenario = await scenarios.for_attempt(session, attempt)
     plan = scenarios.brief_inputs(scenario, PhiBox(settings)) if scenario else None
     brief = build_brief(attempt, task, config, template, case, settings, scenario=plan)
+    attempt.brief = PhiBox(settings).seal(brief)  # what this run was told, for the call detail
     registry = contracts.tool_registry()
     return {
         "attempt_id": attempt.id,
@@ -628,7 +645,7 @@ def build_brief(
         },
         "authority": {
             "statement": "Act only on behalf of the provider for the purpose of this task.",
-            "on_behalf_of": context.get("provider_name", "the provider's office"),
+            "on_behalf_of": context.get("provider_name", PROVIDER_FALLBACK),
             "disclose_allowlist": config["guardrails"].get("allowed_disclosures", []),
         },
         "objective": objective,

@@ -187,7 +187,9 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
   const agents = useQuery({ queryKey: ["agents"], queryFn: () => api.get<AgentSummary[]>("/agents") });
   const outbound = (agents.data ?? []).filter((a) => a.template.direction === "outbound");
   const [form, setForm] = useState<typeof EMPTY | null>(isNew ? EMPTY : null);
-  const [rehearsing, setRehearsing] = useState(false);
+  // Rehearse and Simulate run the version chosen here; live calls always use the published one.
+  const [running, setRunning] = useState<null | "rehearse" | "simulate">(null);
+  const [use, setUse] = useState<"published" | "draft">("published");
   useEffect(() => {
     if (!isNew && detail.data && form === null) {
       const { id: _id, updated_at: _u, runs: _r, ...rest } = detail.data;
@@ -240,19 +242,15 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
     },
     onError: (e) => toast(e instanceof ApiError ? e.message : "Could not approve the number"),
   });
-  const simulate = useMutation({
-    mutationFn: () => api.post<{ attempt_id: string }>(`/scenarios/${id}/runs`, { mode: "simulate" }),
-    onSuccess: () => {
-      toast("Simulation started: the agent is calling the simulated counterpart. Follow it in the run below.");
-      qc.invalidateQueries({ queryKey: ["scenario", id] });
-    },
-  });
   const notApproved = live.error instanceof ApiError && live.error.code === "destination_not_approved";
 
   if (!form) return <Card pad>Loading…</Card>;
   const set = <K extends keyof typeof EMPTY>(k: K, v: (typeof EMPTY)[K]) => setForm({ ...form, [k]: v });
   const factRows = Object.entries(form.facts ?? {});
   const agent = outbound.find((a) => a.id === form.agent_id);
+  const draftAhead = !!agent?.draft && (!agent.current || agent.draft.number > agent.current.number);
+  const runnable = use === "draft" ? !!agent?.draft : !!agent?.current;
+  const runHint = runnable ? "" : use === "draft" ? "This agent has no draft" : "Publish the agent first";
 
   return (
     <div className="stack" style={{ gap: 16 }}>
@@ -262,10 +260,10 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
         actions={
           !isNew && (
             <div className="row" style={{ gap: 8 }}>
-              <button className="btn btn-secondary" disabled={!agent?.current || simulate.isPending} onClick={() => simulate.mutate()} title={agent?.current ? "The agent calls an AI playing the other side; no one needs to talk" : "Publish the agent first"}>
+              <button className="btn btn-secondary" disabled={!runnable} onClick={() => setRunning("simulate")} title={runHint || "The agent calls an AI playing the other side. You listen; no one needs to talk."}>
                 <Bot size={15} aria-hidden /> Simulate
               </button>
-              <button className="btn btn-secondary" disabled={!agent?.current} onClick={() => setRehearsing(true)} title={agent?.current ? "" : "Publish the agent first"}>
+              <button className="btn btn-secondary" disabled={!runnable} onClick={() => setRunning("rehearse")} title={runHint}>
                 <Mic size={15} aria-hidden /> Rehearse in browser
               </button>
               {canLive && (
@@ -278,7 +276,27 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
         }
       >
         <div className="card-pad stack" style={{ gap: 14 }}>
-          {simulate.error && <CallBlocked error={simulate.error} onCleared={() => simulate.reset()} />}
+          {!isNew && agent && (
+            <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+              <span className="small">
+                <strong>{agent.name}</strong> rehearses and simulates with
+              </span>
+              <select className="select" style={{ width: "auto" }} value={use} onChange={(e) => setUse(e.target.value as "published" | "draft")} aria-label="Agent version for rehearse and simulate">
+                <option value="published" disabled={!agent.current}>
+                  Published{agent.current ? ` v${agent.current.number}` : " (none yet)"}
+                </option>
+                <option value="draft" disabled={!agent.draft}>
+                  Draft{agent.draft ? ` v${agent.draft.number}` : " (none)"}
+                </option>
+              </select>
+              <span className="small muted">Live calls always use the published version.</span>
+            </div>
+          )}
+          {!isNew && draftAhead && use === "published" && (
+            <div className="field-help" style={{ color: "var(--orange)" }} role="status">
+              {agent!.name} has unpublished changes in draft v{agent!.draft!.number}. This scenario runs {agent!.current ? `published v${agent!.current.number}` : "nothing until you publish"}; choose the draft above to try them, or publish them in Agents.
+            </div>
+          )}
           {live.error && !notApproved && <CallBlocked error={live.error} onCleared={() => live.reset()} />}
           {notApproved && (
             <div className="field-error" role="alert">
@@ -305,7 +323,7 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
                 ))}
               </select>
             </Field>
-            <Field label="Agent that calls" flex={1} help={agent ? (agent.current ? `Published v${agent.current.number}` : "Not published yet") : "Choose an outbound agent"}>
+            <Field label="Agent that calls" flex={1} help={agent ? `${agent.current ? `Published v${agent.current.number}` : "Not published yet"}${draftAhead ? ` · draft v${agent.draft!.number} not published` : ""}` : "Choose an outbound agent"}>
               <select className="select" value={form.agent_id ?? ""} onChange={(e) => set("agent_id", e.target.value || null)} disabled={!canEdit}>
                 <option value="">Choose…</option>
                 {outbound.map((a) => (
@@ -393,14 +411,15 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
 
       {!isNew && <Runs scenarioId={id} runs={detail.data?.runs ?? []} summary={detail.data?.judge_summary} />}
 
-      {rehearsing && form.agent_id && (
+      {running && form.agent_id && (
         <BrowserTestSheet
           agentId={form.agent_id}
-          use="published"
+          use={use}
           scenarioId={id}
+          simulate={running === "simulate"}
           rehearsalNote={form.rehearsal_script ?? `Answer as ${form.counterpart}.`}
           onClose={() => {
-            setRehearsing(false);
+            setRunning(null);
             qc.invalidateQueries({ queryKey: ["scenario", id] });
           }}
         />

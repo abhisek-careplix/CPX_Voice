@@ -33,6 +33,7 @@ from careplix_api.models import (
     TranscriptSegment,
     Workspace,
 )
+from careplix_api.phi import PhiBox
 from careplix_api.seed import demo_principal
 from careplix_api.settings import Settings, get_settings
 
@@ -642,13 +643,36 @@ async def list_calls(principal: Principal = Depends(viewer), session: AsyncSessi
     return [await _attempt_view(session, a, agents) for a in attempts]
 
 
+async def _told(
+    session: AsyncSession, principal: Principal, settings: Settings, a: CallAttempt
+) -> dict[str, Any]:
+    """What this run's agent was told: persona at its pinned version, who it acted for, its
+    objective and the facts it could share (values only for people who may edit agents)."""
+    version = await session.get(AgentVersion, a.agent_version_id)
+    identity = version.config["identity"] if version else {}
+    brief = PhiBox(settings).open(a.brief)
+    context = brief.get("context") or {}
+    return {
+        "recorded": bool(brief),
+        "persona": {"name": identity.get("name"), "greeting": identity.get("greeting")},
+        "acting_for": (brief.get("authority") or {}).get("on_behalf_of"),
+        "objective": brief.get("objective"),
+        "scenario_id": a.scenario_id,
+        "facts": context if principal.can("edit_draft") else dict.fromkeys(context, "•••"),
+    }
+
+
 @router.get("/calls/{attempt_id}")
 async def get_call(
-    attempt_id: str, principal: Principal = Depends(viewer), session: AsyncSession = Session
+    attempt_id: str,
+    principal: Principal = Depends(viewer),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
 ):
     attempt = await _attempt(session, principal, attempt_id)
     return {
         **await _attempt_view(session, attempt),
+        "told": await _told(session, principal, settings, attempt),
         "findings": await _findings(session, Finding.attempt_id == attempt.id),
         "transcript": await _transcript(session, [attempt.id]),
         "tools": [

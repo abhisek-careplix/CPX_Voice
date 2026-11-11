@@ -212,7 +212,19 @@ export interface Segment {
   at: string;
 }
 
+/** What a run's agent was told at claim: persona at its pinned version, who it acted for, its
+ * objective and the facts it could share ("•••" for people who can't edit agents). */
+export interface ToldBrief {
+  recorded: boolean;
+  persona: { name: string | null; greeting: string | null };
+  acting_for: string | null;
+  objective: string | null;
+  scenario_id: string | null;
+  facts: Record<string, string | number | null>;
+}
+
 export interface CallDetail extends Attempt {
+  told: ToldBrief;
   findings: Finding[];
   transcript: Segment[];
   tools: { tool: string; state: string; rejection_code: string | null; at: string }[];
@@ -258,6 +270,11 @@ export interface BrowserSession {
   token: string;
   version: { number: number; state: string };
   case_ref: string | null;
+  /** Who the agent says it represents: the scenario's party, the case's provider, or nobody. */
+  acting_for: string;
+  persona: string;
+  /** A simulation: hear both agents, microphone off. */
+  listen_only: boolean;
 }
 
 export interface CallEvent {

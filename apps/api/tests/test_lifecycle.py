@@ -26,11 +26,16 @@ def _claim(client, attempt_id):
     return response.json()
 
 
+def _case_id(client, ref="SYN-CASE-0001"):
+    return next(c["id"] for c in client.get("/api/cases").json() if c["case_ref"] == ref)
+
+
 def _browser_attempt(client, use="published"):
     agent = _agent(client, "auth-status")
     if use == "published" and not agent["current"]:
         _publish(client, agent["id"])
-    response = client.post("/api/browser-sessions", json={"agent_id": agent["id"], "use": use})
+    body = {"agent_id": agent["id"], "use": use, "case_id": _case_id(client)}
+    response = client.post("/api/browser-sessions", json=body)
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -94,6 +99,7 @@ def test_browser_session_claim_tools_and_events(client, gateway):
     attempt_id = session["attempt_id"]
     assert session["token"].startswith("token-for-att_")
     assert gateway.calls[0][0] == "dispatch"
+    assert session["acting_for"] == "Riverside Orthopedic Group (synthetic)"  # the chosen case
 
     payload = _claim(client, attempt_id)
     assert payload["brief"]["sandbox"] is True
@@ -364,3 +370,27 @@ def test_claim_gives_the_worker_a_hold_allowance_beyond_the_talk_budget(client, 
     issued = datetime.fromisoformat(brief["issued_at"])
     expires = datetime.fromisoformat(brief["expires_at"])
     assert (expires - issued).total_seconds() >= settings.max_call_duration_s + 2700
+
+
+def test_a_test_without_a_case_names_nobody(client):
+    # careplix-labs, Nov 2026: an agent test with no case chosen silently took SYN-CASE-0001, and
+    # the agent said it was calling for "Riverside Orthopedic Group". Now nobody is invented.
+    agent = _agent(client, "auth-status")
+    _publish(client, agent["id"])
+    session = client.post(
+        "/api/browser-sessions", json={"agent_id": agent["id"], "use": "published"}
+    ).json()
+    assert session["case_ref"] is None and session["acting_for"] == "the provider's office"
+    brief = _claim(client, session["attempt_id"])["brief"]
+    assert brief["context"] == {} and brief["authority"]["on_behalf_of"] == "the provider's office"
+
+
+def test_a_run_shows_what_the_agent_was_told(client):
+    session = _browser_attempt(client)
+    detail = client.get(f"/api/calls/{session['attempt_id']}").json()
+    assert detail["told"]["recorded"] is False  # nothing told until the worker claims
+    _claim(client, session["attempt_id"])
+    told = client.get(f"/api/calls/{session['attempt_id']}").json()["told"]
+    assert told["recorded"] is True and told["persona"]["name"] == "Avery"
+    assert told["acting_for"] == "Riverside Orthopedic Group (synthetic)"
+    assert told["facts"]["member_id"].startswith("99") and told["objective"]

@@ -229,6 +229,13 @@ function VoiceTab({ config, update, approvedModel }: TabProps & { approvedModel:
           <label className="field">
             <span className="field-label">Greeting</span>
             <textarea className="textarea" style={{ minHeight: 70 }} value={id.greeting} onChange={(e) => update((c) => void (c.identity.greeting = e.target.value))} />
+            {id.name.trim() && id.greeting && !id.greeting.toLowerCase().includes(id.name.trim().toLowerCase()) ? (
+              <span className="field-help" style={{ color: "var(--orange)" }} role="status">
+                The greeting doesn't say “{id.name.trim()}”. The agent opens with these exact words, so update it too.
+              </span>
+            ) : (
+              <span className="field-help">The agent opens the call with these exact words.</span>
+            )}
           </label>
           <label className="field">
             <span className="field-label">Automated identity disclosure</span>
@@ -417,6 +424,8 @@ function TestsTab({ agent, dirty, onTest }: { agent: AgentDetail; dirty: boolean
   });
   const outbound = agent.template.direction === "outbound";
   const testable = use === "draft" ? !!agent.draft : !!agent.current;
+  const chosen = cases.data?.find((c) => c.id === caseId);
+  const actingFor = chosen?.context.provider_name ? String(chosen.context.provider_name) : null;
 
   return (
     <div className="split">
@@ -440,14 +449,17 @@ function TestsTab({ agent, dirty, onTest }: { agent: AgentDetail; dirty: boolean
               <label className="field">
                 <span className="field-label">Synthetic case</span>
                 <select className="select" value={caseId} onChange={(e) => setCaseId(e.target.value)}>
-                  <option value="">First synthetic case</option>
+                  <option value="">No case: no patient or provider details</option>
                   {cases.data?.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.case_ref} · {String(c.context.service_description)} · {String(c.context.payer_name)}
+                      {c.case_ref} · {String(c.context.provider_name)} · {String(c.context.service_description)} · {String(c.context.payer_name)}
                     </option>
                   ))}
                 </select>
-                <span className="field-help">You play the payer representative. The agent sees only this case's allowed fields.</span>
+                <span className="field-help">
+                  The agent calls for <strong>{actingFor ?? "the provider's office"}</strong>
+                  {actingFor ? " and sees only this case's allowed fields." : " and has no case details."} You play the other side.
+                </span>
               </label>
             )}
             <div>
