@@ -144,3 +144,100 @@ def test_labs_runs_stedi_in_test_mode_under_the_test_key_name():
         assert "STEDI_PROD_API_KEY" not in value and "STEDI_ENV=production" not in value
     assert "STEDI_ENV=test," in _variable("practice_env")
     assert "STEDI_TEST_API_KEY=cpx-stedi-api-key:latest" in _variable("practice_secrets")
+
+
+# --- build and deploy use the same image tag ------------------------------------------------------
+# careplix-labs, 11 Nov 2026: `build` pushed api:ac4cf38, another session then moved main to
+# 468b747, and `deploy` recomputed the tag from HEAD and failed on images that were never built.
+
+FAKE_GCLOUD_DEPLOY = """#!/bin/sh
+echo "$*" >> "$GCLOUD_LOG"
+case "$*" in
+  *"artifacts docker images describe"*) [ -z "$IMAGE_MISSING" ] || exit 1 ;;
+  *"projects describe"*) echo 123456 ;;
+  *"versions add"*) cat > /dev/null ;;
+esac
+exit 0
+"""
+
+
+def _git(root, *args):
+    subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+    out = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=root, capture_output=True)
+    return out.stdout.decode().strip()
+
+
+def _repo(tmp_path):
+    root = tmp_path / "repo"
+    (root / "infra" / "gcp").mkdir(parents=True)
+    (root / "infra" / "gcp" / "deploy-labs.sh").write_text(SCRIPT.read_text())
+    (root / ".env").write_text("LIVEKIT_URL=wss://lk.test\n")
+    (root / ".gitignore").write_text(".env\n.deploy-labs-tag\n")
+    _git(root, "init", "-q")
+    _git(root, "-c", "user.email=t@t", "-c", "user.name=t", "add", ".")
+    head = _git(root, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "one")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "gcloud").write_text(FAKE_GCLOUD_DEPLOY)
+    (bin_dir / "gcloud").chmod(0o755)
+    return root, bin_dir, head
+
+
+def _run(root, bin_dir, command, **extra):
+    log = root.parent / "gcloud.log"
+    log.unlink(missing_ok=True)
+    env = {k: v for k, v in os.environ.items() if k != "TAG"}
+    env.update(PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}", GCLOUD_LOG=str(log), **extra)
+    result = subprocess.run(
+        ["bash", "infra/gcp/deploy-labs.sh", command],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result, log.read_text() if log.exists() else ""
+
+
+def _first_image(calls: str) -> str:
+    match = re.search(r"run deploy \S+ .*?--image \S+:(\S+)", calls)
+    assert match, calls[-2000:]
+    return match.group(1)
+
+
+def test_build_records_the_tag_it_pushed(tmp_path):
+    root, bin_dir, head = _repo(tmp_path)
+    result, calls = _run(root, bin_dir, "build")
+    assert result.returncode == 0, result.stderr
+    assert f"_TAG={head}" in calls and f"built {head}" in result.stdout
+    assert (root / ".deploy-labs-tag").read_text().strip() == head
+
+
+def test_deploy_uses_the_built_tag_even_after_the_checkout_moves(tmp_path):
+    root, bin_dir, built = _repo(tmp_path)
+    _run(root, bin_dir, "build")
+    (root / "later.txt").write_text("another session merged something")
+    _git(root, "-c", "user.email=t@t", "-c", "user.name=t", "add", "later.txt")
+    moved = _git(root, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "two")
+    assert moved != built
+
+    result, calls = _run(root, bin_dir, "deploy")
+    registry = "us-central1-docker.pkg.dev/careplix-labs/careplix-voice"
+    assert f"artifacts docker images describe {registry}/api:{built}" in calls
+    assert _first_image(calls) == built
+    assert f"Deploying {built}" in result.stderr and moved in result.stderr
+
+
+def test_an_explicit_tag_wins(tmp_path):
+    root, bin_dir, _ = _repo(tmp_path)
+    _run(root, bin_dir, "build")
+    _, calls = _run(root, bin_dir, "deploy", TAG="pinned1")
+    assert _first_image(calls) == "pinned1"
+
+
+def test_deploy_stops_before_changing_anything_when_the_images_are_missing(tmp_path):
+    root, bin_dir, head = _repo(tmp_path)  # never built here, and the registry has no such tag
+    result, calls = _run(root, bin_dir, "deploy", IMAGE_MISSING="1")
+    assert result.returncode == 1
+    assert f"No images tagged {head}" in result.stderr and "nothing was deployed" in result.stderr
+    assert "run deploy" not in calls

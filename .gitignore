@@ -43,3 +43,5 @@ evidence/**/*.json
 
 # Web build output
 apps/web/dist/
+# The image tag deploy-labs.sh build last pushed (local only)
+.deploy-labs-tag
