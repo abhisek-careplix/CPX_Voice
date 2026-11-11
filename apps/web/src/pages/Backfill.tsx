@@ -64,6 +64,7 @@ export default function Backfill() {
       <Toolbar
         eyebrow="Front office"
         title="Cancellation backfill"
+        description="When a visit is cancelled, CarePlix offers the slot to waitlisted patients and books the first who accepts."
         actions={
           <>
             <button className="btn btn-secondary" onClick={refresh}>
@@ -87,10 +88,10 @@ export default function Backfill() {
         {board.error && <Banner tone="red" title={(board.error as ApiError).message} />}
 
         <div className="grid-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
-          <Stat icon={CalendarPlus} tint="#0071e3" value={open} label="Open slots" />
-          <Stat icon={CalendarCheck2} tint="#34c759" value={m?.states.filled ?? (m ? 0 : undefined)} label="Filled" />
-          <Stat icon={Gauge} tint="#af52de" value={m ? (m.fill_rate === null ? "–" : `${Math.round(m.fill_rate * 100)}%`) : undefined} label="Fill rate" />
-          <Stat icon={Timer} tint="#ff9500" value={m?.visit_minutes_recovered} label="Visit minutes recovered" />
+          <Stat icon={CalendarPlus} tint="var(--tile-blue)" value={open} label="Open slots" />
+          <Stat icon={CalendarCheck2} tint="var(--tile-green)" value={m?.states.filled ?? (m ? 0 : undefined)} label="Filled" />
+          <Stat icon={Gauge} tint="var(--tile-purple)" value={m ? (m.fill_rate === null ? "–" : `${Math.round(m.fill_rate * 100)}%`) : undefined} label="Fill rate" />
+          <Stat icon={Timer} tint="var(--tile-orange)" value={m?.visit_minutes_recovered} label="Visit minutes recovered" />
         </div>
 
         {d && d.active.length === 0 ? (
@@ -128,7 +129,7 @@ export default function Backfill() {
 function Stat({ icon: Icon, tint, value, label }: { icon: typeof Clock; tint: string; value: number | string | undefined; label: string }) {
   return (
     <div className="card stat row" style={{ gap: 14 }}>
-      <div className="row-icon" style={{ background: tint, width: 40, height: 40, borderRadius: 11 }}>
+      <div className="row-icon" style={{ background: tint, width: 40, height: 40 }}>
         <Icon size={20} aria-hidden />
       </div>
       <div>

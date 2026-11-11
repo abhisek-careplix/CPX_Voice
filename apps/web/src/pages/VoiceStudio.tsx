@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, CheckCircle2, CircleDashed, Clock, Hash, Library, Mic, PhoneOutgoing, Plus, Sparkles, Trash2, XCircle } from "lucide-react";
+import { Ban, Bot, CheckCircle2, CircleDashed, CircleHelp, Clock, Hash, Library, Mic, OctagonX, Pause, PhoneOutgoing, Plus, Sparkles, Timer, Trash2, UserRound, XCircle, type LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError, type AgentSummary, type ScenarioExpect } from "../api";
 import { useCan } from "../App";
 import { BrowserTestSheet } from "../BrowserTest";
 import { CallBlocked } from "../CallBlocked";
-import { Card, Empty, Pill, Toolbar, timeAgo, useToast } from "../ui";
+import { Card, Empty, ErrorState, ListSkeleton, Pill, Toolbar, timeAgo, useToast } from "../ui";
 
 type Category = "eligibility" | "claim_status" | "denials" | "prior_auth" | "patient_billing" | "healthcare" | "pharmacy" | "travel" | "utilities" | "retail" | "government" | "other";
 
@@ -65,7 +65,18 @@ const JUDGE_VERDICT = {
   partial: { label: "Judge: partial", tone: "orange" as const },
   fail: { label: "Judge: fail", tone: "red" as const },
 };
-const MARK: Record<string, string> = { met: "✅", kept: "✅", not_met: "❌", broken: "⛔", unclear: "❔" };
+const MARK: Record<string, [LucideIcon, string, string]> = {
+  met: [CheckCircle2, "var(--green)", "Met"],
+  kept: [CheckCircle2, "var(--green)", "Kept"],
+  not_met: [XCircle, "var(--red)", "Not met"],
+  broken: [OctagonX, "var(--red)", "Broken"],
+  unclear: [CircleHelp, "var(--label-3)", "Unclear"],
+};
+
+function Mark({ status }: { status: string }) {
+  const [Icon, color, label] = MARK[status] ?? MARK.unclear;
+  return <Icon size={14} color={color} aria-label={label} />;
+}
 
 const CATEGORY_LABEL: Record<Category, string> = {
   eligibility: "Insurance & benefits",
@@ -115,33 +126,46 @@ export default function VoiceStudio() {
   return (
     <>
       <Toolbar
-        eyebrow="Plan a call, rehearse it, run it, score it"
+        eyebrow="Build"
         title="Voice Studio"
+        description="Write a scenario for each call your agent should handle, then rehearse it yourself or simulate it while you listen. The same scenarios make up the agent's regression suite."
         actions={
           canEdit && (
-            <div className="row" style={{ gap: 8 }}>
+            <>
               <button className="btn btn-secondary" onClick={() => examples.mutate()} disabled={examples.isPending}>
-                <Library size={15} aria-hidden /> Add examples
+                <Library size={15} aria-hidden /> {examples.isPending ? "Adding…" : "Add examples"}
               </button>
               <button className="btn btn-primary" onClick={() => setSelected("new")}>
                 <Plus size={16} aria-hidden /> New scenario
               </button>
-            </div>
+            </>
           )
         }
       />
       <div className="content">
-        <div className="split" style={{ gridTemplateColumns: "300px minmax(0,1fr)", alignItems: "start" }}>
-          <Card title="Scenarios">
-            {rows.length === 0 ? (
-              <Empty icon={Sparkles} title="No scenarios yet">
-                Add the RCM library (insurance checks, claim status, denials, prior auth, patient balances) plus an airline showcase, or write your own.
+        <div className="split split-list">
+          <Card title="Scenarios" subtitle={list.data ? `${rows.length} in this workspace` : undefined}>
+            {list.isPending && <ListSkeleton rows={4} icon={false} />}
+            {list.error && <ErrorState error={list.error} onRetry={() => list.refetch()} title="Couldn't load scenarios" />}
+            {list.data && rows.length === 0 ? (
+              <Empty
+                icon={Sparkles}
+                title="No scenarios yet"
+                action={
+                  canEdit && (
+                    <button className="btn btn-secondary" onClick={() => examples.mutate()} disabled={examples.isPending}>
+                      <Library size={15} aria-hidden /> Add the example library
+                    </button>
+                  )
+                }
+              >
+                Start from the revenue-cycle library (insurance checks, claim status, denials, prior auth, patient balances), or write your own with New scenario.
               </Empty>
             ) : (
               <ul className="list">
                 {rows.map((s) => (
                   <li key={s.id}>
-                    <button type="button" className="list-row" onClick={() => setSelected(s.id)} aria-pressed={selected === s.id} style={{ width: "100%", textAlign: "left", background: selected === s.id ? "var(--accent-tint)" : undefined }}>
+                    <button type="button" className="list-row" onClick={() => setSelected(s.id)} aria-pressed={selected === s.id}>
                       <div className="row-main">
                         <div className="row-title">{s.name}</div>
                         <div className="row-sub">
@@ -253,7 +277,12 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
   });
   const notApproved = live.error instanceof ApiError && live.error.code === "destination_not_approved";
 
-  if (!form) return <Card pad>Loading…</Card>;
+  if (!form)
+    return (
+      <Card>
+        {detail.error ? <ErrorState error={detail.error} onRetry={() => detail.refetch()} title="Couldn't load this scenario" /> : <ListSkeleton rows={3} icon={false} />}
+      </Card>
+    );
   const set = <K extends keyof typeof EMPTY>(k: K, v: (typeof EMPTY)[K]) => setForm({ ...form, [k]: v });
   const factRows = Object.entries(form.facts ?? {});
   const agent = outbound.find((a) => a.id === form.agent_id);
@@ -265,10 +294,10 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
     <div className="stack" style={{ gap: 16 }}>
       <Card
         title={isNew ? "New scenario" : form.name}
-        subtitle="The agent's whole job for this call: who, what, what it may say, and where it must stop."
+        subtitle={isNew ? "The agent's whole job for this call: who, what, what it may say, and where it must stop." : `${CATEGORY_LABEL[form.category]} · calls ${form.counterpart || "—"}`}
         actions={
           !isNew && (
-            <div className="row" style={{ gap: 8 }}>
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
               <button className="btn btn-secondary" disabled={!runnable} onClick={() => setRunning("simulate")} title={runHint || "The agent calls an AI playing the other side. You listen; no one needs to talk."}>
                 <Bot size={15} aria-hidden /> Simulate
               </button>
@@ -284,9 +313,9 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
           )
         }
       >
-        <div className="card-pad stack" style={{ gap: 14 }}>
-          {!isNew && agent && (
-            <div className="row" style={{ gap: 10, flexWrap: "wrap" }}>
+        {!isNew && agent && (
+          <div className="card-pad stack" style={{ gap: 10, paddingTop: 0 }}>
+            <div className="row subcard" style={{ gap: 10, flexWrap: "wrap" }}>
               <span className="small">
                 <strong>{agent.name}</strong> rehearses and simulates with
               </span>
@@ -300,12 +329,14 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
               </select>
               <span className="small muted">Live calls always use the published version.</span>
             </div>
-          )}
-          {!isNew && draftAhead && use === "published" && (
-            <div className="field-help" style={{ color: "var(--orange)" }} role="status">
-              {agent!.name} has unpublished changes in draft v{agent!.draft!.number}. This scenario runs {agent!.current ? `published v${agent!.current.number}` : "nothing until you publish"}; choose the draft above to try them, or publish them in Agents.
-            </div>
-          )}
+            {draftAhead && use === "published" && (
+              <div className="small" style={{ color: "var(--orange)" }} role="status">
+                {agent.name} has unpublished changes in draft v{agent.draft!.number}. This scenario runs {agent.current ? `published v${agent.current.number}` : "nothing until you publish"}; choose the draft above to try them, or publish them in <Link to={`/agents/${agent.id}`}>Agents</Link>.
+              </div>
+            )}
+          </div>
+        )}
+        <div className="card-pad stack" style={{ gap: 16, borderTop: "1px solid var(--separator)" }}>
           {live.error && !notApproved && <CallBlocked error={live.error} onCleared={() => live.reset()} />}
           {notApproved && (
             <div className="field-error" role="alert">
@@ -319,6 +350,8 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
               )}
             </div>
           )}
+          <div className="form-section">
+          <h3 className="form-section-title">The call</h3>
           <div className="row" style={{ gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
             <Field label="Name" flex={2}>
               <input className="input" value={form.name} onChange={(e) => set("name", e.target.value)} disabled={!canEdit} />
@@ -343,7 +376,7 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
               </select>
             </Field>
           </div>
-          <div className="row" style={{ gap: 12, flexWrap: "wrap" }}>
+          <div className="row" style={{ gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
             <Field label="Calls (who answers)" flex={1}>
               <input className="input" value={form.counterpart} onChange={(e) => set("counterpart", e.target.value)} placeholder="Airline reservations" disabled={!canEdit} />
             </Field>
@@ -354,6 +387,9 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
               <input className="input" value={form.destination ?? ""} onChange={(e) => set("destination", e.target.value)} placeholder="+1…" disabled={!canEdit} />
             </Field>
           </div>
+          </div>
+          <div className="form-section">
+          <h3 className="form-section-title">Goal and boundaries</h3>
           <Field label="Goal">
             <textarea className="textarea" rows={3} value={form.goal} onChange={(e) => set("goal", e.target.value)} disabled={!canEdit} />
           </Field>
@@ -385,7 +421,11 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
               <textarea className="textarea" rows={3} value={form.success_checks.join("\n")} onChange={(e) => set("success_checks", e.target.value.split("\n"))} disabled={!canEdit} />
             </Field>
           </div>
+          </div>
           <PassRules expect={form.expect} canEdit={canEdit} onChange={(e) => set("expect", e)} />
+          <div className="form-section">
+          <h3 className="form-section-title">The other side</h3>
+          <p className="form-section-help">Used by browser rehearsals and by the simulated counterpart.</p>
           <Field label="How to play the other side" help="Shown to you in a browser rehearsal, and followed by the simulated counterpart.">
             <textarea className="textarea" rows={2} value={form.rehearsal_script ?? ""} onChange={(e) => set("rehearsal_script", e.target.value || null)} disabled={!canEdit} />
           </Field>
@@ -404,19 +444,22 @@ function ScenarioPane({ id, categories, onSaved, onDeleted }: { id: string; cate
               </select>
             </Field>
           </div>
-          {canEdit && (
-            <div className="row" style={{ gap: 8 }}>
-              <button className="btn btn-primary" onClick={() => save.mutate()} disabled={save.isPending || !form.name || !form.goal || !form.counterpart || !form.on_behalf_of}>
-                Save scenario
-              </button>
-              {!isNew && (
-                <button className="btn btn-plain" onClick={() => confirm("Delete this scenario? Past runs stay under Calls.") && remove.mutate()}>
-                  Delete
-                </button>
-              )}
-            </div>
-          )}
+          </div>
         </div>
+        {canEdit && (
+          <div className="form-footer">
+            <button className="btn btn-primary" onClick={() => save.mutate()} disabled={save.isPending || !form.name || !form.goal || !form.counterpart || !form.on_behalf_of}>
+              {save.isPending ? "Saving…" : isNew ? "Create scenario" : "Save scenario"}
+            </button>
+            {(!form.name || !form.goal || !form.counterpart || !form.on_behalf_of) && <span className="small muted">Name, who answers, on behalf of and goal are required.</span>}
+            <span className="spacer" />
+            {!isNew && (
+              <button className="btn btn-plain" style={{ color: "var(--red)" }} onClick={() => confirm("Delete this scenario? Past runs stay under Calls.") && remove.mutate()}>
+                <Trash2 size={14} aria-hidden /> Delete
+              </button>
+            )}
+          </div>
+        )}
       </Card>
 
       {!isNew && <Runs scenarioId={id} runs={detail.data?.runs ?? []} summary={detail.data?.judge_summary} />}
@@ -443,13 +486,13 @@ function PassRules({ expect, canEdit, onChange }: { expect: ScenarioExpect; canE
   const set = <K extends keyof ScenarioExpect>(k: K, v: ScenarioExpect[K]) => onChange({ ...expect, [k]: v });
   const num = (v: string) => (v.trim() ? Math.max(1, Number(v) || 1) : null);
   return (
-    <fieldset className="stack" style={{ gap: 10, border: "1px solid var(--separator)", borderRadius: 10, padding: 12, margin: 0 }}>
-      <legend className="field-label" style={{ padding: "0 4px" }}>
-        Pass rules (regression suite)
+    <fieldset className="form-section" style={{ border: 0, borderTop: "1px solid var(--separator)", padding: "16px 0 0", margin: 0, minWidth: 0 }}>
+      <legend className="form-section-title" style={{ float: "left", width: "100%", padding: 0 }}>
+        Pass rules for the regression suite
       </legend>
-      <span className="field-help" style={{ marginTop: -4 }}>
+      <p className="form-section-help" style={{ marginTop: 0 }}>
         Checked by the platform from what the call recorded. A suite run passes only when these hold and the AI judge passes it.
-      </span>
+      </p>
       <div className="row" style={{ gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
         <Field label="Goal outcome the agent must record" flex={2}>
           <select className="select" value={expect.outcome} onChange={(e) => set("outcome", e.target.value as ScenarioExpect["outcome"])} disabled={!canEdit}>
@@ -511,7 +554,9 @@ function Runs({ scenarioId, runs, summary }: { scenarioId: string; runs: Scoreca
   return (
     <Card title="Runs and scorecards" subtitle={subtitle}>
       {runs.length === 0 ? (
-        <div className="card-pad small muted">No runs yet. Rehearse in the browser first, then call live.</div>
+        <Empty icon={Mic} title="No runs yet">
+          Rehearse in the browser or simulate the call first. Each run gets a scorecard here.
+        </Empty>
       ) : (
         <ul className="list">
           {runs.map((r) => {
@@ -531,16 +576,24 @@ function Runs({ scenarioId, runs, summary }: { scenarioId: string; runs: Scoreca
                     </Link>
                   </div>
                   {r.summary && <div>{r.summary}</div>}
-                  <div className="row small" style={{ gap: 14, flexWrap: "wrap" }}>
-                    <span title="Call length">⏱ {minutes(r.metrics.duration_s)}</span>
-                    <span title="Time until a person answered">👤 {minutes(r.metrics.time_to_person_s)}</span>
+                  <div className="metrics">
+                    <span title="Call length">
+                      <Timer size={13} aria-hidden /> <span className="sr-only">Call length</span>
+                      {minutes(r.metrics.duration_s)}
+                    </span>
+                    <span title="Time until a person answered">
+                      <UserRound size={13} aria-hidden /> <span className="sr-only">Time to a person</span>
+                      {minutes(r.metrics.time_to_person_s)}
+                    </span>
                     <span title="Keypad presses in the phone menu">
-                      <Hash size={12} aria-hidden /> {r.metrics.menu_presses} presses
+                      <Hash size={13} aria-hidden /> {r.metrics.menu_presses} presses
                     </span>
                     <span title="Time on hold">
-                      ⏸ {r.metrics.holds} hold{r.metrics.holds === 1 ? "" : "s"} · {minutes(r.metrics.hold_s)}
+                      <Pause size={13} aria-hidden /> {r.metrics.holds} hold{r.metrics.holds === 1 ? "" : "s"} · {minutes(r.metrics.hold_s)}
                     </span>
-                    <span title="Actions the platform refused">⛔ {r.metrics.refused_actions} refused</span>
+                    <span title="Actions the platform refused">
+                      <Ban size={13} aria-hidden /> {r.metrics.refused_actions} refused
+                    </span>
                   </div>
                   {(r.reference_number || r.options_offered || r.blocker || r.next_step) && (
                     <div className="small">
@@ -601,12 +654,12 @@ function JudgePanel({ scenarioId, run }: { scenarioId: string; run: Scorecard })
   }
   const v = JUDGE_VERDICT[j.verdict ?? "fail"];
   return (
-    <div className="stack" style={{ gap: 6, borderLeft: "3px solid var(--border, #ddd)", paddingLeft: 10 }}>
+    <div className="judge-panel">
       <div className="row" style={{ gap: 8 }}>
         <Pill tone={v.tone} icon={Sparkles}>
           {v.label} · {j.score}/100
         </Pill>
-        <button className="btn btn-plain" onClick={() => setOpen(!open)}>
+        <button className="btn btn-plain" onClick={() => setOpen(!open)} aria-expanded={open}>
           {open ? "Hide evidence" : "Show evidence"}
         </button>
         {button}
@@ -617,11 +670,14 @@ function JudgePanel({ scenarioId, run }: { scenarioId: string; run: Scorecard })
           {j.checks.length > 0 && (
             <div>
               <strong>Success checks</strong>
-              <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+              <ul className="mark-list">
                 {j.checks.map((c) => (
                   <li key={c.check}>
-                    {MARK[c.status]} {c.check}
-                    {c.evidence && <div className="muted">“{c.evidence}”</div>}
+                    <Mark status={c.status} />
+                    <span>
+                      {c.check}
+                      {c.evidence && <span className="muted" style={{ display: "block" }}>“{c.evidence}”</span>}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -630,11 +686,14 @@ function JudgePanel({ scenarioId, run }: { scenarioId: string; run: Scorecard })
           {j.limits.length > 0 && (
             <div>
               <strong>Limits</strong>
-              <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+              <ul className="mark-list">
                 {j.limits.map((c) => (
                   <li key={c.limit}>
-                    {MARK[c.status]} {c.limit}
-                    {c.evidence && <div className="muted">“{c.evidence}”</div>}
+                    <Mark status={c.status} />
+                    <span>
+                      {c.limit}
+                      {c.evidence && <span className="muted" style={{ display: "block" }}>“{c.evidence}”</span>}
+                    </span>
                   </li>
                 ))}
               </ul>

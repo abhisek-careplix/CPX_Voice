@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CheckCircle2, Eye, Globe, Hand, Pause, Play, ShieldCheck, Square, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Eye, Globe, Hand, Pause, Play, ShieldCheck, Square, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../api";
@@ -103,11 +103,11 @@ function Runs() {
   const runs = useQuery({ queryKey: ["browser-runs"], queryFn: () => api.get<RunRow[]>("/browser/runs"), refetchInterval: 5000 });
   const s = settings.data;
   return (
-    <div className="stack" style={{ gap: 16 }}>
-      <Toolbar eyebrow="Browser agent" title="Supervised browser" />
+    <div className="content">
+      <Toolbar eyebrow="Labs" title="Browser agent" description="A supervised agent that works in payer and portal websites. You approve its plan and any risky step, and can take over at any time." />
       {s && !s.configured && (
-        <Banner tone="orange" title="The browser runtime isn't set up here">
-          Deploy with the latest script; it creates the private careplix-browser service.
+        <Banner tone="orange" title="The browser agent isn't enabled for this workspace">
+          It's a preview add-on. Ask your CarePlix team to turn it on.
         </Banner>
       )}
       {s?.configured && s.can_supervise && <StartForm settings={s} />}
@@ -260,7 +260,7 @@ function RunView({ id }: { id: string }) {
   const st = STATE[run.state] ?? STATE.paused;
   const mine = run.is_supervisor && canSupervise;
   return (
-    <div className="stack" style={{ gap: 16 }}>
+    <div className="content">
       <Toolbar
         eyebrow={
           <Link to="/browser" className="row" style={{ gap: 4 }}>
@@ -361,7 +361,7 @@ function LiveScreen({ id, tick, human }: { id: string; tick: number; human: bool
         src={`/api/browser/runs/${id}/screen?t=${tick}`}
         alt="Live browser screen"
         onClick={click}
-        style={{ width: "100%", aspectRatio: `${W} / ${H}`, borderRadius: 8, border: human ? "3px solid var(--orange, #f59e0b)" : "1px solid var(--border, #ddd)", cursor: human ? "crosshair" : "default", background: "#f4f4f5" }}
+        style={{ width: "100%", aspectRatio: `${W} / ${H}`, borderRadius: 8, border: human ? "3px solid var(--orange)" : "1px solid var(--separator-strong)", cursor: human ? "crosshair" : "default", background: "var(--surface-sunken)" }}
       />
       {human && (
         <div className="stack" style={{ gap: 6 }}>
@@ -471,10 +471,10 @@ function ApprovalCard({ run, step, mine }: { run: RunDetail; step: Step; mine: b
           <strong>{step.description}</strong>
         </div>
         <span className="small muted">{risk.help}</span>
-        {step.needs_approval_reason && <span className="small">⚠️ {step.needs_approval_reason}</span>}
+        {step.needs_approval_reason && <span className="small row" style={{ gap: 4, color: "var(--orange)" }}><AlertTriangle size={13} aria-hidden /> {step.needs_approval_reason}</span>}
         {step.has_screenshot && (
           <div style={{ position: "relative" }}>
-            <img src={`/api/browser/runs/${run.id}/steps/${step.id}/screenshot`} alt="Where the agent will act" style={{ width: "100%", borderRadius: 6, border: "1px solid var(--border, #ddd)" }} />
+            <img src={`/api/browser/runs/${run.id}/steps/${step.id}/screenshot`} alt="Where the agent will act" style={{ width: "100%", borderRadius: 6, border: "1px solid var(--separator-strong)" }} />
             {step.x != null && step.y != null && (
               <span
                 aria-hidden
@@ -487,7 +487,7 @@ function ApprovalCard({ run, step, mine }: { run: RunDetail; step: Step; mine: b
                   marginLeft: -14,
                   marginTop: -14,
                   borderRadius: "50%",
-                  border: "3px solid #ef4444",
+                  border: "3px solid var(--danger)",
                   boxShadow: "0 0 0 3px rgba(239,68,68,.25)",
                 }}
               />
@@ -545,7 +545,7 @@ function ApprovalCard({ run, step, mine }: { run: RunDetail; step: Step; mine: b
               </button>
             </div>
           ))}
-        {decide.error && <span className="small" style={{ color: "var(--red, #b91c1c)" }}>{(decide.error as Error).message}</span>}
+        {decide.error && <span className="small" style={{ color: "var(--red)" }}>{(decide.error as Error).message}</span>}
       </div>
     </Card>
   );

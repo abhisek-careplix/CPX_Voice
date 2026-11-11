@@ -3,10 +3,10 @@ import { AudioLines, ChevronRight, Phone, PhoneIncoming, PhoneOutgoing } from "l
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type Attempt } from "../api";
-import { AttemptPill, Card, DIRECTION_LABEL, Empty, Segmented, Toolbar, duration, timeAgo, useNow } from "../ui";
+import { AttemptPill, Card, DIRECTION_LABEL, Empty, ErrorState, ListSkeleton, Segmented, Toolbar, duration, timeAgo, useNow } from "../ui";
 
 const ICON = { browser: AudioLines, outbound: PhoneOutgoing, inbound: PhoneIncoming };
-const TINT = { browser: "#af52de", outbound: "#0071e3", inbound: "#30b0c7" };
+const TINT = { browser: "var(--tile-purple)", outbound: "var(--tile-blue)", inbound: "var(--tile-teal)" };
 const ACTIVE = ["Created", "Queued", "Dialing", "Connected", "Ending"];
 
 export default function Calls() {
@@ -19,7 +19,7 @@ export default function Calls() {
 
   return (
     <>
-      <Toolbar title="Calls" eyebrow="Every attempt, live and historical" />
+      <Toolbar eyebrow="Operate" title="Calls" description="Every call attempt, live and finished: phone calls, browser rehearsals and simulations. Open one for its transcript, findings and what the agent was told." />
       <div className="content">
         <Segmented
           label="Filter calls"
@@ -33,9 +33,11 @@ export default function Calls() {
           ]}
         />
         <Card>
-          {rows.length === 0 ? (
-            <Empty icon={Phone} title="No calls">
-              Calls appear here as soon as they start.
+          {calls.isPending && <ListSkeleton rows={4} />}
+          {calls.error && <ErrorState error={calls.error} onRetry={() => calls.refetch()} title="Couldn't load calls" />}
+          {calls.data && rows.length === 0 ? (
+            <Empty icon={Phone} title={filter === "all" ? "No calls yet" : "No calls match this filter"} action={filter !== "all" && <button className="btn btn-secondary" onClick={() => setFilter("all")}>Show all calls</button>}>
+              {filter === "all" ? <>Calls appear here as soon as they start. Rehearse or simulate a scenario in <Link to="/studio">Voice Studio</Link> to make your first one.</> : null}
             </Empty>
           ) : (
             <ul className="list">

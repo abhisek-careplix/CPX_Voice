@@ -76,16 +76,18 @@ export function RegressionSuite({ agent }: { agent: AgentDetail }) {
         </span>
       }
       subtitle="Simulates this agent against its Voice Studio scenarios. An AI plays the other side; every run is checked by the platform's pass rules and the AI judge."
-      actions={version ? <Pill tone={tone}>{label}</Pill> : null}
+      actions={version ? <Pill tone={tone} icon={tone === "green" ? CheckCircle2 : tone === "red" ? XCircle : CircleDashed}>{label}</Pill> : null}
     >
       <div className="card-pad stack" style={{ gap: 14 }}>
         {suite.error && <Banner tone="red" title={(suite.error as ApiError).message} />}
         {s?.required_to_publish && (
-          <div className="small muted">Publishing this agent needs a passed suite on the exact draft. An admin can publish anyway with a reason.</div>
+          <Banner tone="blue" title="Publishing needs a passed suite on the exact draft">
+            An admin can publish anyway with a reason, recorded in the audit log.
+          </Banner>
         )}
         {s && scenarioCount === 0 ? (
-          <div className="small">
-            No scenarios use this agent yet. In <Link to="/studio">Voice Studio</Link>, add scenarios (or the example library) and choose <strong>{agent.name}</strong> under "Agent that calls".
+          <div className="subcard small">
+            No scenarios use this agent yet. In <Link to="/studio">Voice Studio</Link>, add scenarios (or the example library) and choose <strong>{agent.name}</strong> under “Agent that calls”.
           </div>
         ) : (
           <>
@@ -136,7 +138,7 @@ export function RegressionSuite({ agent }: { agent: AgentDetail }) {
             {s.runs.map((r) => {
               const [rt, rl] = RUN_STATE[r.state];
               return (
-                <button key={r.id} type="button" className={`list-row${shown === r.id ? " selected" : ""}`} style={{ textAlign: "left" }} onClick={() => setOpen(shown === r.id ? null : r.id)}>
+                <button key={r.id} type="button" className={`list-row${shown === r.id ? " selected" : ""}`} style={{ textAlign: "left", minHeight: 44, borderRadius: "var(--r-sm)" }} aria-expanded={shown === r.id} onClick={() => setOpen(shown === r.id ? null : r.id)}>
                   {shown === r.id ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
                   <span className="row-main">
                     {r.version.state === "draft" ? "Draft" : "Published"} v{r.version.number}
@@ -209,14 +211,18 @@ function RunDetail({ runId, agentId }: { runId: string; agentId: string }) {
             const regressed = b && b.status === "pass" && c.status !== "pass";
             return (
               <Fragment key={c.scenario_id}>
-                <tr onClick={() => setOpenScenario(isOpen ? null : c.scenario_id)} style={{ cursor: "pointer" }}>
+                <tr>
                   <td>
-                    {isOpen ? <ChevronDown size={12} aria-hidden /> : <ChevronRight size={12} aria-hidden />} {c.name}
+                    <span className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                    <button type="button" className="disclosure" aria-expanded={isOpen} onClick={() => setOpenScenario(isOpen ? null : c.scenario_id)}>
+                      {isOpen ? <ChevronDown size={12} aria-hidden /> : <ChevronRight size={12} aria-hidden />} {c.name}
+                    </button>
                     {regressed && (
-                      <span className="small" style={{ color: "var(--red)", marginLeft: 6 }}>
-                        regression
-                      </span>
+                      <Pill tone="red" icon={XCircle}>
+                        Regression
+                      </Pill>
                     )}
+                    </span>
                   </td>
                   <td>
                     <ScenarioCell result={c} />
@@ -269,8 +275,8 @@ function CaseList({ run, scenarioId }: { run: SuiteRun; scenarioId: string }) {
               {c.attempt_id && <Link to={`/calls/${c.attempt_id}`}>Open call</Link>}
             </div>
             {failed.map((x) => (
-              <div key={x.rule} className="muted">
-                ✗ {x.rule}: {x.detail}
+              <div key={x.rule} className="row muted" style={{ gap: 6, alignItems: "flex-start" }}>
+                <XCircle size={13} aria-hidden style={{ color: "var(--red)", marginTop: 2, flex: "none" }} /> {x.rule}: {x.detail}
               </div>
             ))}
             {c.judge?.state === "done" && (

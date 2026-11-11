@@ -28,8 +28,9 @@ export default function Integrations() {
   return (
     <>
       <Toolbar
-        eyebrow="Healthcare data"
+        eyebrow="Settings"
         title="Integrations"
+        description="Payer APIs and public systems of record. Before a status call CarePlix asks the payer's API; after it, it checks what was heard against the payer record."
         actions={
           <>
             <button className="btn btn-secondary" onClick={refresh}>
@@ -52,7 +53,7 @@ export default function Integrations() {
         <Card title="Connections" subtitle="Payer APIs and public systems of record. Each must pass a live test before it is trusted.">
           {d && d.connections.length === 0 ? (
             <Empty icon={Building2} title="No payer connections">
-              Add a payer's PAS endpoint, or start the CarePlix Payer Sandbox with <code className="mono">make payer-sandbox</code>.
+              Add a payer's prior-authorization (PAS) endpoint, or connect the CarePlix Payer Sandbox to try the flow with synthetic data.
             </Empty>
           ) : (
             <ul className="list">
@@ -125,7 +126,7 @@ export default function Integrations() {
 function ConnectionRow({ c, isAdmin, verifying, onVerify, onToggle }: { c: PayerConnection; isAdmin: boolean; verifying: boolean; onVerify: () => void; onToggle: (v: boolean) => void }) {
   return (
     <li className="list-row" style={{ alignItems: "flex-start", paddingTop: 16, paddingBottom: 16 }}>
-      <div className="row-icon" style={{ background: c.synthetic ? "#af52de" : "#0071e3" }}>
+      <div className="row-icon" style={{ background: c.synthetic ? "var(--tile-purple)" : "var(--tile-blue)" }}>
         <Building2 size={17} />
       </div>
       <div className="row-main">
@@ -234,9 +235,9 @@ function AddConnection({ onClose, onDone }: { onClose: () => void; onDone: () =>
             <input className="input mono" value={f.token_url} onChange={set("token_url")} />
           </label>
           <label className="field">
-            <span className="field-label">Private key env variable</span>
+            <span className="field-label">Private key reference</span>
             <input className="input mono" value={f.key_env} onChange={set("key_env")} placeholder="PAYER_NORTHWIND_KEY" />
-            <span className="field-help">Name only. The key itself stays in the server's secret store.</span>
+            <span className="field-help">The name the key is stored under. The key itself stays in the server's secret store.</span>
           </label>
           <label className="field">
             <span className="field-label">Key ID (kid)</span>

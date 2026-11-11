@@ -54,7 +54,8 @@ export default function TaskComposer() {
             <ChevronLeft size={15} aria-hidden /> Tasks
           </Link>
         }
-        title="New Task"
+        title="New task"
+        description="Pick a case, a published agent and an approved number. The agent calls, records what it learns, and the result waits for a reviewer."
       />
       <div className="content">
         {phoneBlocked && (

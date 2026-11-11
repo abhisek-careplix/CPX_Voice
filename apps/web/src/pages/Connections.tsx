@@ -53,8 +53,9 @@ export default function Connections() {
   return (
     <>
       <Toolbar
-        eyebrow="Administration"
+        eyebrow="Settings"
         title="Connections"
+        description="Everything a call depends on, checked one by one: the voice platform, the agent runtime, the voice model and your phone lines. Live calls need every step ready."
         actions={
           <button className="btn btn-secondary" onClick={refresh} disabled={readiness.isFetching}>
             <RefreshCw size={15} className={readiness.isFetching ? "spin" : ""} aria-hidden /> Re-check
@@ -188,7 +189,7 @@ function SandboxCard({ line, agents, isAdmin, onChange }: { line: SandboxLine; a
   return (
     <Section
       icon={Phone}
-      tint="var(--green)"
+      tint="var(--tile-green)"
       title="Sandbox line"
       subtitle="Try your agents on a real phone call before connecting your own number. Shared by trial workspaces, with daily limits."
     >
@@ -272,7 +273,7 @@ function LiveKitCard({ o, check, worker, isAdmin, onChange }: { o?: ConnectionsO
   }, [probe, onChange]);
 
   return (
-    <Section icon={Radio} tint="#ff375f" title="LiveKit" subtitle="Media, SIP and agent hosting." check={check}>
+    <Section icon={Radio} tint="var(--tile-pink)" title="LiveKit" subtitle="Media, SIP and agent hosting." check={check}>
       {!lk?.configured ? (
         <div className="stack" style={{ gap: 12 }}>
           <p style={{ margin: 0 }}>Connect your LiveKit Cloud project. Keys stay on the server and are never shown in the Studio.</p>
@@ -280,14 +281,9 @@ function LiveKitCard({ o, check, worker, isAdmin, onChange }: { o?: ConnectionsO
             <li>
               In LiveKit Cloud, open <strong>Settings → API keys</strong> and create a key for this environment.
             </li>
+            <li>Give the project URL, API key and secret to your CarePlix administrator. They are stored in the server's secret store, never in the Studio.</li>
             <li>
-              Add these to <code className="mono">.env</code> in the repository root:
-              <pre className="code-block">{`LIVEKIT_URL=wss://<your-project>.livekit.cloud
-LIVEKIT_API_KEY=<key>
-LIVEKIT_API_SECRET=<secret>`}</pre>
-            </li>
-            <li>
-              Restart the API (<code className="mono">make api</code>) and press <strong>Re-check</strong>.
+              Once they're in place, press <strong>Re-check</strong>.
             </li>
           </ol>
         </div>
@@ -310,7 +306,7 @@ LIVEKIT_API_SECRET=<secret>`}</pre>
                   {worker && <CheckPill status={worker.status} />}
                 </div>
                 <div className="small muted" style={{ marginTop: 2 }}>
-                  Sends a test dispatch to <span className="mono">{lk.agent_name}</span> and waits for a worker to answer. Start one with <code className="mono">make worker-dev</code>.
+                  Sends a test dispatch to <span className="mono">{lk.agent_name}</span> and waits for the agent runtime to answer.
                 </div>
                 {latest && <ProbeLine probe={latest} />}
               </div>
@@ -332,7 +328,7 @@ function ProbeLine({ probe }: { probe: ProbeStatus }) {
   const text = {
     waiting: "Waiting for a worker to answer…",
     answered: `Answered in ${probe.latency_ms} ms by build ${probe.runtime_build ?? "unknown"} · ${timeAgo(probe.acked_at)}`,
-    no_worker: "No worker answered within 30 seconds. Is make worker-dev running with the same LiveKit project?",
+    no_worker: "No worker answered within 30 seconds. Check that the agent runtime is running and connected to this LiveKit project.",
     failed: `Dispatch failed (${probe.error}).`,
   }[probe.status];
   const tone = probe.status === "answered" ? "var(--green)" : probe.status === "waiting" ? "var(--label-2)" : "var(--orange)";
@@ -371,7 +367,7 @@ function GeminiCard({ o, check, isAdmin, onChange }: { o?: ConnectionsOverview; 
   const c = m?.check;
 
   return (
-    <Section icon={Sparkles} tint="#5e5ce6" title="Gemini Live" subtitle="Native-audio voice model on Vertex AI." check={check}>
+    <Section icon={Sparkles} tint="var(--tile-navy)" title="Gemini Live" subtitle="Native-audio voice model on Vertex AI." check={check}>
       <div className="grid-3" style={{ gap: 14 }}>
         <label className="field">
           <span className="field-label">Google Cloud project</span>
@@ -399,7 +395,7 @@ function GeminiCard({ o, check, isAdmin, onChange }: { o?: ConnectionsOverview; 
       <div className="small muted" style={{ marginTop: 10 }}>
         Credentials: {m?.credential_source === "application_default" ? (
           <>
-            Application Default Credentials. Locally, run <code className="mono">gcloud auth application-default login</code> once.
+            the server's Google Cloud service identity (Application Default Credentials).
           </>
         ) : (
           "restricted service-account key from the server environment."
@@ -456,7 +452,7 @@ function InboundCard({ o, check, routes, agents, isAdmin, onChange }: { o?: Conn
   return (
     <Section
       icon={PhoneIncoming}
-      tint="#30b0c7"
+      tint="var(--tile-teal)"
       title="Inbound numbers"
       subtitle="Calls to these numbers are answered by a CarePlix agent."
       check={check}
@@ -624,7 +620,7 @@ function OutboundCard({ o, check, agents, isAdmin, onChange }: { o?: Connections
   return (
     <Section
       icon={PhoneOutgoing}
-      tint="#0071e3"
+      tint="var(--tile-blue)"
       title="Outbound calling"
       subtitle="Calls go out through a SIP carrier trunk in LiveKit."
       check={check}
@@ -652,7 +648,7 @@ function OutboundCard({ o, check, agents, isAdmin, onChange }: { o?: Connections
                 </option>
               ))}
             </select>
-            {out?.trunk_from_env && <span className="field-help">Selected from LIVEKIT_OUTBOUND_TRUNK_ID.</span>}
+            {out?.trunk_from_env && <span className="field-help">Set in the server configuration.</span>}
           </label>
           <div className="field">
             <span className="field-label">Approved test destinations</span>
