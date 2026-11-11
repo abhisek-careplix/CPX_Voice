@@ -6,7 +6,7 @@ also emulate any catalog profile (``auth_ref.emulate``), so one test clinic demo
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, time, timedelta, tzinfo
+from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -30,6 +30,8 @@ from careplix_api.settings import Settings
 # Emulated EHRs confirm writes the way the real one would: later, not on the API call.
 EMULATED_CONFIRM_DELAY = timedelta(seconds=60)
 OFFICE_HOURS = (time(8, 0), time(18, 0))  # cloud EHRs sync only while the office is signed in
+MAX_SLOT_DAYS = 14  # NexHealth: keep each /available_slots request to 14 days or fewer
+MAX_SLOT_REQUESTS = 4
 
 
 def office_open(timezone: str | None, now: datetime) -> bool:
@@ -53,6 +55,12 @@ class OpenEmrConnector(Connector):
     @property
     def emulating(self) -> Profile | None:
         return profile((self.conn.auth_ref or {}).get("emulate"))
+
+    def intent_support(self, kind: str) -> Support:
+        # The OpenEMR adapter writes these kinds; any other stays in the hub as a staff task.
+        if kind not in ("patient_alert", "appointment_book", "appointment_cancel"):
+            return "no"
+        return super().intent_support(kind)
 
     def support(self, operation: str) -> Support:
         own = PROFILES["openemr"].support(operation)
@@ -104,7 +112,7 @@ class OpenEmrConnector(Connector):
     async def slot_free(self, opening: Any) -> str | None:
         return await self.client.slot_free(opening)
 
-    async def available_slots(self, start, end, minutes, providers, tz: tzinfo):
+    async def available_slots(self, start, end, minutes, providers, tz: tzinfo, type_ref=None):
         # OpenEMR's API has no availability: clinic hours minus booked visits, the same rule
         # slot_free re-checks.
         return await self.client.free_slots(start, end, minutes, providers)
@@ -156,21 +164,70 @@ class NexHealthConnector(Connector):
 
         return await nexhealth_free_operatory(self.client, self.conn, opening)
 
-    async def available_slots(self, start, end, minutes, providers, tz: tzinfo):
+    def schedule_online(self) -> bool:
+        from careplix_api.practice.sync import schedule_status
+
+        return schedule_status(self.conn) != "red"
+
+    async def find_patients(self, first_name: str, last_name: str, date_of_birth: str):
+        from careplix_api.practice.connections import location_id
+
+        params = {
+            "location_id": location_id(self.conn),
+            "location_strict": "true",  # this office's patients, not the whole shared server
+            "name": f"{first_name} {last_name}",
+            "date_of_birth": date_of_birth,
+            "inactive": "false",
+            "non_patient": "false",
+            "per_page": 25,
+        }
+        data = await self.client.get("/patients", params)
+        return [p for p in data or [] if isinstance(p, dict) and p.get("id") is not None]
+
+    async def available_slots(self, start, end, minutes, providers, tz: tzinfo, type_ref=None):
+        """``GET /available_slots`` in requests of at most 14 days.
+
+        With a visit type, NexHealth uses only the working hours mapped to that type and sets the
+        slot length from it. A practice that maps no working hours to types gets nothing back
+        (no slots and no ``next_available_date``): then we ask again by slot length alone. When a
+        request finds nothing, ``next_available_date`` says where to look next.
+        """
         from careplix_api.practice.connections import location_id
 
         first, last = start.astimezone(tz).date(), end.astimezone(tz).date()
-        params: dict[str, Any] = {
-            "start_date": first.isoformat(),  # NexHealth reads dates in the location's time
-            "days": max(1, min((last - first).days + 1, 30)),
+        base: dict[str, Any] = {
             "lids[]": location_id(self.conn),
             "pids[]": providers,
             "slot_length": minutes,
             "slot_interval": 15,
         }
-        body = await self.client.request("GET", "/available_slots", params)
+        if type_ref:
+            base["appointment_type_id"] = type_ref
         out: list[tuple[datetime, str, str]] = []
-        for entry in body.get("data") or []:
+        day, requests = first, 0
+        while day <= last and requests < MAX_SLOT_REQUESTS:
+            days = min((last - day).days + 1, MAX_SLOT_DAYS)
+            params = {**base, "start_date": day.isoformat(), "days": days}
+            body = await self.client.request("GET", "/available_slots", params)
+            requests += 1
+            entries = body.get("data") or []
+            found = self._slots(entries, start, end, providers)
+            nexts = [e.get("next_available_date") for e in entries if e.get("next_available_date")]
+            if not found and not nexts and "appointment_type_id" in base:
+                # No working hours carry this visit type: fall back to the slot length.
+                base.pop("appointment_type_id")
+                continue
+            out += found
+            if out:
+                break
+            jump = min((d for d in map(_parse_date, nexts) if d), default=None)
+            day = jump if jump and jump > day else day + timedelta(days=days)
+        return sorted(set(out))
+
+    @staticmethod
+    def _slots(entries, start, end, providers) -> list[tuple[datetime, str, str]]:
+        out = []
+        for entry in entries:
             for slot in entry.get("slots") or []:
                 at = _parse_time(slot.get("time"))
                 if at is None or not (start <= at <= end):
@@ -179,7 +236,14 @@ class NexHealthConnector(Connector):
                 if providers and pid not in providers:
                     continue
                 out.append((at, pid, str(slot.get("operatory_id") or "")))
-        return sorted(out)
+        return out
+
+
+def _parse_date(value: Any) -> date | None:
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
 
 
 def _parse_time(value: Any) -> datetime | None:

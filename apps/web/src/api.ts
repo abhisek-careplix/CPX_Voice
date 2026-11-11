@@ -528,7 +528,12 @@ export interface PracticeConnection {
     last_sync?: { at: string; full: boolean; api_calls: number };
     probed_at?: string;
   } | null;
-  webhook: { registered: boolean; events: string[] };
+  webhook: {
+    registered: boolean;
+    events: string[];
+    signed?: boolean;
+    health?: { status: string; message?: string; checked_at?: string } | null;
+  };
 }
 
 export interface WriteIntentRow {

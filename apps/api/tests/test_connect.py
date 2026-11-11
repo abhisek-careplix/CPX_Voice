@@ -65,7 +65,7 @@ def test_catalog_api_shows_profiles_and_the_connected_practice(tmp_path):
     with c:
         c.post("/api/auth/dev-login")
         body = c.get("/api/practices/catalog").json()
-        assert len(body["profiles"]) == 16 and len(body["operations"]) == 10
+        assert len(body["profiles"]) == 16 and len(body["operations"]) == 11
         [conn] = body["connections"]
         assert conn["kind"] == "openemr" and conn["profile"] == "openemr"
         assert conn["emulating"] is None and conn["support"]["appointment.cancel"] == "yes"

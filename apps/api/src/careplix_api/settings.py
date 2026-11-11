@@ -106,6 +106,10 @@ class Settings(BaseSettings):
     # Public base URL of the webhook ingress (careplix-webhooks); empty means webhooks are off.
     webhook_public_url: str = ""
     practice_sync_interval_s: float = 900.0  # incremental sync cadence; 0 disables
+    # NexHealth appointment mirror: days ahead kept current, and months of history loaded once in
+    # monthly chunks (a few per pass) for the record; 0 skips the history.
+    nexhealth_window_days: int = 180
+    nexhealth_history_months: int = 24
     eligibility_autopilot: bool = True
     # FO-2 cancellation backfill: slots starting sooner than the lead time aren't worth offering;
     # far-future ones fill through normal scheduling.

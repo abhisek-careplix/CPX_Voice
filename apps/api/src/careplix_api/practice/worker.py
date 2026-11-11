@@ -10,9 +10,10 @@ from typing import Any
 from sqlalchemy import select
 
 from careplix_api.connect.connectors import connector_for
-from careplix_api.db import Database, utcnow
-from careplix_api.models import PayerConnection, WebhookEvent, WriteIntent
-from careplix_api.practice import backfill, eligibility, intents, sync
+from careplix_api.db import Database, as_utc, utcnow
+from careplix_api.integrations.nexhealth import NexHealthError
+from careplix_api.models import EhrRecord, PayerConnection, WebhookEvent, WriteIntent
+from careplix_api.practice import backfill, eligibility, intents, sync, webhooks
 from careplix_api.practice.connections import EHR_KINDS
 from careplix_api.practice.records import parse_dt
 from careplix_api.settings import Settings
@@ -51,14 +52,16 @@ class PracticeWorker:
                 base, _, outcome = event.event_name.partition(".")
                 try:
                     if base.endswith("_insertion"):
-                        for intent in await session.scalars(
-                            select(WriteIntent).where(
-                                WriteIntent.connection_id == conn_id,
-                                WriteIntent.remote_id.in_(event.resource_ids or ["-"]),
-                            )
-                        ):
-                            intents.apply_insertion(intent, outcome or "complete", None)
+                        await self._insertion(session, conn, event, outcome or "complete")
                         event.outcome = f"insertion_{outcome or 'complete'}"
+                    elif base == "appointment_updated":
+                        settled = await self._appointment_updated(
+                            session, conn, event, outcome or "complete"
+                        )
+                        if outcome:
+                            event.outcome = f"update_{outcome}"[:30]
+                        else:
+                            event.outcome = "update_confirmed" if settled else "refreshed"
                     elif event.resource_type in sync.SINGLE:
                         await sync.refresh_records(
                             session,
@@ -82,6 +85,102 @@ class PracticeWorker:
             await session.commit()
             return len(events)
 
+    async def _insertion(
+        self, session, conn: PayerConnection, event: WebhookEvent, outcome: str
+    ) -> None:
+        """``*_insertion.complete|failed|timed_out|incomplete`` for a record we created."""
+        ids = event.resource_ids or []
+        matched = list(
+            await session.scalars(
+                select(WriteIntent).where(
+                    WriteIntent.connection_id == conn.id,
+                    WriteIntent.remote_id.in_(ids or ["-"]),
+                )
+            )
+        )
+        foreign: dict[str, Any] = {}
+        if event.resource_type == "Appointment" and ids:
+            # Re-read the appointment: the mirror and the intent then carry the EHR's foreign_id.
+            try:
+                await sync.refresh_records(
+                    session, conn, self.settings, "Appointment", ids, self.transport_getter()
+                )
+            except NexHealthError:
+                log.warning("could not re-read inserted appointment")
+            for rec in await session.scalars(
+                select(EhrRecord).where(
+                    EhrRecord.connection_id == conn.id,
+                    EhrRecord.resource == "appointment",
+                    EhrRecord.source_id.in_(ids),
+                )
+            ):
+                foreign[rec.source_id] = rec.attrs.get("foreign_id")
+        for intent in matched:
+            intents.apply_insertion(intent, outcome, foreign.get(intent.remote_id or ""))
+            if outcome == "complete" and intent.kind == "appointment_book":
+                # A new patient reaches the EHR with their first booking: that confirms them too.
+                for created in await session.scalars(
+                    select(WriteIntent).where(
+                        WriteIntent.connection_id == conn.id,
+                        WriteIntent.kind == "patient_create",
+                        WriteIntent.remote_id == intent.target_source_id,
+                        WriteIntent.state == "accepted",
+                    )
+                ):
+                    intents.apply_insertion(created, "complete", None)
+
+    async def _appointment_updated(
+        self, session, conn: PayerConnection, event: WebhookEvent, outcome: str
+    ) -> int:
+        """Confirm (or fail) PATCH intents on the appointment, then refresh the mirror.
+
+        Success confirms only an intent whose field is in ``previous_attributes``; a failure
+        without ``previous_attributes`` fails every unconfirmed edit of that appointment.
+        """
+        ids = event.resource_ids or []
+        changed = (event.detail or {}).get("changed") or []
+        received = as_utc(event.received_at) or utcnow()
+        settled = 0
+        for intent in await session.scalars(
+            select(WriteIntent).where(
+                WriteIntent.connection_id == conn.id,
+                WriteIntent.target_source_id.in_(ids or ["-"]),
+                WriteIntent.kind.in_(intents.UPDATE_KINDS),
+                WriteIntent.state == "accepted",
+            )
+        ):
+            if intent.sent_at is not None and as_utc(intent.sent_at) > received:
+                continue  # an earlier change's event: not this write's answer
+            if outcome == "complete":
+                if intents.update_matches(intent, changed):
+                    intents.apply_update(intent, "complete")
+                    settled += 1
+            elif not changed or intents.update_matches(intent, changed):
+                intents.apply_update(intent, outcome)
+                settled += 1
+        if ids:
+            await sync.refresh_records(
+                session, conn, self.settings, "Appointment", ids, self.transport_getter()
+            )
+        return settled
+
+    async def check_webhooks(self, conn_id: str) -> None:
+        async with self.db.sessions() as session:
+            conn = await session.get(PayerConnection, conn_id)
+            if conn is None or conn.kind != "nexhealth" or not webhooks.health_due(conn):
+                return
+            try:
+                await webhooks.check_health(session, conn, self.settings, self.transport_getter())
+            except NexHealthError as err:
+                caps = dict(conn.capability or {})
+                caps["webhooks"] = {
+                    **(caps.get("webhooks") or {}),
+                    "checked_at": utcnow().isoformat(),
+                    "check_error": err.message[:120],
+                }
+                conn.capability = caps
+            await session.commit()
+
     def _sync_due(self, conn: PayerConnection) -> tuple[bool, bool]:
         """(due, full). The first sync is full; later ones follow the configured interval."""
         last = parse_dt(((conn.capability or {}).get("last_sync") or {}).get("at"))
@@ -101,6 +200,7 @@ class PracticeWorker:
         transport = self.transport_getter()
         for conn_id in await self._connections():
             report["webhooks"] += await self.process_webhooks(conn_id)
+            await self.check_webhooks(conn_id)
             async with self.db.sessions() as session:
                 conn = await session.get(PayerConnection, conn_id)
                 due, full = self._sync_due(conn)

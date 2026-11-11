@@ -1,7 +1,8 @@
 """The capability catalog: every EHR profile CarePlix can reach and what each one supports.
 
 Sources: NexHealth "Supported health record systems" and "Testing writes, per system"
-(read 1 Nov 2026); OpenEMR 7.0.3 verified live with the CarePlix Connector module. The table in
+(read 1 Nov 2026; "Create patient" and "Edit appointment" rechecked 11 Nov 2026); OpenEMR 7.0.3
+verified live with the CarePlix Connector module. The table in
 docs/solution/NEXHEALTH_EHR_MATRIX.md is the human-readable copy of this data.
 
 The hub enforces this catalog: an operation a profile does not support never leaves the hub; the
@@ -21,6 +22,7 @@ OPERATIONS: dict[str, str] = {
     "schedule.read": "Read schedule, patients and coverage",
     "eligibility.check": "Insurance check (Stedi)",
     "appointment.book": "Book appointments",
+    "patient.create": "Add new patients",
     "appointment.cancel": "Cancel appointments",
     "appointment.confirm": "Confirm appointments",
     "appointment.check_in": "Check in",
@@ -35,6 +37,10 @@ INTENT_OPERATION = {
     "patient_alert": "chart.alert",
     "appointment_book": "appointment.book",
     "appointment_cancel": "appointment.cancel",
+    "appointment_confirm": "appointment.confirm",
+    "appointment_check_in": "appointment.check_in",
+    "appointment_reschedule": "appointment.reschedule",
+    "patient_create": "patient.create",
 }
 
 
@@ -49,6 +55,8 @@ class Profile:
     ops: dict[str, Support]
     confirm: Confirm
     notes: tuple[str, ...] = field(default_factory=tuple)
+    # Fields a new patient must have for this EHR to create the chart (beyond NexHealth's own).
+    new_patient_fields: tuple[str, ...] = field(default_factory=tuple)
 
     def support(self, operation: str) -> Support:
         return self.ops.get(operation, "no")
@@ -64,6 +72,7 @@ class Profile:
             "confirm": self.confirm,
             "ops": {op: self.support(op) for op in OPERATIONS},
             "notes": list(self.notes),
+            "new_patient_fields": list(self.new_patient_fields),
         }
 
 
@@ -77,6 +86,7 @@ def _nexhealth(
     existing_patients: bool = False,
     documents: Support = "no",
     notes: tuple[str, ...] = (),
+    new_patient_fields: tuple[str, ...] = (),
 ) -> Profile:
     """``writes`` letters: R cancel, K check-in, T time/note change, D documents, P payments."""
     connects_by = {
@@ -91,6 +101,9 @@ def _nexhealth(
         "schedule.read": "yes",
         "eligibility.check": "yes",
         "appointment.book": "existing_patients" if existing_patients else "yes",
+        # POST /patients lives in NexHealth until the first booking carries it into the EHR;
+        # Curve Hero, Dolphin and PracticeWorks can't take a new patient that way.
+        "patient.create": "no" if existing_patients else "yes",
         "appointment.cancel": "yes" if "R" in writes else "no",
         "appointment.confirm": "yes",
         "appointment.check_in": "yes" if "K" in writes else "no",
@@ -115,6 +128,7 @@ def _nexhealth(
         ops=ops,
         confirm="async_office_hours" if deployment == "cloud" else "async",
         notes=cloud_note + notes,
+        new_patient_fields=new_patient_fields,
     )
 
 
@@ -132,6 +146,7 @@ PROFILES: dict[str, Profile] = {
                 "schedule.read": "yes",
                 "eligibility.check": "yes",
                 "appointment.book": "yes",
+                "patient.create": "no",
                 "appointment.cancel": "yes",
                 "appointment.confirm": "yes",
                 "appointment.check_in": "yes",
@@ -158,10 +173,26 @@ PROFILES: dict[str, Profile] = {
         ),
         _nexhealth("modmed", "ModMed", "medical", "cloud", "RK"),
         _nexhealth("nextgen_office", "NextGen Office", "medical", "cloud", "RK"),
-        _nexhealth("dentrix", "Dentrix", "dental", "server", "RKTDP", notes=("G6.2+.",)),
+        _nexhealth(
+            "dentrix",
+            "Dentrix",
+            "dental",
+            "server",
+            "RKTDP",
+            notes=("G6.2+.", "New patients need a gender to create the chart."),
+            new_patient_fields=("gender",),
+        ),
         _nexhealth("dentrix_enterprise", "Dentrix Enterprise", "dental", "server", "RKTDP"),
         _nexhealth("dentrix_ascend", "Dentrix Ascend", "dental", "cloud", "RD"),
-        _nexhealth("eaglesoft", "Eaglesoft", "dental", "server", "RKTDP", notes=("18+.",)),
+        _nexhealth(
+            "eaglesoft",
+            "Eaglesoft",
+            "dental",
+            "server",
+            "RKTDP",
+            notes=("18+.", "New patients need a gender to create the chart."),
+            new_patient_fields=("gender",),
+        ),
         _nexhealth("open_dental", "Open Dental", "dental", "server", "RKTDP", notes=("V17+.",)),
         _nexhealth("denticon", "Denticon", "dental", "cloud", "RKTD"),
         _nexhealth("curve_hero", "Curve Hero", "dental", "cloud", "RD", existing_patients=True),

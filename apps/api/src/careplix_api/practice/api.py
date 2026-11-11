@@ -92,6 +92,9 @@ def _conn_view(conn: PayerConnection | None) -> dict[str, Any] | None:
         "webhook": {
             "registered": bool(webhook.get("endpoint_id")),
             "events": webhook.get("events", []),
+            "signed": bool(webhook.get("secret_sealed")),
+            # Endpoint health from NexHealth (deactivated, inactive subscriptions, retries).
+            "health": (conn.capability or {}).get("webhooks"),
         },
     }
 
@@ -268,6 +271,77 @@ async def register_webhooks(
     result = await webhooks.register(session, conn, settings, _transport(request))
     await session.commit()
     return result
+
+
+@router.post("/webhooks/check")
+async def check_webhooks(
+    request: Request,
+    practice: str | None = None,
+    principal: Principal = Depends(require("admin")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """Read the endpoint's state from NexHealth now (the worker also checks hourly)."""
+    conn = await _conn(session, principal, practice=practice)
+    if conn.kind != "nexhealth":
+        raise ApiError(409, "not_nexhealth", "Webhook health applies to NexHealth practices.")
+    health = await webhooks.check_health(session, conn, settings, _transport(request))
+    await session.commit()
+    return health
+
+
+class AppointmentWriteIn(BaseModel):
+    action: Literal["confirm", "check_in"]
+
+
+@router.post("/appointments/{appointment_id}/write")
+async def propose_appointment_write(
+    appointment_id: str,
+    body: AppointmentWriteIn,
+    practice: str | None = None,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """Propose confirming or checking in a visit (``PATCH confirmed`` / ``checkin_at``).
+
+    It joins the write queue like every EHR write; ``appointment_updated`` confirms it.
+    """
+    conn = await _conn(session, principal, practice=practice)
+    appt = await session.scalar(
+        select(EhrRecord).where(
+            EhrRecord.connection_id == conn.id,
+            EhrRecord.resource == "appointment",
+            EhrRecord.source_id == appointment_id,
+        )
+    )
+    if appt is None or appt.status not in ("booked", "confirmed"):
+        raise ApiError(404, "not_found", "No open appointment with that id in the mirror.")
+    if body.action == "confirm":
+        kind, payload, reason = "appointment_confirm", {"confirmed": True}, "Confirmed from Studio"
+    else:
+        now = utcnow().replace(microsecond=0)
+        tz = await receptionist.practice_zone(session, conn)
+        if appt.starts_at is None or as_utc(appt.starts_at).astimezone(tz).date() != (
+            now.astimezone(tz).date()
+        ):
+            raise ApiError(409, "not_today", "Only today's visits can be checked in.")
+        # NexHealth refuses a check-in time in the future, so it is the moment of the request.
+        kind, payload = "appointment_check_in", {"checkin_at": now.isoformat()}
+        reason = "Checked in from Studio"
+    intent = await intents.propose(
+        session,
+        conn,
+        settings,
+        kind=kind,
+        target_source_id=appointment_id,
+        payload={**payload, "patient_id": appt.patient_ref},
+        reason=reason,
+        source="manual",
+        requested_by=principal.user_id,
+    )
+    await session.commit()
+    return intents.view(intent)
 
 
 def _practice_tz(appointments: list[EhrRecord]) -> ZoneInfo:

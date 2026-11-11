@@ -6,6 +6,9 @@ proposed → approved → sending → accepted → written
 - NexHealth's 2xx means *accepted*; ``written`` needs an insertion webhook or a read-back showing
   the EHR's ``foreign_id``. Kinds with no insertion signal end at ``accepted`` with confirmation
   ``not_reported``. We never claim more than the source confirms.
+- Appointment edits (cancel, confirm, check-in, time change) are ``PATCH /appointments/{id}``: only
+  ``appointment_updated`` with the field in ``previous_attributes`` proves them; its
+  ``.failed|.timed_out|.incomplete`` variants send the write to a person.
 - NexHealth never retries; neither do we automatically. An unknown outcome goes to a person.
 - ``sending`` is committed before the HTTP call, so a crash can't cause a silent second write.
 """
@@ -42,10 +45,12 @@ class WriteKind:
     target_resource: str
     insertion_event: str | None  # NexHealth event that proves the EHR has the record
     confirm_by_read: bool = False  # otherwise prove it by reading the record back
+    # PATCH writes: the field ``appointment_updated`` must name in ``previous_attributes``.
+    update_field: str | None = None
 
     @property
     def confirmable(self) -> bool:
-        return bool(self.insertion_event or self.confirm_by_read)
+        return bool(self.insertion_event or self.confirm_by_read or self.update_field)
 
     async def send(
         self, client: NexHealthClient, intent: WriteIntent, payload: dict[str, Any]
@@ -92,30 +97,100 @@ class BookAppointment(WriteKind):
         return await client.get(f"/appointments/{intent.remote_id}")
 
 
-class CancelAppointment(WriteKind):
-    """PATCH cancelled=true: the one appointment edit every NexHealth EHR supports."""
+PATCHABLE = ("cancelled", "confirmed", "checkin_at", "start_time", "end_time", "operatory_id")
+
+
+class PatchAppointment(WriteKind):
+    """PATCH /appointments/{id}. Proven only by ``appointment_updated`` naming the field.
+
+    Reading the appointment back can't prove the EHR took the change: NexHealth saves the PATCH
+    on its own copy first, and an appointment already in the EHR has a ``foreign_id`` anyway.
+    ``appointment_updated.failed|timed_out|incomplete`` sends the write to a person.
+    """
+
+    async def send(self, client, intent, payload):
+        appt = {k: payload[k] for k in PATCHABLE if payload.get(k) is not None}
+        body = await client.request(
+            "PATCH", f"/appointments/{intent.target_source_id}", json={"appt": appt}
+        )
+        data = (body.get("data") or {}).get("appt") or {}
+        # The appointment's id is the one we changed. Not written until the webhook says so.
+        return {"id": data.get("id") or intent.target_source_id, "foreign_id": None}
+
+    async def read_back(self, client, intent):
+        return None
+
+
+class CancelAppointment(PatchAppointment):
+    """``cancelled: true``: written on every NexHealth EHR but OrthoTrac and PracticeWorks."""
+
+    async def send(self, client, intent, payload):
+        return await super().send(client, intent, {"cancelled": True})
+
+    def in_ehr(self, record):
+        # Direct EHRs (OpenEMR) read back the visit itself: there, cancelled is the proof.
+        return record.get("cancelled") is True and bool(record.get("foreign_id"))
+
+
+class PatientCreate(WriteKind):
+    """POST /patients. The patient lives in NexHealth until their first booking lands in the EHR
+    (no event on v3.0): the booking's ``appointment_insertion.complete`` confirms both."""
 
     async def send(self, client, intent, payload):
         body = await client.request(
-            "PATCH", f"/appointments/{intent.target_source_id}", json={"appt": {"cancelled": True}}
+            "POST",
+            "/patients",
+            params={"location_id": payload["location_id"]},
+            json=create_patient_body(payload),
         )
-        appt = (body.get("data") or {}).get("appt") or {}
-        # The appointment already exists in the EHR; its id is the one we changed.
-        return {**appt, "id": appt.get("id") or intent.target_source_id, "foreign_id": None}
+        user = (body.get("data") or {}).get("user") or {}
+        return {**user, "foreign_id": user.get("foreign_id")}
 
     async def read_back(self, client, intent):
-        return await client.get(f"/appointments/{intent.target_source_id}")
+        try:
+            return await client.get(f"/patients/{intent.remote_id}")
+        except NexHealthError as err:
+            if err.http_status != 404:
+                raise
+            # NexHealth deletes the placeholder once the office's real chart links to it.
+            return {"merged": True}
 
     def in_ehr(self, record):
-        return record.get("cancelled") is True and bool(record.get("foreign_id"))
+        return bool(record.get("foreign_id") or record.get("merged"))
+
+
+def create_patient_body(payload: dict[str, Any]) -> dict[str, Any]:
+    bio = {"date_of_birth": payload["date_of_birth"], "phone_number": payload["phone_number"]}
+    if payload.get("gender"):
+        bio["gender"] = payload["gender"]
+    return {
+        "provider": {"provider_id": int(payload["provider_id"])},
+        "patient": {
+            "first_name": payload["first_name"],
+            "last_name": payload["last_name"],
+            "email": payload["email"],
+            "bio": bio,
+        },
+        # Same name, birth date (and phone) as an existing patient: return that one (200).
+        "return_existing_if_match": True,
+    }
 
 
 KINDS: dict[str, WriteKind] = {
     # Alerts have no documented insertion event: confirmation stays "not_reported".
     "patient_alert": PatientAlert("L2", "patient", None),
+    "patient_create": PatientCreate("L2", "patient", None, confirm_by_read=True),
     "appointment_book": BookAppointment("L2", "patient", "appointment_insertion"),
-    "appointment_cancel": CancelAppointment("L2", "appointment", None, confirm_by_read=True),
+    "appointment_cancel": CancelAppointment(
+        "L2", "appointment", None, confirm_by_read=True, update_field="cancelled"
+    ),
+    "appointment_confirm": PatchAppointment("L2", "appointment", None, update_field="confirmed"),
+    "appointment_check_in": PatchAppointment("L2", "appointment", None, update_field="checkin_at"),
+    "appointment_reschedule": PatchAppointment(
+        "L2", "appointment", None, update_field="start_time"
+    ),
 }
+UPDATE_KINDS = tuple(k for k, spec in KINDS.items() if spec.update_field)
 
 
 def _hash(kind: str, target: str, payload: dict[str, Any]) -> str:
@@ -304,13 +379,33 @@ async def _send(
 
 
 def apply_insertion(intent: WriteIntent, outcome: str, foreign_id: str | None) -> None:
-    """``*_insertion.complete|failed|timed_out`` from NexHealth."""
+    """``*_insertion.complete|failed|timed_out|incomplete`` from NexHealth."""
     if outcome == "complete":
         intent.state, intent.confirmation = "written", "ehr_written"
         intent.foreign_id = foreign_id or intent.foreign_id
     else:
         intent.state, intent.last_error = "needs_review", f"EHR insertion {outcome}"
     intent.resolved_at = utcnow()
+
+
+def apply_update(intent: WriteIntent, outcome: str) -> None:
+    """``appointment_updated`` (complete) or ``.failed|.timed_out|.incomplete`` for a PATCH."""
+    if outcome == "complete":
+        intent.state, intent.confirmation = "written", "ehr_written"
+    else:
+        intent.state = "needs_review"
+        intent.last_error = f"EHR update {outcome.replace('_', ' ')}: check the chart"
+    intent.resolved_at = utcnow()
+
+
+def update_matches(intent: WriteIntent, changed: list[str] | None) -> bool:
+    """Whether an ``appointment_updated`` event is the confirmation of this PATCH intent.
+
+    The event must name the intent's field in ``previous_attributes``; an event without
+    ``previous_attributes`` (e.g. the office edited the visit) never confirms a write.
+    """
+    spec = KINDS.get(intent.kind)
+    return bool(spec and spec.update_field and changed and spec.update_field in changed)
 
 
 async def reconcile(
