@@ -19,6 +19,23 @@
         "automated_identity_disclosure": {"type": "string", "minLength": 1, "description": "Spoken disclosure that the caller is an automated assistant."}
       }
     },
+    "persona": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How the agent sounds (VS4): style, pace, languages and wording. Style only: a persona never adds a tool, a disclosure or authority.",
+      "properties": {
+        "source_id": {"type": "string", "maxLength": 36, "description": "The library persona this was applied from, if any."},
+        "source_name": {"type": "string", "maxLength": 80},
+        "warmth": {"enum": ["warm", "neutral", "brisk"]},
+        "formality": {"enum": ["formal", "neutral", "casual"]},
+        "pace": {"enum": ["slow", "normal", "fast"]},
+        "empathy": {"enum": ["standard", "high"]},
+        "languages": {"type": "array", "items": {"enum": ["en-US", "es-US", "zh-CN", "vi-VN", "ko-KR", "hi-IN", "pt-BR", "fr-FR", "ru-RU"]}, "maxItems": 9, "uniqueItems": true, "description": "Languages the agent may switch to when the other side prefers one; the first is its default."},
+        "avoid": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 120}, "maxItems": 20, "description": "Words and phrases the agent must never say."},
+        "signature_phrases": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 160}, "maxItems": 10},
+        "character": {"type": "string", "maxLength": 600, "description": "A short description of how the agent comes across."}
+      }
+    },
     "task": {
       "type": "object",
       "additionalProperties": false,

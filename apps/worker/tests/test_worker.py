@@ -67,6 +67,17 @@ def test_prompt_layers_in_order_with_brief_as_delimited_data():
     assert "browser test" in text.lower()
 
 
+def test_persona_style_sits_with_the_persona_before_author_instructions():
+    claim = {
+        **CLAIM,
+        "persona_style": ["Tone: warm and personable.", 'Never say any of these: "Calm down".'],
+    }
+    text = prompt.compose(claim)
+    persona = text[text.index("## Your persona") : text.index("## Call brief")]
+    assert persona.index("Tone: warm") < persona.index("Never say") < persona.index("AGENT")
+    assert "Tone:" not in prompt.compose(CLAIM)  # no persona, no style lines
+
+
 def test_evidence_window_keeps_recent_segments_only():
     reporter = EventReporter(plane=None)
     for i in range(10):

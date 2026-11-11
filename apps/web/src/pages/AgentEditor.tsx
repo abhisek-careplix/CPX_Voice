@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, AudioLines, Check, ChevronLeft, FlaskConical, History, Lock, PencilLine, RotateCcw, Rocket, Save, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, AudioLines, Check, ChevronLeft, FlaskConical, History, Library, Lock, PencilLine, RotateCcw, Rocket, Save, ShieldCheck, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, ApiError, type AgentConfig, type AgentDetail, type CaseItem, type PublishPreview, type Template, type Tool } from "../api";
+import { api, ApiError, type AgentConfig, type AgentDetail, type CaseItem, type Persona, type PersonaLibrary, type PersonaStyle, type PublishPreview, type Template, type Tool } from "../api";
+import { PersonaFields } from "../PersonaFields";
+import { PersonaSheet } from "./Personas";
 import { useCan } from "../App";
 import { RegressionSuite, suiteLabel } from "../Suite";
 import { Banner, Card, Empty, ErrorState, Pill, Segmented, Sheet, Switch, Toolbar, humanize, timeAgo, useToast } from "../ui";
@@ -225,10 +227,96 @@ function InstructionsTab({ config, update, template }: TabProps & { template: Te
   );
 }
 
+function PersonaCard({ config, update }: TabProps) {
+  const canEdit = useCan("edit_draft");
+  const library = useQuery({ queryKey: ["personas"], queryFn: () => api.get<PersonaLibrary>("/personas") });
+  const [pick, setPick] = useState("");
+  const [saving, setSaving] = useState(false);
+  const style = config.persona ?? {};
+  const chosen = library.data?.personas.find((p) => p.id === pick);
+  const apply = (p: Persona) =>
+    update((c) => {
+      c.identity = { ...c.identity, ...p.config.identity };
+      c.conversation.voice = p.config.voice;
+      c.persona = structuredClone(p.config.persona);
+    });
+  return (
+    <Card
+      title="Persona"
+      subtitle="How this agent sounds. Style only: a persona can't change what the agent may do or share. Changes take effect when you publish."
+      actions={
+        canEdit && (
+          <button type="button" className="btn btn-secondary" onClick={() => setSaving(true)} disabled={!library.data}>
+            <Library size={14} aria-hidden /> Save to library
+          </button>
+        )
+      }
+      pad
+    >
+      <div className="stack" style={{ gap: 16 }}>
+        <div className="row subcard" style={{ flexWrap: "wrap", gap: 10 }}>
+          <span className="small">
+            {style.source_name ? (
+              <>
+                Based on <strong>{style.source_name}</strong>
+              </>
+            ) : (
+              "No library persona applied"
+            )}
+          </span>
+          <span className="spacer" />
+          <select className="select" style={{ width: "auto", minWidth: 220 }} value={pick} onChange={(e) => setPick(e.target.value)} aria-label="Persona to apply">
+            <option value="">Choose a persona…</option>
+            {library.data?.personas.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} · “{p.agent_name}”
+              </option>
+            ))}
+          </select>
+          <button type="button" className="btn btn-primary" disabled={!chosen} onClick={() => chosen && apply(chosen)}>
+            Apply
+          </button>
+          {library.data?.personas.length === 0 && (
+            <Link to="/personas" className="small">
+              Create personas
+            </Link>
+          )}
+        </div>
+        <PersonaFields idPrefix="agent-persona" value={style} onChange={(v) => update((c) => void (c.persona = cleanForConfig(v)))} />
+      </div>
+      {saving && library.data && (
+        <PersonaSheet
+          persona={null}
+          voices={library.data.voices}
+          onClose={() => setSaving(false)}
+          initial={{
+            name: `${config.identity.name} persona`,
+            agent_name: config.identity.name,
+            role: config.identity.role,
+            greeting: config.identity.greeting,
+            voice: config.conversation.voice,
+            ...style,
+            character: style.character ?? "",
+          }}
+        />
+      )}
+    </Card>
+  );
+}
+
+/** Keep the config's persona block within its schema: no empty character note. */
+function cleanForConfig(v: PersonaStyle): PersonaStyle {
+  const out: PersonaStyle = { ...v };
+  if (!out.character?.trim()) delete out.character;
+  return out;
+}
+
 function VoiceTab({ config, update, approvedModel }: TabProps & { approvedModel: string | null }) {
   const id = config.identity;
   const hold = config.conversation.hold_policy ?? {};
   return (
+    <div className="stack" style={{ gap: 16 }}>
+    <PersonaCard config={config} update={update} />
     <div className="grid-2">
       <Card title="Identity" subtitle="How the agent introduces itself." pad>
         <div className="stack" style={{ gap: 14 }}>
@@ -310,6 +398,7 @@ function VoiceTab({ config, update, approvedModel }: TabProps & { approvedModel:
           </div>
         </Card>
       </div>
+    </div>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Building2, CalendarPlus, ClipboardCheck, GitCompareArrows, Globe, Home, Inbox, ListChecks, LogOut, Network, OctagonX, Phone, PlugZap, ShieldCheck, Sparkles, Stethoscope } from "lucide-react";
+import { Bot, Building2, UserRound, CalendarPlus, ClipboardCheck, GitCompareArrows, Globe, Home, Inbox, ListChecks, LogOut, Network, OctagonX, Phone, PlugZap, ShieldCheck, Sparkles, Stethoscope } from "lucide-react";
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, ApiError, type Me, type WorkspaceSummary } from "./api";
@@ -17,6 +17,7 @@ import Connections from "./pages/Connections";
 import Integrations from "./pages/Integrations";
 import Practice from "./pages/Practice";
 import ResultDetail from "./pages/ResultDetail";
+import Personas from "./pages/Personas";
 import Results from "./pages/Results";
 import ShadowMode from "./pages/ShadowMode";
 import TaskComposer from "./pages/TaskComposer";
@@ -145,6 +146,9 @@ function Shell() {
           <NavLink to="/studio" className="nav-link">
             <Sparkles size={16} aria-hidden /> Voice Studio
           </NavLink>
+          <NavLink to="/personas" className="nav-link">
+            <UserRound size={16} aria-hidden /> Personas
+          </NavLink>
           <NavLink to="/shadow" className="nav-link">
             <GitCompareArrows size={16} aria-hidden /> Shadow mode
           </NavLink>
@@ -229,6 +233,7 @@ function Shell() {
         <Routes>
           <Route path="/" element={<Workspace />} />
           <Route path="/studio" element={<VoiceStudio />} />
+          <Route path="/personas" element={<Personas />} />
           <Route path="/shadow" element={<ShadowMode />} />
           <Route path="/shadow/:id" element={<ShadowMode />} />
           <Route path="/browser" element={<BrowserAgent />} />
