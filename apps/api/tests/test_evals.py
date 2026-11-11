@@ -126,12 +126,12 @@ def _play(c, attempt_id, outcome="achieved"):
     token = _claim(c, attempt_id)["attempt_token"]
     auth = {"Authorization": f"Bearer {token}"}
     items = [
-        {"event_id": "j", "type": "participant.joined", "payload": {}},
+        {"event_id": f"{attempt_id}-j", "type": "participant.joined", "payload": {}},
         {
-            "event_id": "t",
+            "event_id": f"{attempt_id}-t",
             "type": "transcript.segment",
             "payload": {
-                "segment_id": "s1",
+                "segment_id": f"{attempt_id[:8]}-s1",
                 "speaker": "counterpart",
                 "text": "Your new confirmation is ZK4M8T.",
                 "playout": "played",
@@ -144,11 +144,12 @@ def _play(c, attempt_id, outcome="achieved"):
         json={
             "call_id": "f1",
             "arguments": {"field": "outcome", "value": outcome, "confirmation": "stated_once"},
-            "evidence_segment_ids": ["s1"],
+            "evidence_segment_ids": [f"{attempt_id[:8]}-s1"],
         },
         headers=auth,
     )
-    done = [{"event_id": "end", "type": "worker.done", "payload": {"reason": "done"}}]
+    # Event ids are global dedup keys: each simulated call needs its own.
+    done = [{"event_id": f"{attempt_id}-end", "type": "worker.done", "payload": {"reason": "done"}}]
     c.post(f"/internal/attempts/{attempt_id}/events", json={"events": done}, headers=auth)
 
 
