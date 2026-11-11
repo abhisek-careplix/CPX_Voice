@@ -145,7 +145,16 @@ async def counterpart_claim(
             raise ApiError(404, "no_scenario", "This simulation has no scenario.")
         attempt.provider_ids = {**(attempt.provider_ids or {}), "counterpart_job": body.job_id}
         await session.commit()
-        brief = scenarios.counterpart_brief(scenario, PhiBox(settings))
+        from careplix_api.shadow import service as shadow
+
+        box = PhiBox(settings)
+        item = await shadow.item_for_attempt(session, attempt)
+        brief = scenarios.counterpart_brief(
+            scenario,
+            box,
+            facts=shadow.item_facts(item, box) if item else None,
+            record=shadow.item_record(item, box) if item else None,
+        )
         from careplix_api import connections
 
         eff = await connections.load(session, attempt.workspace_id, settings)

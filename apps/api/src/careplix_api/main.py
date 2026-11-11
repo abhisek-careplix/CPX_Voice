@@ -36,6 +36,8 @@ from careplix_api.practice import webhooks as practice_webhooks
 from careplix_api.practice.connections import ensure_practice_connections
 from careplix_api.practice.worker import PracticeWorker
 from careplix_api.settings import Settings, get_settings
+from careplix_api.shadow import api as shadow_api
+from careplix_api.shadow import service as shadow_service
 from careplix_common import safe_logging
 from careplix_common.gemini import probe_live
 
@@ -111,6 +113,11 @@ def create_app(
                 asyncio.create_task(
                     evals_service.run_forever(app.state.db, settings, app.state.gateway)
                 ),
+                asyncio.create_task(
+                    shadow_service.run_forever(
+                        app.state.db, settings, app.state.gateway, app.state.runner
+                    )
+                ),
             ]
             if settings.run_background
             else []
@@ -169,6 +176,7 @@ def create_app(
     app.include_router(browser_api.router, prefix="/api")
     app.include_router(scenarios_api.router, prefix="/api")
     app.include_router(evals_api.router, prefix="/api")
+    app.include_router(shadow_api.router, prefix="/api")
     app.include_router(internal_api.router)
     if settings.is_dev:
         # Local webhook testing; in the cloud the public ingress is its own service (no IAP).

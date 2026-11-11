@@ -750,3 +750,63 @@ export interface HubCatalog {
   profiles: HubProfile[];
   connections: HubConnection[];
 }
+
+// ---------- Shadow mode (switching kit) ----------
+
+export type ShadowOutcome = "match" | "mismatch" | "ours_only" | "theirs_only" | "neither";
+export type ShadowVerdict = "ours" | "theirs" | "both" | "neither";
+
+export interface ShadowSummary {
+  items: number;
+  finished: number;
+  errors: number;
+  open: number;
+  agreement: number | null;
+  disagreements: number;
+  resolution: { ours: number | null; theirs: number | null };
+  median_duration_s: { ours: number | null; theirs: number | null };
+  adjudicated: Record<ShadowVerdict | "open", number>;
+  fields: ({ field: string; agreement: number | null } & Record<ShadowOutcome, number>)[];
+}
+
+export interface ShadowRun {
+  id: string;
+  name: string;
+  incumbent: string;
+  agent_id: string;
+  version: { number: number; state: string };
+  scenario_id: string;
+  mode: "replay" | "live";
+  fields: string[];
+  state: "queued" | "running" | "done" | "cancelled";
+  summary: ShadowSummary | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export interface ShadowItem {
+  id: string;
+  seq: number;
+  external_ref: string;
+  destination: string | null;
+  state: "queued" | "running" | "done" | "cancelled";
+  attempt_id: string | null;
+  theirs: Record<string, string>;
+  ours: Record<string, string | null>;
+  incumbent_metrics: { duration_s?: number | null; resolved?: boolean | null };
+  our_metrics: { duration_s?: number | null; resolved?: boolean | null };
+  comparison: { field: string; outcome: ShadowOutcome; adjudication: ShadowVerdict | null }[] | null;
+  error: string | null;
+}
+
+export interface ShadowRunDetail extends ShadowRun {
+  summary: ShadowSummary;
+  items: ShadowItem[];
+}
+
+export interface ShadowPreview {
+  columns: string[];
+  sample: Record<string, string>[];
+  total: number;
+  max_items: number;
+}
