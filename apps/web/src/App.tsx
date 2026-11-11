@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Building2, UserRound, CalendarPlus, ClipboardCheck, GitCompareArrows, Globe, Home, Inbox, ListChecks, LogOut, Network, OctagonX, Phone, PlugZap, ShieldCheck, Sparkles, Stethoscope } from "lucide-react";
+import { Bot, HeartPulse, Building2, UserRound, CalendarPlus, ClipboardCheck, GitCompareArrows, Globe, Home, Inbox, ListChecks, LogOut, Network, OctagonX, Phone, PlugZap, ShieldCheck, Sparkles, Stethoscope } from "lucide-react";
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, ApiError, type Me, type WorkspaceSummary } from "./api";
@@ -12,6 +12,7 @@ import Backfill from "./pages/Backfill";
 import BrowserAgent from "./pages/BrowserAgent";
 import Hub from "./pages/Hub";
 import CallDetail from "./pages/CallDetail";
+import CareOpportunities from "./pages/CareOpportunities";
 import Calls from "./pages/Calls";
 import Connections from "./pages/Connections";
 import Integrations from "./pages/Integrations";
@@ -168,6 +169,9 @@ function Shell() {
               </span>
             )}
           </NavLink>
+          <NavLink to="/care" className="nav-link">
+            <HeartPulse size={16} aria-hidden /> Care opportunities
+          </NavLink>
           <NavLink to="/results" className="nav-link">
             <ClipboardCheck size={16} aria-hidden /> Results
             {review > 0 && (
@@ -246,6 +250,7 @@ function Shell() {
           <Route path="/calls" element={<Calls />} />
           <Route path="/calls/:id" element={<CallDetail />} />
           <Route path="/results" element={<Results />} />
+          <Route path="/care" element={<CareOpportunities />} />
           <Route path="/results/:id" element={<ResultDetail />} />
           <Route path="/connections" element={<Connections />} />
           <Route path="/integrations" element={<Integrations />} />

@@ -860,3 +860,35 @@ export interface ShadowPreview {
   total: number;
   max_items: number;
 }
+
+// ---------- Care opportunities ----------
+
+export type CareStatus = "proposed" | "approved" | "declined" | "contacted" | "enrolled" | "not_interested" | "done" | "resolved";
+
+export interface CareOpportunity {
+  id: string;
+  patient_ref: string;
+  patient: string;
+  coverage: string | null;
+  program: string;
+  title: string;
+  codes: string;
+  category: string;
+  consent_required: boolean;
+  staff_time: boolean;
+  outreach: string;
+  why: string[];
+  status: CareStatus;
+  priority: number;
+  due_by: string | null;
+  note: string | null;
+  decided_at: string | null;
+  created_at: string;
+}
+
+export interface CareQueue {
+  patients: number;
+  counts: Partial<Record<CareStatus, number>>;
+  open_by_program: { program: string; title: string; count: number }[];
+  items: CareOpportunity[];
+}
