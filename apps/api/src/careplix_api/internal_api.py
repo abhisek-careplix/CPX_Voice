@@ -30,6 +30,8 @@ class InboundClaimIn(ClaimIn):
     caller_number: str | None = Field(default=None, max_length=32)
     route_id: str | None = Field(default=None, max_length=36)
     rule_id: str | None = Field(default=None, max_length=64)
+    # Shared sandbox line only: the workspace code the caller keyed in (DTMF).
+    workspace_code: str | None = Field(default=None, max_length=12)
 
 
 @router.post("/attempts/{attempt_id}/claim", dependencies=[Depends(require_worker_service)])
@@ -57,6 +59,7 @@ async def inbound_claim(
             body.caller_number,
             body.route_id,
             body.rule_id,
+            body.workspace_code,
         )
 
 

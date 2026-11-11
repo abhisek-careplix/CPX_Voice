@@ -95,7 +95,86 @@ async def overview(
             else "application_default",
         },
         "worker_probe": _probe_view(probe) if probe else None,
+        "sandbox": await _sandbox_view(session, ws, settings),
     }
+
+
+# --- Shared sandbox line (trials) ----------------------------------------------------------------
+
+
+async def _new_sandbox_code(session: AsyncSession) -> str:
+    while True:
+        code = f"{secrets.randbelow(10**6):06d}"
+        if not await session.scalar(select(Workspace).where(Workspace.sandbox_code == code)):
+            return code
+
+
+async def _sandbox_view(session: AsyncSession, ws: Workspace, settings: Settings) -> dict:
+    """Call the shared CarePlix number and key in this code to reach the workspace's agent; trial
+    workspaces can also place outbound test calls with it as caller ID, within daily limits."""
+    available = bool(settings.sandbox_number)
+    if available and not ws.sandbox_code:
+        ws.sandbox_code = await _new_sandbox_code(session)
+        await session.commit()
+    return {
+        "available": available,
+        "number": settings.sandbox_number or None,
+        "code": ws.sandbox_code if available else None,
+        "agent_id": ws.sandbox_agent_id,
+        "outbound_available": bool(settings.sandbox_outbound_trunk_id),
+        "outbound": bool(ws.sandbox_outbound and settings.sandbox_outbound_trunk_id),
+        "calls_today": await calls_service.sandbox_calls_today(session, ws.id),
+        "daily_limit": settings.sandbox_daily_calls,
+        "max_call_s": settings.sandbox_max_call_s,
+        "max_destinations": settings.sandbox_max_destinations,
+    }
+
+
+class SandboxIn(BaseModel):
+    agent_id: str | None = None  # "" clears the agent
+    outbound: bool | None = None
+    new_code: bool = False
+
+
+@router.put("/sandbox")
+async def update_sandbox(
+    body: SandboxIn,
+    principal: Principal = Depends(admin),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    if not settings.sandbox_number:
+        raise ApiError(503, "sandbox_unavailable", "The sandbox line isn't available yet.")
+    ws = await _workspace(session, principal)
+    if body.agent_id is not None:
+        if body.agent_id:
+            agent = await agents_service.get_agent(session, principal, body.agent_id)
+            if templates.get_template(agent.template_id)["direction"] != "inbound":
+                raise ApiError(
+                    422, "agent_not_inbound", "Choose an agent that answers inbound calls."
+                )
+        ws.sandbox_agent_id = body.agent_id or None
+        _audit(session, principal, "sandbox.agent_selected", body.agent_id or "-", {})
+    if body.outbound is not None:
+        if body.outbound and not settings.sandbox_outbound_trunk_id:
+            raise ApiError(
+                503, "sandbox_unavailable", "Outbound calls on the sandbox line aren't available."
+            )
+        approved = len(ws.approved_destinations or [])
+        if body.outbound and approved > settings.sandbox_max_destinations:
+            raise ApiError(
+                422,
+                "sandbox_destinations",
+                f"The sandbox line calls at most {settings.sandbox_max_destinations} approved "
+                "numbers. Remove some first.",
+            )
+        ws.sandbox_outbound = body.outbound
+        _audit(session, principal, "sandbox.outbound_changed", "-", {"enabled": body.outbound})
+    if body.new_code:
+        ws.sandbox_code = await _new_sandbox_code(session)
+        _audit(session, principal, "sandbox.code_changed", "-", {})
+    await session.commit()
+    return await _sandbox_view(session, ws, settings)
 
 
 # --- Agent worker probe --------------------------------------------------------------------------
@@ -321,6 +400,7 @@ async def update_outbound(
     body: OutboundIn,
     principal: Principal = Depends(admin),
     session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
     gw=Depends(gateway),
 ):
     ws = await _workspace(session, principal)
@@ -335,6 +415,13 @@ async def update_outbound(
         _audit(session, principal, "outbound.trunk_selected", body.trunk_id or "-", {})
     if body.approved_destinations is not None:
         numbers = sorted({calls_service.normalize_e164(n) for n in body.approved_destinations})
+        if ws.sandbox_outbound and len(numbers) > settings.sandbox_max_destinations:
+            raise ApiError(
+                422,
+                "sandbox_destinations",
+                f"On the sandbox line you can approve up to {settings.sandbox_max_destinations} "
+                "numbers.",
+            )
         ws.approved_destinations = numbers
         _audit(session, principal, "outbound.destinations_changed", "-", {"count": len(numbers)})
     await session.commit()

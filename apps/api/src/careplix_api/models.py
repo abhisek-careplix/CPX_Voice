@@ -30,6 +30,11 @@ class Workspace(IdMixin, Base):
     vertex_location: Mapped[str | None] = mapped_column(String(40))
     # Last live model test: {model_id, ok, connect_ms, first_audio_ms, error, at}
     model_check: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    # Shared sandbox line (trials): the code inbound callers key in, the inbound agent that answers
+    # them, and whether outbound test calls use the sandbox number as caller ID.
+    sandbox_code: Mapped[str | None] = mapped_column(String(8), index=True)
+    sandbox_agent_id: Mapped[str | None] = mapped_column(String(36))
+    sandbox_outbound: Mapped[bool | None] = mapped_column(Boolean)
 
 
 class WorkerProbe(IdMixin, Base):

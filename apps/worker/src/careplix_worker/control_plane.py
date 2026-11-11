@@ -101,6 +101,7 @@ class ControlPlane:
         caller: str | None,
         route_id: str | None,
         rule_id: str | None,
+        workspace_code: str | None = None,
     ) -> dict[str, Any]:
         return await self._claim(
             "/internal/inbound/claim",
@@ -112,6 +113,7 @@ class ControlPlane:
                 "caller_number": caller,
                 "route_id": route_id,
                 "rule_id": rule_id,
+                "workspace_code": workspace_code,
             },
         )
 
