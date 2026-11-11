@@ -22,7 +22,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from careplix_api import connections
+from careplix_api import connections, guardrails
 from careplix_api.db import Database, utcnow
 from careplix_api.judge.models import RunJudgement
 from careplix_api.models import (
@@ -221,6 +221,20 @@ def _tool_line(p: dict[str, Any]) -> str | None:
     return f"agent used {tool}"
 
 
+async def run_limits(session: AsyncSession, attempt: CallAttempt, scenario: Scenario) -> list[str]:
+    """Every limit this run is held to: the scenario's own, the persona's never-say phrases and
+    the guardrail packs the call ran under. The judge sees all of them and the normaliser keeps
+    all of them, so a broken one fails the run whichever source it came from."""
+    limits = list(scenario.limits or [])
+    version = await session.get(AgentVersion, attempt.agent_version_id)
+    if version is not None:
+        persona = (version.config or {}).get("persona") or {}
+        limits += [f'Never said "{p}"' for p in persona.get("avoid") or []]
+        packs = guardrails.effective(version.config, version.config["task"]["template_id"])
+        limits += guardrails.judge_limits(packs)
+    return limits
+
+
 async def build_record(session: AsyncSession, attempt: CallAttempt, scenario: Scenario) -> str:
     segments = list(
         await session.scalars(
@@ -258,7 +272,7 @@ async def build_record(session: AsyncSession, attempt: CallAttempt, scenario: Sc
 
     version = await session.get(AgentVersion, attempt.agent_version_id)
     persona = (version.config or {}).get("persona") if version else None
-    avoid = [f'- Never say "{p}"' for p in (persona or {}).get("avoid") or []]
+    limits = await run_limits(session, attempt, scenario)
     style = persona_lines({k: v for k, v in (persona or {}).items() if k != "avoid"})
     lines = [
         "SCENARIO",
@@ -268,7 +282,7 @@ async def build_record(session: AsyncSession, attempt: CallAttempt, scenario: Sc
         "Success checks:",
         *([f"- {c}" for c in scenario.success_checks or []] or ["- (none listed)"]),
         "Limits:",
-        *([f"- {c}" for c in scenario.limits or []] + avoid or ["- (none listed)"]),
+        *([f"- {c}" for c in limits] or ["- (none listed)"]),
         *(
             ["Persona the agent should keep (note lapses in coaching, not as limits):", *style]
             if style
@@ -295,8 +309,11 @@ def _clip(value: Any, n: int) -> str:
     return str(value or "").strip()[:n]
 
 
-def normalise(raw: dict[str, Any], scenario: Scenario) -> dict[str, Any]:
-    """Keep the answer to our shape: every scenario check and limit present, enums valid."""
+def normalise(
+    raw: dict[str, Any], scenario: Scenario, held_to: list[str] | None = None
+) -> dict[str, Any]:
+    """Keep the answer to our shape: every check and limit present, enums valid. ``held_to``: the
+    run's full list of limits (``run_limits``); the scenario's own when not given."""
     raw_checks = [c for c in raw.get("checks") or [] if isinstance(c, dict)]
     raw_limits = [c for c in raw.get("limits") or [] if isinstance(c, dict)]
     by_check = {_clip(c.get("check"), 400): c for c in raw_checks}
@@ -315,7 +332,7 @@ def normalise(raw: dict[str, Any], scenario: Scenario) -> dict[str, Any]:
         evidence = _clip(row.get("evidence"), 600)
         checks.append({"check": name, "status": status, "evidence": evidence})
     limits = []
-    for i, name in enumerate(scenario.limits or []):
+    for i, name in enumerate(held_to if held_to is not None else scenario.limits or []):
         row = pick(by_limit, name, i, raw_limits)
         status = row.get("status") if row.get("status") in LIMIT_STATUSES else "unclear"
         evidence = _clip(row.get("evidence"), 600)
@@ -367,7 +384,8 @@ async def judge_attempt(
         target = await judge_target(session, attempt.workspace_id, settings)
         row.model_id = target.model_id
         prompt = await build_record(session, attempt, scenario)
-        result = normalise(await judge_fn(prompt, target), scenario)
+        limits = await run_limits(session, attempt, scenario)
+        result = normalise(await judge_fn(prompt, target), scenario, limits)
     except JudgeNotConfigured as exc:
         row.state, row.error = "failed", str(exc)[:240]
     except Exception as exc:  # the model or network failed; keep the run, record why

@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import careplix_contracts as contracts
-from careplix_api import agents_service, connections, events, templates
+from careplix_api import agents_service, connections, events, guardrails, templates
 from careplix_api.auth import Principal, issue_attempt_token
 from careplix_api.db import Database, as_utc, new_id, utcnow
 from careplix_api.errors import ApiError
@@ -138,6 +138,9 @@ def _pins(version: AgentVersion, eff: connections.Effective) -> dict[str, Any]:
         "config_hash": version.config_hash or agents_service.config_hash(version.config),
         "model_id": version.config["model"]["model_id"] or eff.approved_model,
         "policy_version": templates.POLICY_VERSION,
+        "guardrail_packs": guardrails.pins(
+            guardrails.effective(version.config, version.config["task"]["template_id"])
+        ),
         "tool_versions": {t["name"]: t["version"] for t in version.config["tools"]},
     }
 
@@ -625,6 +628,10 @@ async def _claim_payload(
         "instructions": {
             "platform_policy": templates.PLATFORM_POLICY,
             "template": template["instructions"],
+            # VS4: the template's required packs plus the agent's own, server-owned wording.
+            "guardrails": guardrails.prompt_text(
+                guardrails.effective(config, config["task"]["template_id"])
+            ),
             "agent": config["instructions"]["agent_text"],
         },
         "identity": config["identity"],

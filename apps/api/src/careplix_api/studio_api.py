@@ -13,7 +13,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import careplix_contracts as contracts
-from careplix_api import agents_service, calls_service, connections, readiness, templates
+from careplix_api import (
+    agents_service,
+    calls_service,
+    connections,
+    guardrails,
+    readiness,
+    templates,
+)
 from careplix_api.auth import SESSION_COOKIE, SESSION_TTL, Principal, issue_session, require
 from careplix_api.calls_service import ACTIVE_STATES, TERMINAL_TASK_STATES, mask_number
 from careplix_api.db import as_utc, utcnow
@@ -276,6 +283,11 @@ async def list_templates(principal: Principal = Depends(viewer)):
 @router.get("/tools")
 async def list_tools(principal: Principal = Depends(viewer)):
     return list(contracts.tool_registry().values())
+
+
+@router.get("/guardrail-packs")
+async def list_guardrail_packs(principal: Principal = Depends(viewer)):
+    return guardrails.view()
 
 
 @router.get("/cases")

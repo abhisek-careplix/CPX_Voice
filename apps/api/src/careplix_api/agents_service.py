@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import careplix_contracts as contracts
-from careplix_api import connections, templates
+from careplix_api import connections, guardrails, templates
 from careplix_api.auth import Principal
 from careplix_api.db import utcnow
 from careplix_api.errors import ApiError
@@ -33,7 +33,7 @@ def _friendly(field: str, message: str) -> dict[str, str]:
     """Turn JSON Schema wording into something an agent author can act on."""
     message = message.strip()
     if field == "model/model_id":
-        message = "No approved voice model is set. Configure GEMINI_LIVE_MODEL, then use it here."
+        message = "No approved voice model is set. Choose one under Connections, then use it here."
     elif "should be non-empty" in message:
         message = "This field is required."
     elif "is too long" in message:
@@ -55,6 +55,7 @@ def validation_issues(
     except KeyError:
         return [{"field": "task/template_id", "message": f"Unknown template {template_id}."}]
 
+    issues = guardrails.issues(config)
     registry = contracts.tool_registry()
     allowed_tools = {t["name"] for t in template["default_config"]["tools"]}
     for ref in config["tools"]:
@@ -97,7 +98,7 @@ def validation_issues(
         issues.append(
             {
                 "field": "model/model_id",
-                "message": "No approved voice model is configured (GEMINI_LIVE_MODEL).",
+                "message": "No approved voice model is set. Choose one under Connections.",
             }
         )
     elif config["model"]["model_id"] != approved:
@@ -138,6 +139,7 @@ def diff(before: dict[str, Any] | None, after: dict[str, Any]) -> dict[str, Any]
     new_tools = {t["name"] for t in after.get("tools", [])}
     old_disc = set((before or {}).get("guardrails", {}).get("allowed_disclosures", []))
     new_disc = set(after.get("guardrails", {}).get("allowed_disclosures", []))
+    old_packs, new_packs = set(guardrails.chosen(before or {})), set(guardrails.chosen(after))
     return {
         "changes": changes,
         "privilege_changes": {
@@ -145,6 +147,8 @@ def diff(before: dict[str, Any] | None, after: dict[str, Any]) -> dict[str, Any]
             "tools_removed": sorted(old_tools - new_tools),
             "disclosures_added": sorted(new_disc - old_disc),
             "disclosures_removed": sorted(old_disc - new_disc),
+            # Removing a guardrail pack loosens the agent: the publish sheet calls it out.
+            "packs_removed": sorted(old_packs - new_packs),
         },
     }
 
@@ -203,6 +207,7 @@ async def create_agent(
         raise ApiError(422, "unknown_template", "Unknown template.") from exc
     config = copy.deepcopy(template["default_config"])
     config["identity"]["name"] = name[:60]
+    config["guardrails"].setdefault("packs", guardrails.recommended(template_id))
     config["model"]["model_id"] = (
         await connections.load(session, principal.workspace_id, settings)
     ).approved_model

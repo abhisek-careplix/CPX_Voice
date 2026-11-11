@@ -2,12 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, AudioLines, Check, ChevronLeft, FlaskConical, History, Library, Lock, PencilLine, RotateCcw, Rocket, Save, ShieldCheck, X } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, ApiError, type AgentConfig, type AgentDetail, type CaseItem, type Persona, type PersonaLibrary, type PersonaStyle, type PublishPreview, type Template, type Tool } from "../api";
+import { api, ApiError, type AgentConfig, type AgentDetail, type CaseItem, type GuardrailPack, type Persona, type PersonaLibrary, type PersonaStyle, type PublishPreview, type Template, type Tool } from "../api";
 import { PersonaFields } from "../PersonaFields";
 import { PersonaSheet } from "./Personas";
 import { useCan } from "../App";
 import { RegressionSuite, suiteLabel } from "../Suite";
-import { Banner, Card, Empty, ErrorState, Pill, Segmented, Sheet, Switch, Toolbar, humanize, timeAgo, useToast } from "../ui";
+import { Banner, Card, Empty, ErrorState, ListSkeleton, Pill, Segmented, Sheet, Switch, Toolbar, humanize, timeAgo, useToast } from "../ui";
 
 // LiveKit client code loads only when a test starts.
 const BrowserTestSheet = lazy(() => import("../BrowserTest").then((m) => ({ default: m.BrowserTestSheet })));
@@ -447,11 +447,72 @@ function ToolsTab({ config, update, template, tools }: TabProps & { template: Te
   );
 }
 
+function PacksCard({ config, update, template }: TabProps & { template: Template }) {
+  const packs = useQuery({ queryKey: ["guardrail-packs"], queryFn: () => api.get<GuardrailPack[]>("/guardrail-packs") });
+  const chosen = new Set((config.guardrails.packs ?? []).map((p) => p.id));
+  const [open, setOpen] = useState<string | null>(null);
+  const toggle = (pack: GuardrailPack, on: boolean) =>
+    update((c) => {
+      const rest = (c.guardrails.packs ?? []).filter((p) => p.id !== pack.id);
+      c.guardrails.packs = on ? [...rest, { id: pack.id, version: pack.version }] : rest;
+    });
+  return (
+    <Card title="Guardrail packs" subtitle="Ready-made rule sets the agent follows on every call. The AI judge checks each rule, and breaking one fails the run.">
+      {packs.isPending && <ListSkeleton rows={3} icon={false} />}
+      {packs.error && <ErrorState error={packs.error} onRetry={() => packs.refetch()} title="Couldn't load guardrail packs" />}
+      <ul className="list">
+        {packs.data?.map((pack) => {
+          const required = pack.required_for.includes(template.id);
+          const on = required || chosen.has(pack.id);
+          const expanded = open === pack.id;
+          return (
+            <li key={pack.id} className="list-row" style={{ alignItems: "flex-start", flexDirection: "column", gap: 8 }}>
+              <div className="row" style={{ width: "100%", gap: 12, alignItems: "flex-start" }}>
+                <div className="row-main">
+                  <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                    <span className="row-title">{pack.name}</span>
+                    <span className="small muted">v{pack.version}</span>
+                    {required && (
+                      <Pill tone="blue" icon={Lock}>
+                        Required for {template.name}
+                      </Pill>
+                    )}
+                    {!required && pack.recommended_for.includes(template.id) && <Pill tone="gray">Recommended</Pill>}
+                  </div>
+                  <div className="small muted" style={{ whiteSpace: "normal", marginTop: 2 }}>
+                    {pack.summary}
+                  </div>
+                  <button type="button" className="btn btn-plain small" style={{ height: 24, padding: 0, marginTop: 4 }} aria-expanded={expanded} onClick={() => setOpen(expanded ? null : pack.id)}>
+                    {expanded ? "Hide rules" : `Show ${pack.rules.length} rules`}
+                  </button>
+                </div>
+                <Switch label={`Use ${pack.name}`} checked={on} disabled={required} onChange={(v) => toggle(pack, v)} />
+              </div>
+              {expanded && (
+                <ul className="small" style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 6 }}>
+                  {pack.rules.map((r) => (
+                    <li key={r.id}>
+                      {r.text}
+                      <div className="muted">Judge checks: {r.limit}</div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
+  );
+}
+
 function GuardrailsTab({ config, update, template }: TabProps & { template: Template }) {
   const allowed = new Set(config.guardrails.allowed_disclosures ?? []);
   const [trigger, setTrigger] = useState("");
   const triggers = config.guardrails.escalation_triggers ?? [];
   return (
+    <div className="stack" style={{ gap: 16 }}>
+    <PacksCard config={config} update={update} template={template} />
     <div className="grid-2">
       <Card title="May disclose" subtitle="Case details the agent may say on a call. Limited by the template.">
         {template.disclose_allowlist.map((field) => (
@@ -506,6 +567,7 @@ function GuardrailsTab({ config, update, template }: TabProps & { template: Temp
           </label>
         </Card>
       </div>
+    </div>
     </div>
   );
 }
@@ -629,7 +691,7 @@ function PublishSheet({ agentId, onClose }: { agentId: string; onClose: () => vo
   });
   const p = preview.data;
   const priv = p?.privilege_changes;
-  const privilegeChanged = priv && (priv.tools_added.length || priv.disclosures_added.length);
+  const privilegeChanged = priv && (priv.tools_added.length || priv.disclosures_added.length || priv.packs_removed?.length);
   const suiteMissing = !!p && p.evaluation.required && p.evaluation.status !== "passed";
   const blocked = !p || p.issues.length > 0 || (suiteMissing && !(isAdmin && override.trim()));
   const [suiteTone, suiteText] = suiteLabel(p?.evaluation);
@@ -688,8 +750,9 @@ function PublishSheet({ agentId, onClose }: { agentId: string; onClose: () => vo
         </Banner>
       )}
       {p && privilegeChanged ? (
-        <Banner tone="orange" title="This version increases what the agent can do" icon={ShieldCheck}>
+        <Banner tone="orange" title={priv!.tools_added.length || priv!.disclosures_added.length ? "This version increases what the agent can do" : "This version removes guardrails"} icon={ShieldCheck}>
           {priv!.tools_added.length > 0 && ` Tools added: ${priv!.tools_added.join(", ")}.`}
+          {(priv!.packs_removed?.length ?? 0) > 0 && ` Guardrail packs removed: ${priv!.packs_removed!.map(humanize).join(", ")}.`}
           {priv!.disclosures_added.length > 0 && ` New disclosures: ${priv!.disclosures_added.map(humanize).join(", ")}.`}
         </Banner>
       ) : null}
