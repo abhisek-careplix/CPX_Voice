@@ -8,7 +8,7 @@ import { BrowserTestSheet } from "../BrowserTest";
 import { CallBlocked } from "../CallBlocked";
 import { Card, Empty, ErrorState, ListSkeleton, Pill, Toolbar, timeAgo, useToast } from "../ui";
 
-type Category = "eligibility" | "claim_status" | "denials" | "prior_auth" | "patient_billing" | "healthcare" | "pharmacy" | "travel" | "utilities" | "retail" | "government" | "other";
+type Category = "eligibility" | "claim_status" | "denials" | "prior_auth" | "patient_billing" | "healthcare" | "pharmacy" | "travel" | "utilities" | "retail" | "government" | "other" | "red_team";
 
 interface ScenarioRow {
   id: string;
@@ -91,6 +91,7 @@ const CATEGORY_LABEL: Record<Category, string> = {
   retail: "Retail",
   government: "Government",
   other: "Other",
+  red_team: "Red team",
 };
 
 const VERDICT: Record<Scorecard["verdict"], { label: string; tone: "green" | "orange" | "red" | "blue" | "gray"; icon: typeof CheckCircle2 }> = {
