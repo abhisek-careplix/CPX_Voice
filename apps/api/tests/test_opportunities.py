@@ -153,7 +153,9 @@ def test_the_sample_fills_a_queue_a_clinician_works(client):
         "care.outcome",
     } <= actions
     stored = _db_rows(client, ClinicalFact)
-    assert stored and all("E11" not in (f.payload or "") for f in stored)  # sealed at rest
+    # Sealed at rest: a Fernet token (base64, never a quote), not JSON text. Checking for a
+    # plaintext code like "E11" flaked, since random ciphertext can contain those characters.
+    assert stored and all(f.payload and '"' not in f.payload for f in stored)
 
 
 def test_imports_check_their_columns(client):
