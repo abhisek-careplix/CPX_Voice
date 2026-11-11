@@ -189,7 +189,7 @@ function SandboxCard({ line, agents, isAdmin, onChange }: { line: SandboxLine; a
   return (
     <Section
       icon={Phone}
-      tint="var(--green)"
+      tint="var(--tile-green)"
       title="Sandbox line"
       subtitle="Try your agents on a real phone call before connecting your own number. Shared by trial workspaces, with daily limits."
     >
