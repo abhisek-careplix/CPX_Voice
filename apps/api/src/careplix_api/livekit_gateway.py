@@ -84,7 +84,11 @@ class LiveKitGateway:
             )
             return dispatch.id
 
-    def browser_token(self, room: str, identity: str, display_name: str) -> str:
+    def browser_token(
+        self, room: str, identity: str, display_name: str, listen_only: bool = False
+    ) -> str:
+        """A Studio participant's token. ``listen_only`` (a simulation): hear both sides, never
+        speak; the agents only take audio from agent participants anyway."""
         return (
             lkapi.AccessToken(
                 self.settings.livekit_api_key, self.settings.livekit_api_secret.get_secret_value()
@@ -96,8 +100,8 @@ class LiveKitGateway:
                 lkapi.VideoGrants(
                     room_join=True,
                     room=room,
-                    can_publish=True,
-                    can_publish_sources=["microphone"],
+                    can_publish=not listen_only,
+                    can_publish_sources=[] if listen_only else ["microphone"],
                     can_subscribe=True,
                     can_publish_data=False,
                 )

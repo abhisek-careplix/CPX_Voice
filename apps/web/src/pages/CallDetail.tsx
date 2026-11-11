@@ -92,6 +92,43 @@ export default function CallDetail() {
             />
           </Card>
           <div className="stack" style={{ gap: 20 }}>
+            <Card title="What the agent was told" subtitle="Recorded when the agent joined: the exact persona, party and facts this run used.">
+              {c.told.recorded ? (
+                <div className="card-pad stack small" style={{ gap: 8, paddingTop: 4 }}>
+                  <div>
+                    <span className="muted">Persona</span> {c.told.persona.name ?? "—"} · {c.agent.version_state === "draft" ? "draft" : "published"} v{c.agent.version}
+                  </div>
+                  {c.told.persona.greeting && (
+                    <div>
+                      <span className="muted">Opens with</span> “{c.told.persona.greeting}”
+                    </div>
+                  )}
+                  <div>
+                    <span className="muted">Calling for</span> <strong>{c.told.acting_for ?? "—"}</strong>
+                    {c.told.scenario_id ? " (Voice Studio scenario)" : c.case_ref ? ` (case ${c.case_ref})` : " (no case)"}
+                  </div>
+                  {c.told.objective && (
+                    <div>
+                      <span className="muted">Objective</span> {c.told.objective}
+                    </div>
+                  )}
+                  {Object.keys(c.told.facts).length > 0 && (
+                    <div>
+                      <span className="muted">Facts it could share</span>
+                      <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+                        {Object.entries(c.told.facts).map(([k, v]) => (
+                          <li key={k}>
+                            <span className="mono">{k}</span>: {v === null ? "—" : String(v)}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="card-pad small muted">{active ? "Waiting for the agent to join…" : "Not recorded for this run (runs before this was added, or the agent never joined)."}</div>
+              )}
+            </Card>
             <Card title="Task checklist">
               {template ? (
                 <FindingsChecklist

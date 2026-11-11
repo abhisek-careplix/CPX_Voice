@@ -24,7 +24,8 @@ class FakeGateway(LiveKitGateway):
         self.calls.append(("dispatch", room, attempt_id))
         return "AD_fake"
 
-    def browser_token(self, room, identity, display_name):
+    def browser_token(self, room, identity, display_name, listen_only=False):
+        self.calls.append(("token", room, identity, listen_only))
         return f"token-for-{room}"
 
     async def dial(self, room, attempt_id, destination, trunk):

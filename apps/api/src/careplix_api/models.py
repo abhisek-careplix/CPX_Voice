@@ -167,6 +167,9 @@ class CallAttempt(IdMixin, Base):
     # verification tries and the slots offered (ids only; no names or dates of birth).
     front_desk: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     scenario_id: Mapped[str | None] = mapped_column(String(36), index=True)  # Voice Studio run
+    # The call brief the worker was given at claim (sealed): who it acted for, its objective and
+    # the facts it could share, so a run shows exactly what the agent was told.
+    brief: Mapped[str | None] = mapped_column(Text)
 
 
 class CallEvent(Base):
