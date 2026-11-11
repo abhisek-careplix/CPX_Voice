@@ -31,6 +31,7 @@ from careplix_api.evals import service as evals_service
 from careplix_api.integrations.service import IntegrationWorker
 from careplix_api.judge import service as judge_service
 from careplix_api.livekit_gateway import LiveKitGateway
+from careplix_api.opportunities import api as care_api
 from careplix_api.personas import api as personas_api
 from careplix_api.practice import api as practice_api
 from careplix_api.practice import webhooks as practice_webhooks
@@ -177,6 +178,7 @@ def create_app(
     app.include_router(browser_api.router, prefix="/api")
     app.include_router(scenarios_api.router, prefix="/api")
     app.include_router(evals_api.router, prefix="/api")
+    app.include_router(care_api.router, prefix="/api")
     app.include_router(shadow_api.router, prefix="/api")
     app.include_router(personas_api.router, prefix="/api")
     app.include_router(internal_api.router)

@@ -92,11 +92,22 @@ export interface AgentConfig {
     ivr_policy?: { max_menu_repeats?: number; wait_for_full_menu?: boolean };
   };
   tools: { name: string; version: string }[];
-  guardrails: { allowed_disclosures?: string[]; escalation_triggers?: string[]; max_duration_s: number };
+  guardrails: { allowed_disclosures?: string[]; escalation_triggers?: string[]; max_duration_s: number; packs?: { id: string; version: number }[] };
   model: { provider: "google_vertex"; model_id: string; connection_id: string };
   outcome: { success_conditions: string[]; critical_fields: string[] };
   instructions: { agent_text: string };
   persona?: PersonaStyle;
+}
+
+/** VS4: a server-owned rule set an agent runs under. */
+export interface GuardrailPack {
+  id: string;
+  version: number;
+  name: string;
+  summary: string;
+  required_for: string[];
+  recommended_for: string[];
+  rules: { id: string; text: string; limit: string }[];
 }
 
 /** VS4: how an agent sounds. Style only; never tools, disclosures or authority. */
@@ -177,7 +188,7 @@ export interface PublishPreview {
   current_version: number | null;
   issues: Issue[];
   changes: { path: string; before: unknown; after: unknown }[];
-  privilege_changes: { tools_added: string[]; tools_removed: string[]; disclosures_added: string[]; disclosures_removed: string[] };
+  privilege_changes: { tools_added: string[]; tools_removed: string[]; disclosures_added: string[]; disclosures_removed: string[]; packs_removed?: string[] };
   affected_routes: { id: string; name: string; number: string; direction: string }[];
   evaluation: SuiteResult & { required: boolean; untested: string[] };
 }
@@ -949,4 +960,36 @@ export interface MedicareBenefitsView {
   mode?: "test" | "production" | null;
   coverage?: { plan_kind: string; plan: string | null };
   patient?: string;
+}
+
+// ---------- Care opportunities ----------
+
+export type CareStatus = "proposed" | "approved" | "declined" | "contacted" | "enrolled" | "not_interested" | "done" | "resolved";
+
+export interface CareOpportunity {
+  id: string;
+  patient_ref: string;
+  patient: string;
+  coverage: string | null;
+  program: string;
+  title: string;
+  codes: string;
+  category: string;
+  consent_required: boolean;
+  staff_time: boolean;
+  outreach: string;
+  why: string[];
+  status: CareStatus;
+  priority: number;
+  due_by: string | null;
+  note: string | null;
+  decided_at: string | null;
+  created_at: string;
+}
+
+export interface CareQueue {
+  patients: number;
+  counts: Partial<Record<CareStatus, number>>;
+  open_by_program: { program: string; title: string; count: number }[];
+  items: CareOpportunity[];
 }

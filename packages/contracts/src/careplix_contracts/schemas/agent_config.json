@@ -91,6 +91,17 @@
       "properties": {
         "allowed_disclosures": {"type": "array", "items": {"type": "string"}},
         "escalation_triggers": {"type": "array", "items": {"type": "string"}},
+        "packs": {
+          "type": "array",
+          "maxItems": 20,
+          "description": "Guardrail packs this agent runs under (VS4), pinned by version. A template's required packs apply whatever this list says.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "version"],
+            "properties": {"id": {"type": "string", "pattern": "^[a-z0-9-]+$"}, "version": {"type": "integer", "minimum": 1}}
+          }
+        },
         "max_duration_s": {"type": "integer", "minimum": 30, "maximum": 14400}
       }
     },
