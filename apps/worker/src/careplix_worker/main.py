@@ -24,7 +24,7 @@ from livekit.plugins import google
 
 from careplix_common.safe_logging import scrub
 from careplix_worker import counterpart as counterpart_role
-from careplix_worker import prompt
+from careplix_worker import prompt, sandbox_gate
 from careplix_worker.control_plane import ClaimRejected, ControlPlane, EventReporter
 from careplix_worker.gcp import load_credentials
 from careplix_worker.hold import HoldClock
@@ -155,15 +155,26 @@ async def _claim(ctx: JobContext, plane: ControlPlane) -> dict[str, Any]:
         attrs.get("sip.ruleID", "-"),
         extra={"job_id": ctx.job.id},
     )
-    return await plane.claim_inbound(
-        ctx.room.name,
-        ctx.job.id,
-        RUNTIME_BUILD,
-        called,
-        attrs.get("sip.phoneNumber"),
-        meta.get("route_id"),
-        attrs.get("sip.ruleID"),
-    )
+
+    async def claim(code: str | None = None) -> dict[str, Any]:
+        return await plane.claim_inbound(
+            ctx.room.name,
+            ctx.job.id,
+            RUNTIME_BUILD,
+            called,
+            attrs.get("sip.phoneNumber"),
+            meta.get("route_id"),
+            attrs.get("sip.ruleID"),
+            workspace_code=code,
+        )
+
+    try:
+        return await claim()
+    except ClaimRejected as rejected:
+        if rejected.code != "sandbox_code_required":
+            raise
+    # The shared sandbox line: the caller keys in their workspace code first.
+    return await sandbox_gate.admit(ctx, caller, get_settings(), claim)
 
 
 @server.rtc_session(agent_name=get_settings().livekit_agent_name)

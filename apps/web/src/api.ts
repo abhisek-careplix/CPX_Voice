@@ -408,6 +408,21 @@ export interface ConnectionsOverview {
     credential_source: string;
   };
   worker_probe: ProbeStatus | null;
+  sandbox: SandboxLine;
+}
+
+/** The shared CarePlix sandbox line for trials: call it and key in the workspace code. */
+export interface SandboxLine {
+  available: boolean;
+  number: string | null;
+  code: string | null;
+  agent_id: string | null;
+  outbound_available: boolean;
+  outbound: boolean;
+  calls_today: number;
+  daily_limit: number;
+  max_call_s: number;
+  max_destinations: number;
 }
 
 export interface PasStatus {

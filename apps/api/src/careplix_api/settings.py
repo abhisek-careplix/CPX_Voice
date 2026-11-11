@@ -122,6 +122,13 @@ class Settings(BaseSettings):
 
     # Release D calling policy (FR05, SEC12): only approved synthetic test destinations.
     approved_test_destinations: str = ""
+    # Shared sandbox line for trials: one CarePlix Twilio number. Inbound callers key in their
+    # workspace code; trial workspaces may place outbound test calls with it as caller ID.
+    sandbox_number: str = ""  # E.164, e.g. +13127558589
+    sandbox_outbound_trunk_id: str = ""  # the LiveKit outbound trunk that owns sandbox_number
+    sandbox_daily_calls: int = 20  # per workspace, inbound and outbound, rolling 24 hours
+    sandbox_max_call_s: int = 300
+    sandbox_max_destinations: int = 3
     max_concurrent_calls: int = 1
     max_call_duration_s: int = 900  # talk time; hold time is extra, up to max_hold_s (ADR10)
     max_hold_s: int = 2700  # longest single payer hold a call may sit through

@@ -8,6 +8,7 @@ import {
   OctagonX,
   PhoneIncoming,
   PhoneOutgoing,
+  Phone,
   Plus,
   Radio,
   RefreshCw,
@@ -18,10 +19,10 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { api, ApiError, type AgentSummary, type Attempt, type Check as ReadinessCheck, type ConnectionsOverview, type ProbeStatus, type Readiness, type Route } from "../api";
+import { api, ApiError, type AgentSummary, type Attempt, type Check as ReadinessCheck, type ConnectionsOverview, type ProbeStatus, type SandboxLine, type Readiness, type Route } from "../api";
 import { useCan, useMe } from "../App";
 import { CallBlocked } from "../CallBlocked";
-import { AttemptPill, Banner, Card, CheckPill, Empty, Pill, Sheet, Toolbar, timeAgo, useToast } from "../ui";
+import { AttemptPill, Banner, Card, CheckPill, Empty, Pill, Sheet, Switch, Toolbar, timeAgo, useToast } from "../ui";
 
 const REGIONS = ["us-central1", "us-east1", "us-east4", "us-west1", "europe-west1", "europe-west4", "asia-northeast1"];
 
@@ -63,6 +64,8 @@ export default function Connections() {
       <div className="content">
         <SetupSteps checks={checks} />
         {!isAdmin && <Banner tone="blue" title="Only administrators can change connections." />}
+
+        {o?.sandbox.available && <SandboxCard line={o.sandbox} agents={agents.data ?? []} isAdmin={isAdmin} onChange={refresh} />}
 
         <LiveKitCard o={o} check={checks.livekit_api} worker={checks.agent_worker} isAdmin={isAdmin} onChange={refresh} />
         <GeminiCard o={o} check={checks.voice_model} isAdmin={isAdmin} onChange={refresh} />
@@ -159,6 +162,94 @@ function Section({ icon: Icon, tint, title, subtitle, check, children, actions }
         {children}
       </div>
     </section>
+  );
+}
+
+// ---------- Shared sandbox line (trials) ----------
+
+/** "+13127558589" → "+1 (312) 755-8589" for US numbers; others unchanged. */
+function prettyNumber(e164: string): string {
+  const m = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(e164);
+  return m ? `+1 (${m[1]}) ${m[2]}-${m[3]}` : e164;
+}
+
+function SandboxCard({ line, agents, isAdmin, onChange }: { line: SandboxLine; agents: AgentSummary[]; isAdmin: boolean; onChange: () => void }) {
+  const toast = useToast();
+  const inbound = agents.filter((a) => a.template.direction === "inbound");
+  const chosen = inbound.find((a) => a.id === line.agent_id);
+  const save = useMutation({
+    mutationFn: (body: { agent_id?: string; outbound?: boolean; new_code?: boolean }) => api.put<SandboxLine>("/connections/sandbox", body),
+    onSuccess: () => onChange(),
+    onError: (e) => toast(e instanceof ApiError ? e.message : "Could not save"),
+  });
+  const number = line.number ? prettyNumber(line.number) : "";
+  const copy = (text: string, what: string) => navigator.clipboard?.writeText(text).then(() => toast(`${what} copied`));
+
+  return (
+    <Section
+      icon={Phone}
+      tint="var(--green)"
+      title="Sandbox line"
+      subtitle="Try your agents on a real phone call before connecting your own number. Shared by trial workspaces, with daily limits."
+    >
+      <div className="stack" style={{ gap: 14 }}>
+        <div className="row" style={{ gap: 28, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div className="stack" style={{ gap: 2 }}>
+            <span className="field-label">Call</span>
+            <button type="button" className="link-button mono" style={{ fontSize: 22, fontWeight: 600 }} onClick={() => copy(line.number ?? "", "Number")} title="Copy number">
+              {number}
+            </button>
+          </div>
+          <div className="stack" style={{ gap: 2 }}>
+            <span className="field-label">Then key in your workspace code</span>
+            <button type="button" className="link-button mono" style={{ fontSize: 22, fontWeight: 600, letterSpacing: 3 }} onClick={() => copy(line.code ?? "", "Code")} title="Copy code">
+              {line.code}
+            </button>
+          </div>
+          {isAdmin && (
+            <button className="btn btn-plain" disabled={save.isPending} onClick={() => confirm("Make a new code? The current one stops working.") && save.mutate({ new_code: true })}>
+              <RefreshCw size={14} aria-hidden /> New code
+            </button>
+          )}
+        </div>
+
+        <label className="field" style={{ maxWidth: 420 }}>
+          <span className="field-label">Agent that answers</span>
+          <select className="select" value={line.agent_id ?? ""} disabled={!isAdmin || save.isPending} onChange={(e) => save.mutate({ agent_id: e.target.value })}>
+            <option value="">Choose an inbound agent…</option>
+            {inbound.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+                {a.current ? ` · published v${a.current.number}` : " · not published"}
+              </option>
+            ))}
+          </select>
+          <span className="field-help">
+            {chosen
+              ? chosen.current
+                ? `Callers who key in your code talk to ${chosen.name} (published v${chosen.current.number}).`
+                : `Publish ${chosen.name} first; until then callers hear that the line isn't ready.`
+              : "Until you choose one, callers with your code hear that the line isn't set up yet."}
+          </span>
+        </label>
+
+        {line.outbound_available && (
+          <div className="row" style={{ gap: 10, alignItems: "flex-start" }}>
+            <Switch checked={line.outbound} onChange={(v) => save.mutate({ outbound: v })} label="Use the sandbox line for outbound test calls" disabled={!isAdmin || save.isPending} />
+            <div className="stack" style={{ gap: 2 }}>
+              <span>Use the sandbox line for outbound test calls</span>
+              <span className="small muted">
+                Calls show {number} as caller ID and go only to your approved test numbers (up to {line.max_destinations}). Turn this off once your own number is connected.
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div className="small muted">
+          {line.calls_today} of {line.daily_limit} sandbox calls used in the last 24 hours · up to {Math.round(line.max_call_s / 60)} minutes each
+        </div>
+      </div>
+    </Section>
   );
 }
 

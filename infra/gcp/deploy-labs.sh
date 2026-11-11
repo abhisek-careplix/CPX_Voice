@@ -211,6 +211,11 @@ deploy() {
   # VS3 AI judge: a Gemini text model; JUDGE_MODEL in .env overrides the default.
   judge_model=$(env_value JUDGE_MODEL || true)
   common_env="CAREPLIX_ENV=labs,LIVEKIT_URL=$livekit_url,GCP_PROJECT=$PROJECT,VERTEX_LOCATION=$REGION,GEMINI_LIVE_MODEL=$MODEL,JUDGE_MODEL=${judge_model:-gemini-2.5-flash},PAYER_SANDBOX_URL=$sandbox_url/fhir,PAYER_SANDBOX_AUTH=google_id_token,CAREPLIX_RUNTIME_BUILD=$TAG"
+  # Shared sandbox line for trials (non-secret): the CarePlix Twilio number and its LiveKit trunk.
+  for key in SANDBOX_NUMBER SANDBOX_OUTBOUND_TRUNK_ID; do
+    value=$(env_value "$key" || true)
+    if [ -n "$value" ]; then common_env="$common_env,$key=$value"; fi
+  done
   secrets="DATABASE_URL=cpx-database-url:latest,SESSION_SECRET=cpx-session-secret:latest,WORKER_SERVICE_TOKEN=cpx-worker-token:latest,LIVEKIT_API_KEY=cpx-livekit-api-key:latest,LIVEKIT_API_SECRET=cpx-livekit-api-secret:latest"
 
   # 2. Webhook ingress: the only public service. Verifies, dedupes and records IDs; no IAP, no PHI.
@@ -299,10 +304,17 @@ deploy() {
   echo "Webhooks: $webhooks_url (register from Studio → Practice once deployed)"
 }
 
+sandbox_line() {
+  # LiveKit side of the shared sandbox line: an inbound trunk for SANDBOX_NUMBER (and a dispatch
+  # rule for it). The Twilio side is one console step the script prints at the end.
+  uv run python scripts/sandbox_line.py
+}
+
 case "${1:-}" in
   setup) setup ;;
   build) build ;;
   openemr) openemr ;;
   deploy) deploy ;;
-  *) echo "usage: $0 setup|build|openemr|deploy" >&2; exit 2 ;;
+  sandbox-line) sandbox_line ;;
+  *) echo "usage: $0 setup|build|openemr|deploy|sandbox-line" >&2; exit 2 ;;
 esac

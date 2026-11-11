@@ -76,6 +76,28 @@ async def _workspace_guard(session: AsyncSession, principal: Principal) -> None:
         raise ApiError(423, "emergency_stop", "Calling is stopped for this workspace.")
 
 
+async def sandbox_calls_today(session: AsyncSession, workspace_id: str) -> int:
+    """Calls on the shared sandbox line in the last 24 hours, inbound and outbound."""
+    since = utcnow() - timedelta(hours=24)
+    recent = await session.scalars(
+        select(CallAttempt).where(
+            CallAttempt.workspace_id == workspace_id, CallAttempt.created_at >= since
+        )
+    )
+    return sum(1 for a in recent if a.pins.get("sandbox_line"))
+
+
+async def _sandbox_guard(session: AsyncSession, workspace_id: str, settings: Settings) -> None:
+    """Trial calls on the shared sandbox line: a daily allowance per workspace."""
+    if await sandbox_calls_today(session, workspace_id) >= settings.sandbox_daily_calls:
+        raise ApiError(
+            429,
+            "sandbox_limit",
+            f"This workspace has used its {settings.sandbox_daily_calls} sandbox calls for today. "
+            "Connect your own phone number for more.",
+        )
+
+
 async def _capacity_guard(session: AsyncSession, workspace_id: str, settings: Settings) -> None:
     active = list(
         await session.scalars(
@@ -311,6 +333,8 @@ async def start_call(
         raise ApiError(503, "outbound_not_configured", "Phone connection missing.")
     await _workspace_guard(session, principal)
     await _capacity_guard(session, principal.workspace_id, settings)
+    if eff.sandbox_outbound:
+        await _sandbox_guard(session, principal.workspace_id, settings)
 
     version = await session.get(AgentVersion, task.agent_version_id)
     attempt_id = new_id()
@@ -327,7 +351,11 @@ async def start_call(
         state="Created",
         idempotency_key=key,
         destination_e164=task.destination_e164,
-        pins={**_pins(version, eff), "outbound_trunk_id": eff.outbound_trunk_id},
+        pins={
+            **_pins(version, eff),
+            "outbound_trunk_id": eff.outbound_trunk_id,
+            **({"sandbox_line": True} if eff.sandbox_outbound else {}),
+        },
         created_by=principal.user_id,
     )
     session.add(attempt)
@@ -365,6 +393,8 @@ async def start_test_call(
         raise ApiError(503, "outbound_not_configured", "Select a carrier trunk first.")
     await _workspace_guard(session, principal)
     await _capacity_guard(session, principal.workspace_id, settings)
+    if eff.sandbox_outbound:
+        await _sandbox_guard(session, principal.workspace_id, settings)
     case = await _resolve_case(session, principal.workspace_id, None, required=False)
     attempt_id = new_id()
     attempt = CallAttempt(
@@ -382,6 +412,7 @@ async def start_test_call(
             **_pins(version, eff),
             "outbound_trunk_id": eff.outbound_trunk_id,
             "qualification": True,
+            **({"sandbox_line": True} if eff.sandbox_outbound else {}),
         },
         created_by=principal.user_id,
     )
@@ -456,6 +487,31 @@ async def resolve_inbound_route(
     return route
 
 
+def is_sandbox_number(settings: Settings, number: str | None) -> bool:
+    return bool(settings.sandbox_number) and phone_digits(number) == phone_digits(
+        settings.sandbox_number
+    )
+
+
+async def _sandbox_inbound(
+    session: AsyncSession, settings: Settings, code: str | None
+) -> tuple[Workspace, Agent]:
+    """The shared sandbox line: the caller keys in a workspace code (DTMF, via the worker); the
+    workspace's chosen inbound agent answers. Nothing else the caller says picks the workspace."""
+    digits = re.sub(r"\D", "", code or "")
+    if not digits:
+        raise ApiError(428, "sandbox_code_required", "Ask the caller for their workspace code.")
+    workspace = await session.scalar(select(Workspace).where(Workspace.sandbox_code == digits))
+    if workspace is None:
+        raise ApiError(404, "sandbox_code_invalid", "No workspace has that code.")
+    agent = await session.get(Agent, workspace.sandbox_agent_id or "")
+    if agent is None or agent.workspace_id != workspace.id:
+        raise ApiError(409, "sandbox_no_agent", "This workspace hasn't chosen a sandbox agent.")
+    if templates.get_template(agent.template_id)["direction"] != "inbound":
+        raise ApiError(409, "sandbox_no_agent", "The sandbox agent must answer inbound calls.")
+    return workspace, agent
+
+
 async def inbound_claim(
     session: AsyncSession,
     settings: Settings,
@@ -466,22 +522,30 @@ async def inbound_claim(
     caller_number: str | None,
     route_id: str | None = None,
     rule_id: str | None = None,
+    workspace_code: str | None = None,
 ) -> dict[str, Any]:
-    route = await resolve_inbound_route(session, called_number, route_id, rule_id)
-    agent = await session.get(Agent, route.agent_id)
+    route: Route | None = None
+    if is_sandbox_number(settings, called_number):
+        workspace, agent = await _sandbox_inbound(session, settings, workspace_code)
+    else:
+        route = await resolve_inbound_route(session, called_number, route_id, rule_id)
+        agent = await session.get(Agent, route.agent_id)
+        workspace = await session.get(Workspace, route.workspace_id)
     version = await agents_service.current_version(session, agent)
     if version is None:
         raise ApiError(409, "not_published", "The routed agent has no published version.")
-    workspace = await session.get(Workspace, route.workspace_id)
     if workspace.emergency_stop:
         raise ApiError(423, "emergency_stop", "Calling is stopped for this workspace.")
-    await _capacity_guard(session, route.workspace_id, settings)
+    await _capacity_guard(session, workspace.id, settings)
+    if route is None:
+        await _sandbox_guard(session, workspace.id, settings)
 
     template = templates.get_template(agent.template_id)
     eff = connections.effective(workspace, settings)
-    route.last_call_at = utcnow()
+    if route is not None:
+        route.last_call_at = utcnow()
     task = Task(
-        workspace_id=route.workspace_id,
+        workspace_id=workspace.id,
         kind="inbound",
         created_by="system",
         agent_id=agent.id,
@@ -492,16 +556,20 @@ async def inbound_claim(
     session.add(task)
     await session.flush()
     attempt = CallAttempt(
-        workspace_id=route.workspace_id,
+        workspace_id=workspace.id,
         task_id=task.id,
         agent_id=agent.id,
         agent_version_id=version.id,
-        route_id=route.id,
+        route_id=route.id if route else None,
         direction="inbound",
         room_name=room,
         state="Connected",
         caller_e164=caller_number,
-        pins={**_pins(version, eff), "runtime_build": build},
+        pins={
+            **_pins(version, eff),
+            "runtime_build": build,
+            **({} if route else {"sandbox_line": True}),
+        },
         provider_ids={"job_id": job_id},
         claimed_at=utcnow(),
         last_heartbeat_at=utcnow(),
@@ -553,9 +621,17 @@ async def _claim_payload(
         if attempt.direction == "outbound"
         else None,
         "tools": [_model_tool(registry[ref["name"]]) for ref in config["tools"]],
-        "max_duration_s": config["guardrails"]["max_duration_s"],
+        "max_duration_s": talk_budget(attempt, config, settings),
         "max_hold_s": max_hold_s(config, settings),
     }
+
+
+def talk_budget(attempt: CallAttempt, config: dict[str, Any], settings: Settings) -> int:
+    """The agent's talk time: its own limit, capped by the workspace and the sandbox line."""
+    limit = min(config["guardrails"]["max_duration_s"], settings.max_call_duration_s)
+    if attempt.pins.get("sandbox_line"):
+        limit = min(limit, settings.sandbox_max_call_s)
+    return limit
 
 
 _MODEL_SCHEMA_KEYS = {"type", "description", "enum", "properties", "required", "items"}
@@ -662,9 +738,7 @@ def build_brief(
         "desired_findings": list(template["output_fields"]),
         "restricted_actions": RESTRICTED_ACTIONS,
         "budget": {
-            "max_duration_s": min(
-                config["guardrails"]["max_duration_s"], settings.max_call_duration_s
-            ),
+            "max_duration_s": talk_budget(attempt, config, settings),
             "max_hold_s": max_hold_s(config, settings),
             "max_menu_repeats": config["conversation"]
             .get("ivr_policy", {})

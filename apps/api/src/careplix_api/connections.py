@@ -38,6 +38,7 @@ class Effective:
     vertex_location: str
     outbound_verified: bool
     model_check: dict[str, Any] | None
+    sandbox_outbound: bool = False  # outbound calls go through the shared sandbox line
 
     @property
     def model_verified(self) -> bool:
@@ -59,6 +60,19 @@ def _fresh(iso: str | None) -> bool:
 
 def effective(workspace: Workspace | None, settings: Settings) -> Effective:
     ws = workspace
+    sandbox = bool(ws and ws.sandbox_outbound and settings.sandbox_outbound_trunk_id)
+    if sandbox:
+        # The sandbox trunk is CarePlix's and qualified by CarePlix; limits apply per call.
+        return Effective(
+            outbound_trunk_id=settings.sandbox_outbound_trunk_id,
+            approved_destinations=frozenset(ws.approved_destinations or []),
+            approved_model=ws.approved_model or settings.gemini_live_model,
+            gcp_project=ws.gcp_project or settings.gcp_project,
+            vertex_location=ws.vertex_location or settings.vertex_location,
+            outbound_verified=True,
+            model_check=ws.model_check,
+            sandbox_outbound=True,
+        )
     trunk = (ws.outbound_trunk_id if ws else None) or settings.livekit_outbound_trunk_id
     destinations = set(settings.approved_destinations) | set(
         (ws.approved_destinations if ws else None) or []
