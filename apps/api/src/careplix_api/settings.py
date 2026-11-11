@@ -119,6 +119,13 @@ class Settings(BaseSettings):
     nexhealth_window_days: int = 180
     nexhealth_history_months: int = 24
     eligibility_autopilot: bool = True
+    # Medicare benefits planner (CMS HETS). Services per request: 0 sends each list (STCs, then
+    # HCPCS) in one request; a rejected list is retried in groups of the fallback size. HETS Rules
+    # of Behavior: one detailed check per patient per day, and no sweeps.
+    medicare_benefits_group_size: int = 0
+    medicare_benefits_fallback_size: int = 5
+    medicare_benefits_daily_attempts: int = 3
+    medicare_benefits_hourly_per_user: int = 30
     # FO-2 cancellation backfill: slots starting sooner than the lead time aren't worth offering;
     # far-future ones fill through normal scheduling.
     backfill_enabled: bool = True

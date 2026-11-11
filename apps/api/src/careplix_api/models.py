@@ -424,6 +424,35 @@ class EligibilityCheck(IdMixin, Base):
     next_attempt_at: Mapped[datetime | None] = mapped_column(index=True)
 
 
+class MedicareBenefitSnapshot(IdMixin, Base):
+    """One Medicare benefits check (CMS HETS) for a patient, kept for the day and reused.
+
+    ``benefits`` (the parsed benefits) and ``raw`` (Stedi's responses, with the raw X12) are
+    sealed like patient identifiers. ``summary`` holds outcomes only: coverage, flags, AAA codes.
+    ``purpose`` records why CMS was asked (an appointment or an upcoming visit), as the HETS Rules
+    of Behavior require.
+    """
+
+    __tablename__ = "medicare_benefit_snapshots"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    ehr_connection_id: Mapped[str] = mapped_column(ForeignKey("payer_connections.id"))
+    clearinghouse_connection_id: Mapped[str | None] = mapped_column(String(36))
+    patient_ref: Mapped[str] = mapped_column(String(40), index=True)
+    appointment_ref: Mapped[str | None] = mapped_column(String(40))
+    purpose: Mapped[str] = mapped_column(String(20))  # appointment | upcoming_visit
+    mode: Mapped[str] = mapped_column(String(12))  # test | production
+    source: Mapped[str] = mapped_column(String(10), default="stedi")  # stedi | sample
+    state: Mapped[str] = mapped_column(String(10))  # done | failed
+    date_of_service: Mapped[str | None] = mapped_column(String(10))
+    request_groups: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    benefits: Mapped[str | None] = mapped_column(Text)
+    raw: Mapped[str | None] = mapped_column(Text)
+    message: Mapped[str | None] = mapped_column(String(200))
+    requested_by: Mapped[str] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+
+
 class PayerMapping(IdMixin, Base):
     """How an EHR payer (its payer ID and plan name) maps to a Stedi payer, per workspace.
 

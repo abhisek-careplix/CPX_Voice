@@ -1,0 +1,65 @@
+{
+  "name": "medicare_benefits",
+  "version": "1.0.0",
+  "description": "Tell a verified Medicare patient what Medicare reported in the front desk's latest benefits check: whether Part A and Part B are active, and when common preventive services such as the annual wellness visit are due. Only works after find_patient passed. It never contacts Medicare itself; if there is no recent check it says so. Never medical advice and never a guarantee of payment.",
+  "classification": "read",
+  "execution": "api",
+  "allowed_roles": [
+    "agent_runtime"
+  ],
+  "timeout_ms": 10000,
+  "idempotency": "keyed",
+  "limits": {
+    "max_attempts_per_call": 3
+  },
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "topic": {
+        "enum": [
+          "coverage",
+          "wellness_visit",
+          "preventive"
+        ],
+        "description": "What the caller asked about."
+      }
+    }
+  },
+  "result_schema": {
+    "type": "object",
+    "required": [
+      "state",
+      "message"
+    ],
+    "properties": {
+      "state": {
+        "enum": [
+          "checked",
+          "not_checked"
+        ]
+      },
+      "checked_on": {
+        "type": "string"
+      },
+      "coverage": {
+        "type": "object"
+      },
+      "medicare_advantage": {
+        "type": "string"
+      },
+      "preventive": {
+        "type": "array"
+      },
+      "test_data": {
+        "type": "boolean"
+      },
+      "message": {
+        "type": "string"
+      }
+    }
+  },
+  "owner": "front-office",
+  "release": "D",
+  "enabled_in_demo": true
+}

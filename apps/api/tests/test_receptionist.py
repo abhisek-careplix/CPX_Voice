@@ -89,6 +89,7 @@ def test_claim_carries_the_front_desk_tools_with_their_timeouts(practice):
         "cancel_appointment",
         "leave_message",
         "verify_insurance",
+        "medicare_benefits",
         "record_finding",
         "end_call",
     }

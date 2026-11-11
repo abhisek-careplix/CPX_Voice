@@ -29,7 +29,7 @@ from careplix_api.models import (
     ToolExecution,
     TranscriptSegment,
 )
-from careplix_api.practice import insurance, receptionist
+from careplix_api.practice import insurance, medicare_tool, receptionist
 from careplix_api.practice.receptionist import ToolEnv
 
 SUBSTATES = {"ivr": "IVR", "hold": "Hold", "conversation": "Conversation"}
@@ -293,4 +293,5 @@ _HANDLERS = {
     "end_call": _end_call,
     **receptionist.HANDLERS,
     **insurance.HANDLERS,
+    **medicare_tool.HANDLERS,
 }
