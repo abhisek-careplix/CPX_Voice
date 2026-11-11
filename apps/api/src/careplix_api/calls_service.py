@@ -106,7 +106,8 @@ async def _capacity_guard(session: AsyncSession, workspace_id: str, settings: Se
             .order_by(CallAttempt.created_at)
         )
     )
-    active = [a for a in active if not a.pins.get("eval_case_id")]  # suites have their own lane
+    # Suites and shadow replays are simulations with their own lane.
+    active = [a for a in active if not _own_lane(a.pins)]
     if len(active) >= settings.max_concurrent_calls:
         # Name the call that holds the slot, so the Studio can open or end it: a session that
         # went quiet otherwise blocks every new call until the reconciler's limits expire.
@@ -122,6 +123,10 @@ async def _capacity_guard(session: AsyncSession, workspace_id: str, settings: Se
                 "started_at": as_utc(blocking.created_at).isoformat(),
             },
         )
+
+
+def _own_lane(pins: dict[str, Any]) -> bool:
+    return bool(pins.get("eval_case_id") or (pins.get("shadow_item_id") and pins.get("simulated")))
 
 
 def _pins(version: AgentVersion, eff: connections.Effective) -> dict[str, Any]:
@@ -152,11 +157,13 @@ async def start_browser_session(
     simulated: bool = False,
     version: AgentVersion | None = None,
     eval_case_id: str | None = None,
+    shadow_item_id: str | None = None,
 ) -> dict[str, Any]:
     """A sandbox session in a LiveKit room. ``simulated``: the other side is an AI counterpart
     playing the scenario (VS2), dispatched into the same room, instead of a person's browser.
     A regression suite passes the exact ``version`` it evaluates and its case id; suite runs have
-    their own concurrency lane, so they neither wait for nor block the workspace's calls."""
+    their own concurrency lane, so they neither wait for nor block the workspace's calls. A shadow
+    replay passes its row (``shadow_item_id``); the row's facts replace the scenario's."""
     if not gateway.configured:
         raise ApiError(503, "voice_not_configured", "Voice connection is not configured.")
     if version is None and use == "draft":
@@ -174,7 +181,7 @@ async def start_browser_session(
     case = await _resolve_case(session, principal.workspace_id, case_id, required=False)
     scenario = await session.get(Scenario, scenario_id) if scenario_id else None
     await _workspace_guard(session, principal)
-    if eval_case_id is None:
+    if eval_case_id is None and not (shadow_item_id and simulated):
         await _capacity_guard(session, principal.workspace_id, settings)
 
     attempt_id = new_id()
@@ -192,6 +199,7 @@ async def start_browser_session(
             **_pins(version, eff),
             **({"simulated": True} if simulated else {}),
             **({"eval_case_id": eval_case_id} if eval_case_id else {}),
+            **({"shadow_item_id": shadow_item_id} if shadow_item_id else {}),
         },
         created_by=principal.user_id,
         scenario_id=scenario_id,
@@ -317,6 +325,8 @@ async def start_call(
     runner: CallRunner,
     task: Task,
     idempotency_key: str,
+    *,
+    extra_pins: dict[str, Any] | None = None,
 ) -> CallAttempt:
     if not idempotency_key or len(idempotency_key) > 100:
         raise ApiError(400, "idempotency_key_required", "An Idempotency-Key header is required.")
@@ -355,6 +365,7 @@ async def start_call(
             **_pins(version, eff),
             "outbound_trunk_id": eff.outbound_trunk_id,
             **({"sandbox_line": True} if eff.sandbox_outbound else {}),
+            **(extra_pins or {}),
         },
         created_by=principal.user_id,
     )
@@ -595,7 +606,14 @@ async def _claim_payload(
     from careplix_api import scenarios  # local: scenarios imports this module
 
     scenario = await scenarios.for_attempt(session, attempt)
-    plan = scenarios.brief_inputs(scenario, PhiBox(settings)) if scenario else None
+    plan = None
+    if scenario is not None:
+        from careplix_api.shadow import service as shadow  # local: shadow imports this module
+
+        box = PhiBox(settings)
+        item = await shadow.item_for_attempt(session, attempt)
+        facts = shadow.item_facts(item, box) if item else None
+        plan = scenarios.brief_inputs(scenario, box, facts=facts)
     brief = build_brief(attempt, task, config, template, case, settings, scenario=plan)
     attempt.brief = PhiBox(settings).seal(brief)  # what this run was told, for the call detail
     registry = contracts.tool_registry()

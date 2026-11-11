@@ -146,11 +146,21 @@ def simulation_settings(scenario: Scenario) -> dict[str, Any]:
     }
 
 
-def counterpart_brief(scenario: Scenario, box: PhiBox) -> dict[str, Any]:
+def counterpart_brief(
+    scenario: Scenario,
+    box: PhiBox,
+    *,
+    facts: dict[str, Any] | None = None,
+    record: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """What the simulated other side (VS2) is told. It plays a role in a closed test: the agent on
-    the other end is ours, the data is synthetic, and nobody else is on the call."""
+    the other end is ours, the data is synthetic, and nobody else is on the call.
+
+    A shadow replay passes the row's own ``facts`` and the incumbent vendor's answers as
+    ``record``: the other side answers from that record, so the run measures whether our agent
+    gets the same answers."""
     sim = simulation_settings(scenario)
-    facts = box.open(scenario.facts)
+    facts = box.open(scenario.facts) if facts is None else facts
     lines = [
         f"You are role-playing '{scenario.counterpart}' answering a phone call in a CarePlix test "
         "simulation. The caller is an automated assistant being tested. Stay in role, speak "
@@ -179,6 +189,12 @@ def counterpart_brief(scenario: Scenario, box: PhiBox) -> dict[str, Any]:
             "Your records (use them to verify what the caller says; do not read them out unless "
             "a real representative would): " + "; ".join(f"{k}: {v}" for k, v in facts.items())
         )
+    if record:
+        lines.append(
+            "What your system shows for this case. When the caller asks, give these answers "
+            "accurately and completely, in your own words: "
+            + "; ".join(f"{k.replace('_', ' ')}: {v}" for k, v in record.items())
+        )
     lines.append(
         "If the caller asks you to do something the script doesn't cover, respond as a real "
         "representative would. When the conversation is clearly finished, say goodbye and call "
@@ -190,9 +206,12 @@ def counterpart_brief(scenario: Scenario, box: PhiBox) -> dict[str, Any]:
 # --- what the agent receives ----------------------------------------------------------------------
 
 
-def brief_inputs(scenario: Scenario, box: PhiBox) -> dict[str, Any]:
-    """Objective, context and disclosure list for the call brief (``calls_service.build_brief``)."""
-    facts = box.open(scenario.facts)
+def brief_inputs(
+    scenario: Scenario, box: PhiBox, *, facts: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Objective, context and disclosure list for the call brief (``calls_service.build_brief``).
+    ``facts`` replaces the scenario's own (a shadow run's row)."""
+    facts = box.open(scenario.facts) if facts is None else facts
     lines = [f"Call {scenario.counterpart} on behalf of {scenario.on_behalf_of}.", scenario.goal]
     if scenario.limits:
         lines.append("Limits: " + " ".join(f"({i}) {x}" for i, x in enumerate(scenario.limits, 1)))
