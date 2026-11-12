@@ -39,14 +39,16 @@ _ADVANTAGE = re.compile(
     r"medicare\s*(hmo|ppo|pffs|msa)|(hmo|ppo)\s*medicare|medicare\s*(plus|complete|choice)",
     re.I,
 )
-_MEDICARE = re.compile(r"\bmedicare\b|\bpart\s*[ab]\b|\bhets\b|\bcms\b", re.I)
+# Railroad Medicare is Original Medicare too: CMS (HETS) answers for it by MBI. Palmetto GBA's
+# 00882 is the claims payer for railroad retirees, so a plan carrying that ID still goes to CMS.
+_MEDICARE = re.compile(r"\bmedicare\b|\bpart\s*[ab]\b|\bhets\b|\bcms\b|railroad|\brrb\b", re.I)
 _MEDICAID = re.compile(
     r"medicaid|medi-?cal|chip\b|badgercare|masshealth|tenncare|soonercare|ahcccs|"
     r"husky|apple\s*health|healthy\s*(connections|louisiana|blue)|star\s*(kids|plus)",
     re.I,
 )
 _SUPPLEMENT = re.compile(r"supplement|medigap|med\s*supp|part\s*d\b|prescription", re.I)
-_MEDICARE_IDS = {"CMS", "MEDICARE", "HETS"}
+_MEDICARE_IDS = {"CMS", "MEDICARE", "HETS", "00882"}
 
 
 def plan_kind(name: str | None, ehr_payer_id: str | None = None) -> str:
@@ -309,7 +311,7 @@ async def note_outcome(
 ) -> None:
     """Keep the NPI's enrollment status with this payer in step with what the payer said."""
     codes = {e["code"] for e in errors}
-    if "41" in codes or (payer_id == stedi.CMS and "97" in codes):
+    if "41" in codes or (payer_id == stedi.CMS and codes & {"43", "50", "51", "97"}):
         await record_enrollment(
             session,
             workspace_id,

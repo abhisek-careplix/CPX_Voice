@@ -62,11 +62,33 @@ MOCKS: dict[str, Mock] = {
     "cms_active": Mock(
         "Medicare (CMS) · active coverage", CMS, "Jane", "Doe", "1AA2CC3DD45", "1955-05-05"
     ),
+    "uhc_active": Mock(
+        "UnitedHealthcare · active coverage", "87726", "Jane", "Doe", "UHC123456", "1971-01-01"
+    ),
+    "cigna_active": Mock(
+        "Cigna · active coverage", "62308", "James", "Jones", "23456789100", "1991-02-02"
+    ),
+    "ambetter_active": Mock(
+        "Ambetter · active coverage", "68069", "John", "Doe", "AMBETTER123", "1994-04-04"
+    ),
+    "kaiser_active": Mock(
+        "Kaiser (Northern California) · active coverage",
+        "KSRCN",
+        "Jane",
+        "Doe",
+        "KAISER123456",
+        "2002-02-02",
+    ),
     "uhc_inactive": Mock(
         "UnitedHealthcare · inactive coverage", "87726", "Jane", "Doe", "UHCINACTIVE", "1971-01-01"
     ),
     "humana_medicare_advantage": Mock(
-        "Humana · Medicare Advantage", "61101", "Jane", "Doe", "HUMANA123", "1975-05-05"
+        "Humana · Medicare Advantage (Medicaid helps with cost share)",
+        "61101",
+        "Jane",
+        "Doe",
+        "HUMANA123",
+        "1975-05-05",
     ),
     "aaa_42": Mock(
         "AAA 42 · payer can't respond", "87726", "Jane", "Doe", "UHCAAA42", "2001-01-01"
@@ -330,6 +352,12 @@ def error_message(errors: list[dict[str, Any]], payer_id: str | None) -> str | N
     codes = [e["code"] for e in errors]
     if payer_id == CMS and "41" in codes:
         return "CMS attestation/enrollment required for this NPI."
+    if payer_id == CMS and "51" in codes:
+        return "Medicare has no record of this NPI: use the NPI the practice bills Medicare under."
+    if payer_id == CMS and "50" in codes:
+        return "This NPI isn't currently allowed to check Medicare eligibility (HETS)."
+    if payer_id == CMS and "43" in codes:
+        return "Medicare shows this NPI with an invalid status: check its Medicare enrollment."
     if payer_id == CMS and "97" in codes:
         return (
             "CMS suspended this NPI's attestation (its attestation email bounced): the provider "

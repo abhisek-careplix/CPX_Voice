@@ -661,6 +661,17 @@ def _npi_problem(npi: str) -> str | None:
     return None
 
 
+async def _cms_status(
+    session: AsyncSession, workspace_id: str, npi: str | None
+) -> dict[str, Any] | None:
+    """What Medicare (HETS) last said about this NPI: active once a check went through,
+    action_required when CMS refused it (no attestation, unknown NPI, suspended)."""
+    if not npi:
+        return None
+    row = await payers.enrollment(session, workspace_id, npi, stedi.CMS)
+    return {"status": row.status, "detail": row.detail} if row else {"status": "unknown"}
+
+
 def _mock_group(key: str, mock: stedi.Mock) -> str:
     if key.startswith("aaa_"):
         return "Error cases"
@@ -704,6 +715,7 @@ async def _eligibility_settings(
             else "deployment"
         ),
         "providers": await _provider_npis(session, workspace_id),
+        "medicare": await _cms_status(session, workspace_id, effective),
         "test_scenario": workspace.stedi_test_scenario or stedi.AUTO,
         "scenarios": [{"key": stedi.AUTO, "label": "Match the patient's plan"}]
         + [

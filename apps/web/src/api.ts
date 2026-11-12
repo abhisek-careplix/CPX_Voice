@@ -684,6 +684,7 @@ export interface EligibilitySettings {
   effective_npi: string | null;
   npi_source: "workspace" | "deployment" | null;
   providers: { npi: string; name: string }[];
+  medicare: { status: "active" | "action_required" | "unknown" | string; detail?: string | null } | null;
   test_scenario: string;
   scenarios: { key: string; label: string; group?: string }[];
 }

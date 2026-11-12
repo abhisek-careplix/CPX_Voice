@@ -1044,3 +1044,30 @@ def test_huddle_labels_each_visit_with_its_program(tmp_path):
 )
 def test_program_labels(name, payer_id, program):
     assert payers.program(name, payer_id) == program
+
+
+def test_railroad_medicare_goes_to_cms():
+    assert payers.plan_kind("RRB Medicare", "00882") == payers.MEDICARE
+    assert payers.plan_kind("Palmetto GBA RRB", None) == payers.MEDICARE
+    assert payers.program("Palmetto GBA RRB", "00882") == "railroad_medicare"
+
+
+@pytest.mark.parametrize(
+    ("code", "words"),
+    [("51", "no record of this NPI"), ("50", "isn't currently allowed"), ("43", "invalid status")],
+)
+def test_cms_npi_refusals_read_plainly(code, words):
+    errors = [{"code": code, "description": None, "followup": None, "followup_code": None}]
+    assert words in stedi.error_message(errors, stedi.CMS)
+    assert words not in (stedi.error_message(errors, "87726") or "")
+
+
+def test_settings_group_every_published_mock_and_report_medicare_status(tmp_path):
+    with practice(tmp_path) as (c, _):
+        s = c.get("/api/practices/eligibility/settings").json()
+        groups = {o["key"]: o.get("group") for o in s["scenarios"]}
+        assert groups["cms_active"] == "Medicare"
+        assert groups["humana_medicare_advantage"] == "Medicare"
+        assert groups["cigna_active"] == groups["kaiser_active"] == "Commercial"
+        assert groups["aaa_75"] == "Error cases"
+        assert s["medicare"] == {"status": "unknown"}

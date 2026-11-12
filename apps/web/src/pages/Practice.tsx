@@ -558,7 +558,7 @@ function NpiCard({ s, onSaved }: { s?: EligibilitySettings; onSaved: () => void 
   const err = (save.error ?? lookup.error) as ApiError | null;
   const others = (s?.providers ?? []).filter((p) => p.npi !== s?.effective_npi);
   return (
-    <Card title="Billing NPI" subtitle="Sent on every eligibility check, including Medicare. Payers and CMS look the provider up by this number.">
+    <Card title="Billing NPI" subtitle="The NPI your practice bills under. Every eligibility check sends it; payers fill in the name from the NPI Registry.">
       <div style={{ display: "grid", gap: 12 }}>
         {s?.effective_npi ? (
           <div className="row" style={{ gap: 10, alignItems: "flex-start" }}>
@@ -579,7 +579,9 @@ function NpiCard({ s, onSaved }: { s?: EligibilitySettings; onSaved: () => void 
               </button>
             )}
           </div>
-        ) : (
+        ) : null}
+        {s?.effective_npi && !test && <MedicareStatus m={s.medicare} />}
+        {!s?.effective_npi && (
           <div className="small muted">{test ? "Not needed in test mode (Stedi's mock provider is sent). Required before live checks." : "Not set: live eligibility and Medicare checks are skipped until you add one."}</div>
         )}
 
@@ -622,13 +624,42 @@ function NpiCard({ s, onSaved }: { s?: EligibilitySettings; onSaved: () => void 
                 "Synthetic NPI (test range): not looked up."
               )
             ) : (
-              "Use the practice's organization NPI (Type 2) if it has one, else the billing provider's own NPI. Find it at npiregistry.cms.hhs.gov."
+              "Use the NPI on your claims: the group (Type 2) NPI if the practice bills as a group, else the billing provider's own. For Medicare it must be the NPI you bill Medicare under."
             )}
           </span>
         </label>
         {err && <div className="field-error">{err.message}</div>}
       </div>
     </Card>
+  );
+}
+
+/** Medicare (CMS HETS) answers only for an NPI that bills Original Medicare and has been
+ * attested once in Stedi (Enrollments → CMS); this says where that stands. */
+function MedicareStatus({ m }: { m: EligibilitySettings["medicare"] }) {
+  if (!m) return null;
+  if (m.status === "active")
+    return (
+      <div className="small muted">
+        <Pill tone="green" icon={CheckCircle2}>
+          Medicare checks working
+        </Pill>
+      </div>
+    );
+  if (m.status === "action_required")
+    return (
+      <div style={{ display: "grid", gap: 4 }}>
+        <Pill tone="red" icon={XCircle}>
+          Medicare needs action
+        </Pill>
+        <div className="small field-error">{m.detail}</div>
+        <div className="small muted">In Stedi: Enrollments → new enrollment for payer CMS with this NPI; an authorised official attests once (about 10 minutes).</div>
+      </div>
+    );
+  return (
+    <div className="small muted">
+      Medicare: not checked yet with this NPI. CMS only answers for an NPI that bills Original Medicare and has been attested once in Stedi (Enrollments → payer CMS).
+    </div>
   );
 }
 
