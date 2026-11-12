@@ -39,14 +39,16 @@ _ADVANTAGE = re.compile(
     r"medicare\s*(hmo|ppo|pffs|msa)|(hmo|ppo)\s*medicare|medicare\s*(plus|complete|choice)",
     re.I,
 )
-_MEDICARE = re.compile(r"\bmedicare\b|\bpart\s*[ab]\b|\bhets\b|\bcms\b", re.I)
+# Railroad Medicare is Original Medicare too: CMS (HETS) answers for it by MBI. Palmetto GBA's
+# 00882 is the claims payer for railroad retirees, so a plan carrying that ID still goes to CMS.
+_MEDICARE = re.compile(r"\bmedicare\b|\bpart\s*[ab]\b|\bhets\b|\bcms\b|railroad|\brrb\b", re.I)
 _MEDICAID = re.compile(
     r"medicaid|medi-?cal|chip\b|badgercare|masshealth|tenncare|soonercare|ahcccs|"
     r"husky|apple\s*health|healthy\s*(connections|louisiana|blue)|star\s*(kids|plus)",
     re.I,
 )
 _SUPPLEMENT = re.compile(r"supplement|medigap|med\s*supp|part\s*d\b|prescription", re.I)
-_MEDICARE_IDS = {"CMS", "MEDICARE", "HETS"}
+_MEDICARE_IDS = {"CMS", "MEDICARE", "HETS", "00882"}
 
 
 def plan_kind(name: str | None, ehr_payer_id: str | None = None) -> str:
@@ -60,6 +62,36 @@ def plan_kind(name: str | None, ehr_payer_id: str | None = None) -> str:
     if _MEDICAID.search(text):
         return MEDICAID
     return COMMERCIAL
+
+
+# What a plan is, for the front desk. Finer than plan_kind, which only decides where a check goes.
+PROGRAMS = {
+    MEDICARE: "Original Medicare",
+    "railroad_medicare": "Railroad Medicare",
+    MEDICARE_ADVANTAGE: "Medicare Advantage",
+    "medigap": "Medicare supplement",
+    "part_d": "Medicare Part D",
+    MEDICAID: "Medicaid",
+    COMMERCIAL: "Commercial",
+}
+_RAILROAD = re.compile(r"railroad|\brrb\b", re.I)
+_PART_D = re.compile(r"part\s*d\b|\bpdp\b|prescription drug", re.I)
+_MEDIGAP = re.compile(r"supplement|medigap|med\s*supp", re.I)
+
+
+def program(name: str | None, ehr_payer_id: str | None = None) -> str | None:
+    """One of PROGRAMS, or None when there's no plan to judge."""
+    if not name and not ehr_payer_id:
+        return None
+    text = f"{name or ''} {ehr_payer_id or ''}"
+    if _PART_D.search(text):
+        return "part_d"
+    if _MEDIGAP.search(text):
+        return "medigap"
+    kind = plan_kind(name, ehr_payer_id)
+    if kind == MEDICARE and _RAILROAD.search(text):
+        return "railroad_medicare"
+    return kind
 
 
 def _norm(value: Any) -> str:
@@ -279,7 +311,7 @@ async def note_outcome(
 ) -> None:
     """Keep the NPI's enrollment status with this payer in step with what the payer said."""
     codes = {e["code"] for e in errors}
-    if "41" in codes or (payer_id == stedi.CMS and "97" in codes):
+    if "41" in codes or (payer_id == stedi.CMS and codes & {"43", "50", "51", "97"}):
         await record_enrollment(
             session,
             workspace_id,

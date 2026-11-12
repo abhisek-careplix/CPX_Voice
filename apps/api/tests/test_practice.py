@@ -517,7 +517,14 @@ class Router(httpx.AsyncBaseTransport):
     def last_webhook_token(self) -> str:
         return self.nexhealth.webhook_target.rsplit("/", 1)[-1]
 
+    nppes: dict[str, dict] = {}  # NPI -> NPPES result record; anything else is "not found"
+
     async def handle_async_request(self, request):
+        if request.url.host == "npiregistry.cms.hhs.gov":
+            found = self.nppes.get(request.url.params.get("number", ""))
+            return httpx.Response(
+                200, json={"result_count": int(bool(found)), "results": [found] if found else []}
+            )
         target = self._nh if request.url.host == "nexhealth.test" else self._st
         return await target.handle_async_request(request)
 
@@ -616,11 +623,16 @@ def test_first_pass_mirrors_the_practice_and_seals_patient_identifiers(tmp_path)
         assert location["name"] == "Main" and location["tz"] == "America/Chicago"
         assert location["insert_appt_client"] is True and location["synced"] is True
         records = _db_rows(c, EhrRecord)
-        raw = json.dumps([[r.attrs, r.pii] for r in records])
+        box = PhiBox(c.app.state.settings)
+        # Plain fields never hold identifiers; sealed ones open only with the key. (Searching the
+        # ciphertext for names is flaky: random base64 sometimes spells "Roe".)
+        raw = json.dumps([r.attrs for r in records])
         secrets = ("Jane", "Roe", "1980-01-02", "5550100", "5550199", "Synthetic Way", "60601")
         for secret in (*secrets, "M-ACTIVE", "knee pain", "Latex"):
             assert secret not in raw  # sealed or never mirrored
-        box = PhiBox(c.app.state.settings)
+        for r in records:
+            if r.pii:
+                assert r.pii.startswith("gAAAA")  # a Fernet token, not plaintext
         [jane] = [r for r in records if r.resource == "patient" and r.source_id == "1"]
         pii = box.open(jane.pii)
         assert pii["phones"]["home_phone_number"] == "5550199"

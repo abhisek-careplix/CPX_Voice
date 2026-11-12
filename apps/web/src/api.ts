@@ -682,8 +682,22 @@ export interface EligibilitySettings {
   billing_npi: string | null;
   practice_npi_fallback: string | null;
   effective_npi: string | null;
+  npi_source: "workspace" | "deployment" | null;
+  providers: { npi: string; name: string }[];
+  medicare: { status: "active" | "action_required" | "unknown" | string; detail?: string | null } | null;
   test_scenario: string;
-  scenarios: { key: string; label: string }[];
+  scenarios: { key: string; label: string; group?: string }[];
+}
+
+export interface NpiLookup {
+  npi: string;
+  status: "confirmed" | "invalid" | "skipped" | "unavailable";
+  name?: string | null;
+  kind?: "individual" | "organization" | null;
+  taxonomy?: string | null;
+  city?: string | null;
+  state?: string | null;
+  reason?: string | null;
 }
 
 export interface PayerMappingRow {
@@ -702,6 +716,8 @@ export interface PayerMappingRow {
   last_error: string | null;
 }
 
+export type Program = "medicare" | "railroad_medicare" | "medicare_advantage" | "medigap" | "part_d" | "medicaid" | "commercial";
+
 export interface HuddleRow {
   id: string;
   start: string;
@@ -710,7 +726,7 @@ export interface HuddleRow {
   type: string | null;
   patient_id: string | null;
   patient: string;
-  coverage: { plan: string | null; payer_id: string | null; priority: number | null; insurance_type: string | null } | null;
+  coverage: { plan: string | null; payer_id: string | null; priority: number | null; insurance_type: string | null; program: Program | null } | null;
   eligibility: EligibilityView | null;
   flags: string[];
 }
