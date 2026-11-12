@@ -983,3 +983,64 @@ def test_the_caller_hears_only_allowed_disclosures():
     assert "front desk" in everything["message"]
     inactive = insurance.caller_summary(summary("uhc_inactive"), {"coverage_status"}, mock=True)
     assert inactive["coverage"] == "inactive" and inactive["test_data"] is True
+
+
+# --- billing NPI made simple -----------------------------------------------------------------
+
+NPPES_ORG = {
+    "enumeration_type": "NPI-2",
+    "basic": {"organization_name": "SYNTHETIC FAMILY DENTAL", "status": "A"},
+    "addresses": [{"address_purpose": "LOCATION", "city": "CHICAGO", "state": "IL"}],
+    "taxonomies": [{"primary": True, "desc": "Dentist, General Practice"}],
+}
+
+
+def test_npi_lookup_names_the_owner_and_explains_bad_numbers(tmp_path):
+    with practice(tmp_path) as (c, router):
+        router.nppes = {"1234567893": NPPES_ORG}
+        found = c.get("/api/practices/eligibility/npi/1234567893").json()
+        assert found["status"] == "confirmed"
+        assert found["name"] == "SYNTHETIC FAMILY DENTAL" and found["kind"] == "organization"
+        assert found["state"] == "IL" and found["taxonomy"].startswith("Dentist")
+        typo = c.get("/api/practices/eligibility/npi/1234567890")
+        assert typo.status_code == 422 and "check digit" in typo.json()["error"]["message"]
+        short = c.get("/api/practices/eligibility/npi/12345")
+        assert short.status_code == 422 and "10 digits" in short.json()["error"]["message"]
+        missing = c.get("/api/practices/eligibility/npi/1245319599").json()
+        assert missing["status"] == "invalid" and missing["reason"] == "not found in NPPES"
+        bad = c.put("/api/practices/eligibility/settings", json={"billing_npi": "1234567890"})
+        assert "check digit" in bad.json()["error"]["message"]
+
+
+def test_settings_offer_provider_npis_from_the_practice_system(tmp_path):
+    with practice(tmp_path) as (c, _):
+        s = c.get("/api/practices/eligibility/settings").json()
+        assert s["providers"] == [{"npi": "1234567893", "name": "Dr. Avery Test"}]
+        assert s["effective_npi"] == "1234567893" and s["npi_source"] == "deployment"
+        s = c.put("/api/practices/eligibility/settings", json={"billing_npi": "1245319599"}).json()
+        assert s["effective_npi"] == "1245319599" and s["npi_source"] == "workspace"
+        s = c.put("/api/practices/eligibility/settings", json={"billing_npi": None}).json()
+        assert s["npi_source"] == "deployment"
+
+
+def test_huddle_labels_each_visit_with_its_program(tmp_path):
+    with practice(tmp_path) as (c, _):
+        rows = c.get("/api/practices/huddle?days=7").json()["appointments"]
+        assert {r["coverage"]["program"] for r in rows if r["coverage"]} <= set(payers.PROGRAMS)
+
+
+@pytest.mark.parametrize(
+    ("name", "payer_id", "program"),
+    [
+        ("Medicare Part B", None, "medicare"),
+        ("Railroad Medicare", None, "railroad_medicare"),
+        ("Humana Medicare Advantage PPO", None, "medicare_advantage"),
+        ("AARP Medicare Supplement Plan G", None, "medigap"),
+        ("SilverScript PDP (Part D)", None, "part_d"),
+        ("Medi-Cal", None, "medicaid"),
+        ("Aetna PPO", "60054", "commercial"),
+        (None, None, None),
+    ],
+)
+def test_program_labels(name, payer_id, program):
+    assert payers.program(name, payer_id) == program

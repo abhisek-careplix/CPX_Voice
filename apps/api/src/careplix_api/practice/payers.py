@@ -62,6 +62,36 @@ def plan_kind(name: str | None, ehr_payer_id: str | None = None) -> str:
     return COMMERCIAL
 
 
+# What a plan is, for the front desk. Finer than plan_kind, which only decides where a check goes.
+PROGRAMS = {
+    MEDICARE: "Original Medicare",
+    "railroad_medicare": "Railroad Medicare",
+    MEDICARE_ADVANTAGE: "Medicare Advantage",
+    "medigap": "Medicare supplement",
+    "part_d": "Medicare Part D",
+    MEDICAID: "Medicaid",
+    COMMERCIAL: "Commercial",
+}
+_RAILROAD = re.compile(r"railroad|\brrb\b", re.I)
+_PART_D = re.compile(r"part\s*d\b|\bpdp\b|prescription drug", re.I)
+_MEDIGAP = re.compile(r"supplement|medigap|med\s*supp", re.I)
+
+
+def program(name: str | None, ehr_payer_id: str | None = None) -> str | None:
+    """One of PROGRAMS, or None when there's no plan to judge."""
+    if not name and not ehr_payer_id:
+        return None
+    text = f"{name or ''} {ehr_payer_id or ''}"
+    if _PART_D.search(text):
+        return "part_d"
+    if _MEDIGAP.search(text):
+        return "medigap"
+    kind = plan_kind(name, ehr_payer_id)
+    if kind == MEDICARE and _RAILROAD.search(text):
+        return "railroad_medicare"
+    return kind
+
+
 def _norm(value: Any) -> str:
     return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
 

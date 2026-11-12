@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -12,17 +12,16 @@ import {
   HeartPulse,
   MessageSquareText,
   PhoneCall,
-  RefreshCw,
   ExternalLink,
   ShieldCheck,
   Stethoscope,
   XCircle,
 } from "lucide-react";
 import { useState } from "react";
-import { api, ApiError, type EligibilitySettings, type EligibilityView, type FrontDeskMessage, type PayerMappingRow, type Huddle, type HuddleRow, type PracticeConnection, type PracticeOverview, type WriteIntentRow } from "../api";
+import { api, ApiError, type EligibilitySettings, type EligibilityView, type FrontDeskMessage, type PayerMappingRow, type Huddle, type HuddleRow, type NpiLookup, type PracticeConnection, type PracticeOverview, type Program, type WriteIntentRow } from "../api";
 import { useCan } from "../App";
 import { PRACTICE_LABEL, usePractice, withPractice } from "../practice";
-import { Banner, Card, Empty, Pill, Segmented, Sheet, Toolbar, timeAgo, useToast } from "../ui";
+import { Banner, Card, Empty, ListSkeleton, Pill, Segmented, Sheet, Toolbar, timeAgo, useToast } from "../ui";
 import MedicareBenefitsSheet from "./MedicareBenefits";
 
 type Range = "today" | "tomorrow" | "week";
@@ -64,38 +63,54 @@ function rangeParams(range: Range, tz: string | undefined): { date?: string; day
   return { date, days: 1 };
 }
 
+type Tab = "schedule" | "inbox" | "setup";
+
+const PROGRAM_LABEL: Record<Program, string> = {
+  medicare: "Original Medicare",
+  railroad_medicare: "Railroad Medicare",
+  medicare_advantage: "Medicare Advantage",
+  medigap: "Medicare supplement",
+  part_d: "Medicare Part D",
+  medicaid: "Medicaid",
+  commercial: "Commercial",
+};
+
+/** Programs whose Part A/B benefits CMS answers for: Original and Railroad Medicare. Anyone else
+ * can still be checked with Medicare (test mode always sends Stedi's CMS mock member). */
+const CMS_PROGRAMS: Program[] = ["medicare", "railroad_medicare"];
+
 export default function Practice() {
   const isAdmin = useCan("admin");
   const canRun = useCan("start_task");
   const qc = useQueryClient();
   const toast = useToast();
+  const [params, setParams] = useSearchParams();
+  const tab = (["schedule", "inbox", "setup"].includes(params.get("tab") ?? "") ? params.get("tab") : "schedule") as Tab;
+  const setTab = (t: Tab) => setParams(t === "schedule" ? {} : { tab: t }, { replace: true });
   const [range, setRange] = useState<Range>("week");
   const [alertFor, setAlertFor] = useState<HuddleRow | null>(null);
   const [benefitsFor, setBenefitsFor] = useState<HuddleRow | null>(null);
   const [practice, setPractice] = usePractice();
   const at = (path: string) => withPractice(path, practice);
   const overview = useQuery({ queryKey: ["practice", practice], queryFn: () => api.get<PracticeOverview>(at("/practices")), refetchInterval: 5000 });
-  const tz = useQuery({ queryKey: ["practice-huddle", practice, "today"], queryFn: () => api.get<Huddle>(at("/practices/huddle?days=1")), enabled: !!overview.data?.ehr }).data?.timezone;
-  const params = rangeParams(range, tz);
-  const query = new URLSearchParams({ days: String(params.days), ...(params.date ? { date: params.date } : {}) });
+  const d = overview.data;
+  const tz = useQuery({ queryKey: ["practice-huddle", practice, "today"], queryFn: () => api.get<Huddle>(at("/practices/huddle?days=1")), enabled: !!d?.ehr }).data?.timezone;
+  const rp = rangeParams(range, tz);
+  const query = new URLSearchParams({ days: String(rp.days), ...(rp.date ? { date: rp.date } : {}) });
   const huddle = useQuery({
-    queryKey: ["practice-huddle", practice, range, params.date],
+    queryKey: ["practice-huddle", practice, range, rp.date],
     queryFn: () => api.get<Huddle>(at(`/practices/huddle?${query}`)),
-    enabled: !!overview.data?.ehr,
+    enabled: !!d?.ehr,
     refetchInterval: 5000,
   });
+  const settings = useQuery({ queryKey: ["eligibility-settings"], queryFn: () => api.get<EligibilitySettings>("/practices/eligibility/settings"), enabled: !!d?.clearinghouse });
+  const mappings = useQuery({ queryKey: ["payer-mappings"], queryFn: () => api.get<{ payers: PayerMappingRow[] }>("/practices/payers"), enabled: !!d?.clearinghouse, refetchInterval: 15000 });
+  const messages = useQuery({ queryKey: ["front-desk-messages"], queryFn: () => api.get<FrontDeskMessage[]>("/practices/messages"), refetchInterval: 15000 });
   const refresh = () => qc.invalidateQueries({ queryKey: ["practice"] }).then(() => qc.invalidateQueries({ queryKey: ["practice-huddle"] }));
   const sync = useMutation({
     mutationFn: (full: boolean) => api.post<{ api_calls: number; eligibility_queued: number }>(at(`/practices/sync?full=${full}`)),
     onSuccess: (r) => {
       toast(`Synced · ${r.api_calls} EHR API calls · ${r.eligibility_queued} eligibility checks queued`);
-      refresh();
-    },
-  });
-  const verify = useMutation({
-    mutationFn: (kind: "nexhealth" | "openemr" | "stedi") => api.post<{ ok: boolean; error?: string }>(at(`/practices/verify?kind=${kind}`)),
-    onSuccess: (r) => {
-      toast(r.ok ? "Verified with a live check" : `Verification failed: ${r.error ?? ""}`);
       refresh();
     },
   });
@@ -107,8 +122,9 @@ export default function Practice() {
     },
   });
 
-  const d = overview.data;
-  const err = (sync.error ?? verify.error ?? check.error) as ApiError | null;
+  const err = (sync.error ?? check.error) as ApiError | null;
+  const todo = setupTodo(d, settings.data, mappings.data?.payers);
+  const inbox = (messages.data?.length ?? 0) + (d?.intents.filter((i) => i.state === "proposed").length ?? 0);
 
   if (overview.isSuccess && !d?.ehr) {
     return (
@@ -126,6 +142,7 @@ export default function Practice() {
   }
 
   const h = huddle.data;
+  const demo = d?.ehr?.env === "sandbox" || d?.ehr?.kind === "openemr" || d?.clearinghouse?.env === "test";
   return (
     <>
       <Toolbar
@@ -146,9 +163,6 @@ export default function Practice() {
                 <ExternalLink size={15} aria-hidden /> Open OpenEMR
               </a>
             )}
-            <button className="btn btn-secondary" onClick={refresh}>
-              <RefreshCw size={15} aria-hidden /> Refresh
-            </button>
             {isAdmin && (
               <button className="btn btn-primary" onClick={() => sync.mutate(false)} disabled={sync.isPending}>
                 {sync.isPending ? <span className="spinner" aria-label="Syncing" /> : <Database size={15} aria-hidden />} Sync now
@@ -158,22 +172,32 @@ export default function Practice() {
         }
       />
       <div className="content">
-        {d?.ehr?.kind === "openemr" && (
-          <Banner tone="green" title="Connected directly to OpenEMR." icon={ShieldCheck}>
-            {" "}
-            A real EHR running locally with a synthetic clinic. Every write lands in the chart immediately, and changes staff make in OpenEMR appear here within
-            about 30 seconds.
-            {d.clearinghouse?.env === "test" && " Eligibility uses Stedi test mode, labelled Mock."}
-          </Banner>
-        )}
-        {d?.ehr?.env === "sandbox" && (
-          <Banner tone="purple" title="NexHealth sandbox: demo practice data." icon={ShieldCheck}>
-            {" "}
-            Writes are accepted but never reach an EHR, because the demo location has no sync.
-            {d.clearinghouse?.env === "test" && " Eligibility uses Stedi test mode: each check is sent as Stedi's mock member and labelled Mock."}
-          </Banner>
+        {demo && (
+          <div className="row small muted" style={{ gap: 8, flexWrap: "wrap" }}>
+            <ShieldCheck size={15} aria-hidden />
+            <span>
+              Demo data:{" "}
+              {[
+                d?.ehr?.env === "sandbox" && "NexHealth sandbox (writes never reach an EHR)",
+                d?.ehr?.kind === "openemr" && "OpenEMR with a synthetic clinic",
+                d?.clearinghouse?.env === "test" && "Stedi test mode (checks go out as Stedi's mock members, labelled Mock)",
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          </div>
         )}
         {err && <Banner tone="red" title={err.message} />}
+        {isAdmin && todo.count > 0 && tab !== "setup" && (
+          <div className="banner tone-orange" role="status" style={{ alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ color: "var(--label)" }}>
+              <span style={{ fontWeight: 600 }}>Finish setup:</span> {todo.items.join(" · ")}
+            </span>
+            <button className="btn btn-secondary" onClick={() => setTab("setup")}>
+              Open setup
+            </button>
+          </div>
+        )}
 
         <div className="grid-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
           <Stat icon={CalendarClock} tint="var(--tile-blue)" value={h?.counts.scheduled} label="Visits scheduled" />
@@ -182,7 +206,18 @@ export default function Practice() {
           <Stat icon={CalendarX2} tint="var(--tile-gray)" value={h?.counts.cancelled} label="Cancelled (backfill next)" />
         </div>
 
-        <div className="split">
+        <Segmented
+          label="Section"
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "schedule", label: "Schedule" },
+            { value: "inbox", label: inbox ? `Inbox (${inbox})` : "Inbox" },
+            ...(isAdmin ? [{ value: "setup" as Tab, label: todo.count ? `Setup (${todo.count})` : "Setup" }] : []),
+          ]}
+        />
+
+        {tab === "schedule" && (
           <Card
             title="Front-desk huddle"
             subtitle={h ? `Insurance and eligibility for each visit · times in ${h.timezone}` : "Loading the schedule…"}
@@ -199,13 +234,15 @@ export default function Practice() {
               />
             }
           >
-            {h && h.appointments.length === 0 ? (
+            {!h ? (
+              <ListSkeleton rows={4} />
+            ) : h.appointments.length === 0 ? (
               <Empty icon={CalendarClock} title="No visits in this range">
                 Sync the practice, or pick a longer range.
               </Empty>
             ) : (
               <ul className="list">
-                {h?.appointments.map((a) => (
+                {h.appointments.map((a) => (
                   <HuddleItem
                     key={a.id}
                     a={a}
@@ -215,44 +252,40 @@ export default function Practice() {
                     checking={check.isPending && check.variables === a.id}
                     onCheck={() => check.mutate(a.id)}
                     onAlert={() => setAlertFor(a)}
-                    onBenefits={d?.clearinghouse ? () => setBenefitsFor(a) : undefined}
+                    onBenefits={d?.clearinghouse && (settings.data?.mode === "test" || CMS_PROGRAMS.includes(a.coverage?.program as Program)) ? () => setBenefitsFor(a) : undefined}
                   />
                 ))}
               </ul>
             )}
           </Card>
+        )}
 
-          <div style={{ display: "grid", gap: 20 }}>
-            <ConnectionsCard d={d} isAdmin={isAdmin} verifying={verify.isPending} onVerify={(k) => verify.mutate(k)} />
-            {d?.clearinghouse && <EligibilityCard isAdmin={isAdmin} />}
-            <FrontDeskMessages canRun={canRun} />
+        {tab === "inbox" && (
+          <div className="split">
+            <FrontDeskMessages canRun={canRun} rows={messages.data} />
             <WriteQueue intents={d?.intents ?? []} isAdmin={isAdmin} onDone={refresh} />
-            <Card title="Practice mirror" subtitle={`Allow-listed fields only; patient identifiers encrypted. ${d?.api_calls_total ?? 0} EHR API calls so far.`}>
-              <ul className="list">
-                {Object.entries(RESOURCE_LABEL).map(([key, label]) => {
-                  const cursor = d?.cursors.find((c) => c.resource === key);
-                  return (
-                    <li className="list-row" key={key} style={{ minHeight: 40 }}>
-                      <div className="row-main">
-                        <div className="row-title">{label}</div>
-                        {cursor?.last_error && <div className="row-sub field-error">{cursor.last_error}</div>}
-                      </div>
-                      <span className="small muted tabular">{cursor?.last_run_at ? timeAgo(cursor.last_run_at) : ""}</span>
-                      <span className="tabular" style={{ fontWeight: 600, minWidth: 32, textAlign: "right" }}>
-                        {d?.mirror[key] ?? 0}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </Card>
           </div>
-        </div>
+        )}
+
+        {tab === "setup" && isAdmin && (
+          <Setup d={d} settings={settings.data} payers={mappings.data?.payers} onChanged={refresh} />
+        )}
       </div>
       {alertFor && <AlertSheet row={alertFor} onClose={() => setAlertFor(null)} onDone={refresh} />}
       {benefitsFor?.patient_id && <MedicareBenefitsSheet patientId={benefitsFor.patient_id} patient={benefitsFor.patient} appointmentId={benefitsFor.id} onClose={() => setBenefitsFor(null)} />}
     </>
   );
+}
+
+/** What still needs a person before checks run cleanly, in the fewest words. */
+function setupTodo(d: PracticeOverview | undefined, s: EligibilitySettings | undefined, payers: PayerMappingRow[] | undefined): { items: string[]; count: number } {
+  const out: string[] = [];
+  const unverified = [d?.ehr, d?.clearinghouse].filter((c) => c && !c.verified_at).length;
+  if (unverified) out.push(unverified === 1 ? "verify a connection" : `verify ${unverified} connections`);
+  if (s && s.mode === "production" && !s.effective_npi) out.push("add the billing NPI");
+  const choose = payers?.filter((p) => p.state === "ambiguous" || p.state === "not_found" || p.state === "error").length ?? 0;
+  if (choose) out.push(choose === 1 ? "confirm 1 payer" : `confirm ${choose} payers`);
+  return { items: out, count: unverified + (out.includes("add the billing NPI") ? 1 : 0) + choose };
 }
 
 function Stat({ icon: Icon, tint, value, label }: { icon: typeof CalendarClock; tint: string; value: number | undefined; label: string }) {
@@ -345,6 +378,7 @@ function HuddleItem({
         )}
         <div className="row" style={{ flexWrap: "wrap", gap: 6, marginTop: 6 }}>
           <EligibilityPill e={a.eligibility} status={a.status} />
+          {a.coverage?.program && a.coverage.program !== "commercial" && <span className="chip">{PROGRAM_LABEL[a.coverage.program]}</span>}
           {a.eligibility?.mock && <span className="sample-label">Mock payer</span>}
           {a.flags
             .filter((f) => f !== "not_checked")
@@ -361,8 +395,8 @@ function HuddleItem({
             {checking ? <span className="spinner" aria-label="Checking" /> : <ShieldCheck size={15} aria-hidden />} Check
           </button>
           {a.patient_id && onBenefits && (
-            <button className="btn btn-plain btn-icon" onClick={onBenefits} aria-label="Medicare benefits" title="Medicare benefits: coverage, what's used and left, preventive dates">
-              <HeartPulse size={16} />
+            <button className="btn btn-secondary" onClick={onBenefits} title="Medicare benefits: coverage, what's used and left, preventive dates">
+              <HeartPulse size={15} aria-hidden /> Benefits
             </button>
           )}
           {a.patient_id && (
@@ -461,32 +495,192 @@ const MAPPING_TONE: Record<PayerMappingRow["state"], "green" | "orange" | "red" 
   new: "gray",
 };
 
-/** Billing NPI, the test-mode mock member, and how each EHR payer maps to a Stedi payer. */
-function EligibilityCard({ isAdmin }: { isAdmin: boolean }) {
+function Setup({ d, settings, payers, onChanged }: { d?: PracticeOverview; settings?: EligibilitySettings; payers?: PayerMappingRow[]; onChanged: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
-  const settings = useQuery({ queryKey: ["eligibility-settings"], queryFn: () => api.get<EligibilitySettings>("/practices/eligibility/settings") });
-  const mappings = useQuery({ queryKey: ["payer-mappings"], queryFn: () => api.get<{ payers: PayerMappingRow[] }>("/practices/payers"), refetchInterval: 15000 });
-  const [npi, setNpi] = useState<string | null>(null);
-  const [manual, setManual] = useState<Record<string, string>>({});
-  const [pins, setPins] = useState<Record<string, string>>({});
-  const refresh = () => {
+  const [practice] = usePractice();
+  const verify = useMutation({
+    mutationFn: (kind: "nexhealth" | "openemr" | "stedi") => api.post<{ ok: boolean; error?: string }>(withPractice(`/practices/verify?kind=${kind}`, practice)),
+    onSuccess: (r) => {
+      toast(r.ok ? "Verified with a live check" : `Verification failed: ${r.error ?? ""}`);
+      onChanged();
+    },
+  });
+  const changed = () => {
     qc.invalidateQueries({ queryKey: ["eligibility-settings"] });
     qc.invalidateQueries({ queryKey: ["payer-mappings"] });
   };
+  return (
+    <div className="split">
+      <div style={{ display: "grid", gap: 20, alignContent: "start" }}>
+        {d?.clearinghouse && <NpiCard s={settings} onSaved={changed} />}
+        {d?.clearinghouse && <PayersCard rows={payers} onChanged={changed} />}
+      </div>
+      <div style={{ display: "grid", gap: 20, alignContent: "start" }}>
+        <ConnectionsCard d={d} isAdmin verifying={verify.isPending} onVerify={(k) => verify.mutate(k)} />
+        {verify.error && <Banner tone="red" title={(verify.error as ApiError).message} />}
+        {settings?.mode === "test" && <TestScenarioCard s={settings} onSaved={changed} />}
+        <SyncCard d={d} />
+      </div>
+    </div>
+  );
+}
+
+/** The billing NPI: pick a provider the practice system already knows, or type one and see who
+ * NPPES says it belongs to before saving. */
+function NpiCard({ s, onSaved }: { s?: EligibilitySettings; onSaved: () => void }) {
+  const toast = useToast();
+  const [draft, setDraft] = useState("");
+  const typed = draft.length === 10 ? draft : null;
+  const lookup = useQuery({
+    queryKey: ["npi-lookup", typed],
+    queryFn: () => api.get<NpiLookup>(`/practices/eligibility/npi/${typed}`),
+    enabled: !!typed,
+    retry: false,
+    staleTime: 3_600_000,
+  });
+  const current = useQuery({
+    queryKey: ["npi-lookup", s?.effective_npi],
+    queryFn: () => api.get<NpiLookup>(`/practices/eligibility/npi/${s!.effective_npi}`),
+    enabled: !!s?.effective_npi,
+    retry: false,
+    staleTime: 3_600_000,
+  });
   const save = useMutation({
-    mutationFn: (body: { billing_npi?: string | null; test_scenario?: string }) => api.put<EligibilitySettings>("/practices/eligibility/settings", body),
-    onSuccess: () => {
-      toast("Eligibility settings saved");
-      setNpi(null);
-      refresh();
+    mutationFn: (billing_npi: string | null) => api.put<EligibilitySettings>("/practices/eligibility/settings", { billing_npi }),
+    onSuccess: (r) => {
+      toast(r.billing_npi ? `Billing NPI set to ${r.billing_npi}` : "Billing NPI cleared");
+      setDraft("");
+      onSaved();
     },
   });
+  const test = s?.mode === "test";
+  const err = (save.error ?? lookup.error) as ApiError | null;
+  const others = (s?.providers ?? []).filter((p) => p.npi !== s?.effective_npi);
+  return (
+    <Card title="Billing NPI" subtitle="Sent on every eligibility check, including Medicare. Payers and CMS look the provider up by this number.">
+      <div style={{ display: "grid", gap: 12 }}>
+        {s?.effective_npi ? (
+          <div className="row" style={{ gap: 10, alignItems: "flex-start" }}>
+            <CheckCircle2 size={18} style={{ color: "var(--green)", flex: "none", marginTop: 2 }} aria-hidden />
+            <div className="row-main">
+              <div style={{ fontWeight: 600 }}>
+                {s.effective_npi}
+                {current.data?.name ? ` · ${current.data.name}` : ""}
+              </div>
+              <div className="small muted">
+                <NpiFacts r={current.data} />
+                {s.npi_source === "deployment" ? " · set by your CarePlix team" : ""}
+              </div>
+            </div>
+            {s.npi_source === "workspace" && (
+              <button className="btn btn-plain" onClick={() => save.mutate(null)} disabled={save.isPending}>
+                Clear
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="small muted">{test ? "Not needed in test mode (Stedi's mock provider is sent). Required before live checks." : "Not set: live eligibility and Medicare checks are skipped until you add one."}</div>
+        )}
+
+        {others.length > 0 && (
+          <div>
+            <div className="field-label" style={{ marginBottom: 6 }}>
+              From your practice system
+            </div>
+            <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+              {others.map((p) => (
+                <button key={p.npi} className="btn btn-tinted" disabled={save.isPending} onClick={() => save.mutate(p.npi)} title={`Use ${p.npi}`}>
+                  {p.name} · {p.npi}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <label className="field">
+          <span className="field-label">{s?.effective_npi ? "Use a different NPI" : "Enter the NPI"}</span>
+          <div className="row" style={{ gap: 6 }}>
+            <input className="input" inputMode="numeric" maxLength={10} value={draft} placeholder="10-digit NPI" onChange={(e) => setDraft(e.target.value.replace(/\D/g, ""))} />
+            <button className="btn btn-primary" disabled={!typed || save.isPending || lookup.data?.status === "invalid"} onClick={() => save.mutate(typed)}>
+              Save
+            </button>
+          </div>
+          <span className="field-help">
+            {typed && lookup.isLoading ? (
+              "Looking it up in the NPI Registry…"
+            ) : typed && lookup.data ? (
+              lookup.data.status === "confirmed" ? (
+                <>
+                  <strong>{lookup.data.name}</strong> · <NpiFacts r={lookup.data} />
+                </>
+              ) : lookup.data.status === "invalid" ? (
+                `Not usable: ${lookup.data.reason ?? "not active in the NPI Registry"}.`
+              ) : lookup.data.status === "unavailable" ? (
+                "The NPI Registry didn't answer; you can still save it."
+              ) : (
+                "Synthetic NPI (test range): not looked up."
+              )
+            ) : (
+              "Use the practice's organization NPI (Type 2) if it has one, else the billing provider's own NPI. Find it at npiregistry.cms.hhs.gov."
+            )}
+          </span>
+        </label>
+        {err && <div className="field-error">{err.message}</div>}
+      </div>
+    </Card>
+  );
+}
+
+function NpiFacts({ r }: { r?: NpiLookup }) {
+  if (!r || r.status !== "confirmed") return null;
+  return <>{[r.kind === "organization" ? "Organization (Type 2)" : r.kind === "individual" ? "Individual (Type 1)" : null, r.taxonomy, [r.city, r.state].filter(Boolean).join(", ")].filter(Boolean).join(" · ")}</>;
+}
+
+function TestScenarioCard({ s, onSaved }: { s: EligibilitySettings; onSaved: () => void }) {
+  const save = useMutation({
+    mutationFn: (test_scenario: string) => api.put<EligibilitySettings>("/practices/eligibility/settings", { test_scenario }),
+    onSuccess: onSaved,
+  });
+  const groups = Array.from(new Set(s.scenarios.map((o) => o.group ?? "")));
+  return (
+    <Card title="Test mode" subtitle="Stedi only answers for its published mock members. Pick which one every check sends.">
+      <label className="field">
+        <span className="field-label">Mock member</span>
+        <select className="select" disabled={save.isPending} value={s.test_scenario} onChange={(e) => save.mutate(e.target.value)}>
+          {groups.map((g) =>
+            g ? (
+              <optgroup key={g} label={g}>
+                {s.scenarios.filter((o) => o.group === g).map((o) => (
+                  <option key={o.key} value={o.key}>
+                    {o.label}
+                  </option>
+                ))}
+              </optgroup>
+            ) : (
+              s.scenarios.filter((o) => !o.group).map((o) => (
+                <option key={o.key} value={o.key}>
+                  {o.label}
+                </option>
+              ))
+            ),
+          )}
+        </select>
+        <span className="field-help">No patient data leaves CarePlix in test mode.</span>
+      </label>
+    </Card>
+  );
+}
+
+function PayersCard({ rows, onChanged }: { rows?: PayerMappingRow[]; onChanged: () => void }) {
+  const toast = useToast();
+  const [manual, setManual] = useState<Record<string, string>>({});
+  const [pins, setPins] = useState<Record<string, string>>({});
   const confirm = useMutation({
     mutationFn: ({ id, payer_id }: { id: string; payer_id: string }) => api.post<PayerMappingRow>(`/practices/payers/${id}/confirm`, { payer_id }),
     onSuccess: (r) => {
       toast(`Payer set to ${r.stedi_payer_id}`);
-      refresh();
+      onChanged();
     },
   });
   const pin = useMutation({
@@ -494,119 +688,136 @@ function EligibilityCard({ isAdmin }: { isAdmin: boolean }) {
     onSuccess: (r) => {
       toast(r.has_pin ? "Provider PIN saved (encrypted)" : "Provider PIN removed");
       setPins({});
-      refresh();
+      onChanged();
     },
   });
-  const s = settings.data;
-  const err = (save.error ?? confirm.error ?? pin.error) as ApiError | null;
-  return (
-    <Card title="Eligibility" subtitle={s?.mode === "test" ? "Stedi test mode: checks go out as Stedi's mock members." : "Billing provider and payer mapping."}>
-      <div style={{ display: "grid", gap: 14 }}>
-        <label className="field">
-          <span className="field-label">Billing NPI</span>
-          <div className="row" style={{ gap: 6 }}>
+  const all = rows ?? [];
+  const needs = all.filter((m) => !["resolved", "confirmed", "new"].includes(m.state) || m.enrollment?.detail);
+  const fine = all.filter((m) => !needs.includes(m));
+  const err = (confirm.error ?? pin.error) as ApiError | null;
+  const row = (m: PayerMappingRow) => (
+    <li className="list-row" key={m.id} style={{ alignItems: "flex-start", paddingTop: 10, paddingBottom: 10 }}>
+      <div className="row-main">
+        <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
+          <span style={{ fontWeight: 600 }}>{m.ehr_name ?? m.ehr_payer_id ?? "Payer"}</span>
+          <Pill tone={MAPPING_TONE[m.state] ?? "gray"}>{m.state === "ambiguous" ? "Needs a choice" : m.state.replace("_", " ")}</Pill>
+          {m.plan_kind && m.plan_kind !== "commercial" && <span className="chip">{PROGRAM_LABEL[m.plan_kind as Program] ?? m.plan_kind.replace("_", " ")}</span>}
+        </div>
+        <div className="row-sub" style={{ marginTop: 4 }}>
+          {m.stedi_payer_id ? `Stedi ${m.stedi_payer_id}${m.stedi_name ? ` · ${m.stedi_name}` : ""}` : "No Stedi payer yet"}
+          {m.enrollment_required ? " · enrollment required" : ""}
+          {m.enrollment ? ` · NPI ${m.enrollment.status.replace("_", " ")}` : ""}
+          {m.has_pin ? " · PIN set" : ""}
+        </div>
+        {m.enrollment?.detail && <div className="field-error" style={{ marginTop: 4 }}>{m.enrollment.detail}</div>}
+        {m.last_error && <div className="field-error" style={{ marginTop: 4 }}>{m.last_error}</div>}
+        {m.state === "ambiguous" && m.candidates.length > 0 && (
+          <div className="row" style={{ flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+            {m.candidates.map((c) => (
+              <button key={c.payer_id} className="btn btn-tinted" disabled={confirm.isPending} onClick={() => confirm.mutate({ id: m.id, payer_id: c.payer_id })}>
+                {c.name ?? c.payer_id} ({c.payer_id})
+              </button>
+            ))}
+          </div>
+        )}
+        {(m.state === "ambiguous" || m.state === "not_found" || m.state === "error") && (
+          <div className="row" style={{ gap: 6, marginTop: 6 }}>
+            <input className="input" style={{ maxWidth: 160 }} placeholder="Stedi payer ID" value={manual[m.id] ?? ""} onChange={(e) => setManual({ ...manual, [m.id]: e.target.value })} />
+            <button className="btn btn-secondary" disabled={!manual[m.id] || confirm.isPending} onClick={() => confirm.mutate({ id: m.id, payer_id: manual[m.id] })}>
+              Use this ID
+            </button>
+          </div>
+        )}
+        {m.programs.includes("MEDICAID") && (
+          <div className="row" style={{ gap: 6, marginTop: 6 }}>
             <input
               className="input"
-              inputMode="numeric"
-              maxLength={10}
-              disabled={!isAdmin}
-              value={npi ?? s?.billing_npi ?? ""}
-              placeholder={s?.practice_npi_fallback ?? "10-digit NPI"}
-              onChange={(e) => setNpi(e.target.value.replace(/\D/g, ""))}
+              type="password"
+              autoComplete="off"
+              style={{ maxWidth: 160 }}
+              placeholder={m.has_pin ? "PIN set (hidden)" : "Medicaid provider PIN"}
+              value={pins[m.id] ?? ""}
+              onChange={(e) => setPins({ ...pins, [m.id]: e.target.value })}
             />
-            {isAdmin && npi !== null && (
-              <button className="btn btn-tinted" disabled={save.isPending} onClick={() => save.mutate({ billing_npi: npi || null })}>
-                Save
+            <button className="btn btn-secondary" disabled={!pins[m.id] || pin.isPending} onClick={() => pin.mutate({ id: m.id, value: pins[m.id] })}>
+              Save PIN
+            </button>
+            {m.has_pin && (
+              <button className="btn btn-plain" disabled={pin.isPending} onClick={() => pin.mutate({ id: m.id, value: null })}>
+                Remove
               </button>
             )}
           </div>
-          <span className="field-help">
-            Sent on production checks; Stedi uses the NPI's NPPES name. {s?.effective_npi ? `In use: ${s.effective_npi}.` : "Not set: production checks are skipped."}
-          </span>
-        </label>
-        {s?.mode === "test" && (
-          <label className="field">
-            <span className="field-label">Test scenario</span>
-            <select className="select" disabled={!isAdmin || save.isPending} value={s.test_scenario} onChange={(e) => save.mutate({ test_scenario: e.target.value })}>
-              {s.scenarios.map((o) => (
-                <option key={o.key} value={o.key}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-            <span className="field-help">Which of Stedi's published mock members each check sends. No patient data leaves CarePlix in test mode.</span>
-          </label>
         )}
-        {err && <div className="field-error">{err.message}</div>}
-        <div>
-          <div className="field-label" style={{ marginBottom: 6 }}>
-            Payers
-          </div>
-          {mappings.data && mappings.data.payers.length === 0 ? (
-            <div className="small muted">Payers appear here after the first eligibility check.</div>
-          ) : (
-            <ul className="list">
-              {mappings.data?.payers.map((m) => (
-                <li className="list-row" key={m.id} style={{ alignItems: "flex-start", paddingTop: 10, paddingBottom: 10 }}>
-                  <div className="row-main">
-                    <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
-                      <span style={{ fontWeight: 600 }}>{m.ehr_name ?? m.ehr_payer_id ?? "Payer"}</span>
-                      <Pill tone={MAPPING_TONE[m.state] ?? "gray"}>{m.state === "ambiguous" ? "Needs a choice" : m.state.replace("_", " ")}</Pill>
-                      {m.plan_kind && m.plan_kind !== "commercial" && <span className="chip">{m.plan_kind.replace("_", " ")}</span>}
-                    </div>
-                    <div className="row-sub" style={{ marginTop: 4 }}>
-                      {m.stedi_payer_id ? `Stedi ${m.stedi_payer_id}${m.stedi_name ? ` · ${m.stedi_name}` : ""}` : "No Stedi payer yet"}
-                      {m.enrollment_required ? " · enrollment required" : ""}
-                      {m.enrollment ? ` · NPI ${m.enrollment.status.replace("_", " ")}` : ""}
-                      {m.has_pin ? " · PIN set" : ""}
-                    </div>
-                    {m.enrollment?.detail && <div className="field-error" style={{ marginTop: 4 }}>{m.enrollment.detail}</div>}
-                    {m.last_error && <div className="field-error" style={{ marginTop: 4 }}>{m.last_error}</div>}
-                    {isAdmin && m.state === "ambiguous" && m.candidates.length > 0 && (
-                      <div className="row" style={{ flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-                        {m.candidates.map((c) => (
-                          <button key={c.payer_id} className="btn btn-tinted" disabled={confirm.isPending} onClick={() => confirm.mutate({ id: m.id, payer_id: c.payer_id })}>
-                            {c.name ?? c.payer_id} ({c.payer_id})
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {isAdmin && (m.state === "ambiguous" || m.state === "not_found" || m.state === "error") && (
-                      <div className="row" style={{ gap: 6, marginTop: 6 }}>
-                        <input className="input" style={{ maxWidth: 160 }} placeholder="Stedi payer ID" value={manual[m.id] ?? ""} onChange={(e) => setManual({ ...manual, [m.id]: e.target.value })} />
-                        <button className="btn btn-secondary" disabled={!manual[m.id] || confirm.isPending} onClick={() => confirm.mutate({ id: m.id, payer_id: manual[m.id] })}>
-                          Use this ID
-                        </button>
-                      </div>
-                    )}
-                    {isAdmin && m.programs.includes("MEDICAID") && (
-                      <div className="row" style={{ gap: 6, marginTop: 6 }}>
-                        <input
-                          className="input"
-                          type="password"
-                          autoComplete="off"
-                          style={{ maxWidth: 160 }}
-                          placeholder={m.has_pin ? "PIN set (hidden)" : "Provider PIN"}
-                          value={pins[m.id] ?? ""}
-                          onChange={(e) => setPins({ ...pins, [m.id]: e.target.value })}
-                        />
-                        <button className="btn btn-secondary" disabled={!pins[m.id] || pin.isPending} onClick={() => pin.mutate({ id: m.id, value: pins[m.id] })}>
-                          Save PIN
-                        </button>
-                        {m.has_pin && (
-                          <button className="btn btn-plain" disabled={pin.isPending} onClick={() => pin.mutate({ id: m.id, value: null })}>
-                            Remove
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
       </div>
+    </li>
+  );
+  return (
+    <Card title="Payers" subtitle="Each insurance plan in your practice system, matched to the payer Stedi sends the check to. Medicare goes to CMS; Medicare Advantage to the plan.">
+      {rows === undefined ? (
+        <ListSkeleton rows={2} icon={false} />
+      ) : all.length === 0 ? (
+        <div className="card-pad small muted">Payers appear here after the first eligibility check.</div>
+      ) : (
+        <>
+          {needs.length > 0 ? <ul className="list">{needs.map(row)}</ul> : <div className="card-pad small muted">All {fine.length} payers are matched.</div>}
+          {needs.length > 0 && fine.length > 0 && (
+            <details className="card-pad">
+              <summary className="small" style={{ cursor: "pointer" }}>
+                {fine.length} matched payer{fine.length === 1 ? "" : "s"}
+              </summary>
+              <ul className="list">{fine.map(row)}</ul>
+            </details>
+          )}
+          {needs.length === 0 && fine.length > 0 && (
+            <details className="card-pad" style={{ paddingTop: 0 }}>
+              <summary className="small" style={{ cursor: "pointer" }}>
+                Show them
+              </summary>
+              <ul className="list">{fine.map(row)}</ul>
+            </details>
+          )}
+        </>
+      )}
+      {err && <div className="field-error card-pad">{err.message}</div>}
+    </Card>
+  );
+}
+
+function SyncCard({ d }: { d?: PracticeOverview }) {
+  const errors = d?.cursors.filter((c) => c.last_error) ?? [];
+  const last = d?.cursors.map((c) => c.last_run_at).filter(Boolean).sort().pop();
+  return (
+    <Card title="Sync" subtitle={`${last ? `Last synced ${timeAgo(last)}` : "Not synced yet"} · ${d?.api_calls_total ?? 0} EHR API calls so far.`}>
+      {errors.length > 0 && (
+        <ul className="list">
+          {errors.map((c) => (
+            <li className="list-row" key={c.resource}>
+              <div className="row-main">
+                <div className="row-title">{RESOURCE_LABEL[c.resource] ?? c.resource}</div>
+                <div className="row-sub field-error">{c.last_error}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      <details className="card-pad">
+        <summary className="small" style={{ cursor: "pointer" }}>
+          What's mirrored (allow-listed fields only; patient identifiers encrypted)
+        </summary>
+        <ul className="list">
+          {Object.entries(RESOURCE_LABEL).map(([key, label]) => (
+            <li className="list-row" key={key} style={{ minHeight: 36 }}>
+              <div className="row-main">
+                <div className="row-title">{label}</div>
+              </div>
+              <span className="tabular" style={{ fontWeight: 600 }}>
+                {d?.mirror[key] ?? 0}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </details>
     </Card>
   );
 }
@@ -639,10 +850,9 @@ const TOPIC_LABEL: Record<FrontDeskMessage["topic"], string> = {
   other: "Message",
 };
 
-function FrontDeskMessages({ canRun }: { canRun: boolean }) {
+function FrontDeskMessages({ canRun, rows: data }: { canRun: boolean; rows?: FrontDeskMessage[] }) {
   const toast = useToast();
   const qc = useQueryClient();
-  const messages = useQuery({ queryKey: ["front-desk-messages"], queryFn: () => api.get<FrontDeskMessage[]>("/practices/messages"), refetchInterval: 15000 });
   const [open, setOpen] = useState<FrontDeskMessage | null>(null);
   const reveal = useMutation({
     mutationFn: (id: string) => api.get<FrontDeskMessage>(`/practices/messages/${id}`),
@@ -657,7 +867,7 @@ function FrontDeskMessages({ canRun }: { canRun: boolean }) {
       qc.invalidateQueries({ queryKey: ["front-desk-messages"] });
     },
   });
-  const rows = messages.data ?? [];
+  const rows = data ?? [];
   return (
     <Card title="Front desk messages" subtitle="Taken by the receptionist on calls. Opening a message is logged.">
       {rows.length === 0 ? (
@@ -720,7 +930,7 @@ function WriteQueue({ intents, isAdmin, onDone }: { intents: WriteIntentRow[]; i
     },
   });
   return (
-    <Card title="EHR write queue" subtitle="Every write is approved, sent once, and tracked until the EHR confirms it.">
+    <Card title="Waiting to go to the EHR" subtitle="Every change is approved, sent once, and tracked until the EHR confirms it.">
       {intents.length === 0 ? (
         <div className="card-pad small muted">No writes yet.</div>
       ) : (

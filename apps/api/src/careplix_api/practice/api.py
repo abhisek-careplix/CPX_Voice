@@ -17,7 +17,7 @@ from careplix_api.connect.catalog import OPERATIONS, PROFILES
 from careplix_api.connect.connectors import connector_for
 from careplix_api.db import as_utc, utcnow
 from careplix_api.errors import ApiError
-from careplix_api.integrations import stedi
+from careplix_api.integrations import reference, stedi
 from careplix_api.models import (
     AuditEvent,
     BackfillOffer,
@@ -488,6 +488,10 @@ async def huddle(
                     "payer_id": plan.attrs.get("payer_id") if plan else None,
                     "priority": coverage.attrs.get("priority"),
                     "insurance_type": coverage.attrs.get("insurance_type"),
+                    "program": payers.program(
+                        plan.attrs.get("name") if plan else None,
+                        plan.attrs.get("payer_id") if plan else None,
+                    ),
                 }
                 if coverage
                 else None,
@@ -648,19 +652,63 @@ class EligibilitySettingsIn(BaseModel):
     test_scenario: str | None = Field(default=None, max_length=40)
 
 
+def _npi_problem(npi: str) -> str | None:
+    """Why this isn't a usable NPI, in words the front desk can act on; None when it is."""
+    if not npi.isdigit() or len(npi) != 10:
+        return "An NPI is exactly 10 digits."
+    if not stedi.valid_npi(npi):
+        return "That NPI's last digit doesn't match the rest (its check digit): look for a typo."
+    return None
+
+
+def _mock_group(key: str, mock: stedi.Mock) -> str:
+    if key.startswith("aaa_"):
+        return "Error cases"
+    if mock.payer_id == stedi.CMS or "medicare" in mock.label.lower():
+        return "Medicare"
+    if "medicaid" in mock.label.lower():
+        return "Medicaid"
+    return "Commercial"
+
+
+async def _provider_npis(session: AsyncSession, workspace_id: str) -> list[dict[str, str]]:
+    """Active providers from the practice system that carry a valid NPI: one-click choices."""
+    seen: dict[str, dict[str, str]] = {}
+    for row in await session.scalars(
+        select(EhrRecord).where(
+            EhrRecord.workspace_id == workspace_id, EhrRecord.resource == "provider"
+        )
+    ):
+        npi = str((row.attrs or {}).get("npi") or "")
+        if row.status != "inactive" and stedi.valid_npi(npi) and npi not in seen:
+            seen[npi] = {"npi": npi, "name": (row.attrs or {}).get("name") or "Provider"}
+    return sorted(seen.values(), key=lambda p: p["name"])[:25]
+
+
 async def _eligibility_settings(
     session: AsyncSession, workspace_id: str, settings: Settings
 ) -> dict[str, Any]:
     workspace = await session.get(Workspace, workspace_id)
     clearinghouse = await eligibility.clearinghouse(session, workspace_id)
+    effective = await eligibility.billing_npi(session, workspace_id, settings)
     return {
         "mode": (clearinghouse.auth_ref or {}).get("env") if clearinghouse else None,
         "billing_npi": workspace.billing_npi,
         "practice_npi_fallback": settings.practice_npi or None,
-        "effective_npi": await eligibility.billing_npi(session, workspace_id, settings),
+        "effective_npi": effective,
+        "npi_source": (
+            None
+            if effective is None
+            else "workspace"
+            if effective == workspace.billing_npi
+            else "deployment"
+        ),
+        "providers": await _provider_npis(session, workspace_id),
         "test_scenario": workspace.stedi_test_scenario or stedi.AUTO,
         "scenarios": [{"key": stedi.AUTO, "label": "Match the patient's plan"}]
-        + [{"key": k, "label": m.label} for k, m in stedi.MOCKS.items()],
+        + [
+            {"key": k, "label": m.label, "group": _mock_group(k, m)} for k, m in stedi.MOCKS.items()
+        ],
     }
 
 
@@ -683,9 +731,9 @@ async def put_eligibility_settings(
     workspace = await session.get(Workspace, principal.workspace_id)
     fields = body.model_fields_set
     if "billing_npi" in fields:
-        npi = (body.billing_npi or "").strip()
-        if npi and not stedi.valid_npi(npi):
-            raise ApiError(422, "invalid_npi", "That isn't a valid 10-digit NPI.")
+        npi = "".join((body.billing_npi or "").split())
+        if npi and (problem := _npi_problem(npi)):
+            raise ApiError(422, "invalid_npi", problem)
         workspace.billing_npi = npi or None
     if "test_scenario" in fields:
         scenario = body.test_scenario or stedi.AUTO
@@ -703,6 +751,38 @@ async def put_eligibility_settings(
     )
     await session.commit()
     return await _eligibility_settings(session, principal.workspace_id, settings)
+
+
+@router.get("/eligibility/npi/{npi}")
+async def lookup_npi(
+    npi: str,
+    request: Request,
+    principal: Principal = Depends(require("view")),
+):
+    """Who an NPI belongs to, from the public NPPES registry, so the person entering it can see
+    it's the right practice or provider before saving. No patient data is involved."""
+    npi = npi.strip()
+    if problem := _npi_problem(npi):
+        raise ApiError(422, "invalid_npi", problem)
+    client = reference.ReferenceClient(_transport(request))
+    try:
+        result = await client.npi(npi)
+    except Exception as exc:  # noqa: BLE001 - NPPES being down must not block saving
+        return {"npi": npi, "status": "unavailable", "detail": type(exc).__name__}
+    finally:
+        await client.aclose()
+    found = result.detail or {}
+    kind = {"NPI-1": "individual", "NPI-2": "organization"}.get(found.get("type") or "")
+    return {
+        "npi": npi,
+        "status": result.status,  # confirmed | invalid | skipped (synthetic range)
+        "name": found.get("name"),
+        "kind": kind,
+        "taxonomy": found.get("taxonomy"),
+        "city": found.get("city"),
+        "state": found.get("state"),
+        "reason": found.get("reason"),
+    }
 
 
 @router.get("/payers")
