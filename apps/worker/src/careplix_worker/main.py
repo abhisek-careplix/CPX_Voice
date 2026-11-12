@@ -22,7 +22,7 @@ from livekit.agents.llm import function_tool
 from livekit.agents.voice import room_io
 from livekit.plugins import google
 
-from careplix_common.safe_logging import scrub
+from careplix_common.safe_logging import quiet_httpx, scrub, tag_severity
 from careplix_worker import counterpart as counterpart_role
 from careplix_worker import prompt, sandbox_gate
 from careplix_worker.control_plane import ClaimRejected, ControlPlane, EventReporter
@@ -31,6 +31,9 @@ from careplix_worker.hold import HoldClock
 from careplix_worker.settings import get_settings
 
 log = logging.getLogger("careplix.worker")
+# Before LiveKit sets up logging, so its JSON lines carry a Cloud Logging severity.
+tag_severity()
+quiet_httpx()
 
 RUNTIME_BUILD = os.environ.get("CAREPLIX_RUNTIME_BUILD", "dev")
 DTMF_CODES = {**{str(d): d for d in range(10)}, "*": 10, "#": 11}

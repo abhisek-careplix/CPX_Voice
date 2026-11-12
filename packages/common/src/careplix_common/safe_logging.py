@@ -3,6 +3,9 @@
 Logs carry IDs, timings and error categories. Free text is scrubbed of phone numbers, email
 addresses, SSN-shaped values and long digit runs before it is emitted. Scrubbing is a backstop,
 not permission to log content: callers must still log identifiers, never transcripts or case data.
+
+Lines use Cloud Logging's field names (``severity``, ``message``, ``time``) so a Cloud Run log
+filter such as ``severity>=WARNING`` finds application errors.
 """
 
 from __future__ import annotations
@@ -39,6 +42,23 @@ ALLOWED_FIELDS = frozenset(
 )
 
 
+_SEVERITIES = (
+    (logging.CRITICAL, "CRITICAL"),
+    (logging.ERROR, "ERROR"),
+    (logging.WARNING, "WARNING"),
+    (logging.INFO, "INFO"),
+)
+_HTTPX_STATUS = re.compile(r'"HTTP/[\d.]+ (\d{3})')
+
+
+def severity(levelno: int) -> str:
+    """Cloud Logging severity for a stdlib level; LiveKit's TRACE and DEV round down."""
+    for floor, name in _SEVERITIES:
+        if levelno >= floor:
+            return name
+    return "DEBUG"
+
+
 def scrub(text: str) -> str:
     for pattern, replacement in _PATTERNS:
         text = pattern.sub(replacement, text)
@@ -48,10 +68,10 @@ def scrub(text: str) -> str:
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         line = {
-            "ts": datetime.fromtimestamp(record.created, UTC).isoformat(),
-            "level": record.levelname,
+            "time": datetime.fromtimestamp(record.created, UTC).isoformat(),
+            "severity": severity(record.levelno),
             "logger": record.name,
-            "msg": scrub(record.getMessage()),
+            "message": scrub(record.getMessage()),
         }
         for key in ALLOWED_FIELDS:
             if (value := getattr(record, key, None)) is not None:
@@ -62,9 +82,48 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(line, default=str)
 
 
+class HttpxFailuresOnly(logging.Filter):
+    """httpx logs every request at INFO, which buried the app's own lines (one per NexHealth
+    call). Keep only responses of 400 and above, raised to WARNING so they are easy to find."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno >= logging.WARNING:
+            return True
+        match = _HTTPX_STATUS.search(record.getMessage())
+        if not match or int(match.group(1)) < 400:
+            return False
+        record.levelno, record.levelname = logging.WARNING, "WARNING"
+        record.severity = "WARNING"
+        return True
+
+
+def quiet_httpx() -> None:
+    logger = logging.getLogger("httpx")
+    if not any(isinstance(f, HttpxFailuresOnly) for f in logger.filters):
+        logger.addFilter(HttpxFailuresOnly())
+
+
+def tag_severity() -> None:
+    """Give every record a ``severity`` attribute. LiveKit's JSON formatter (used by the worker)
+    writes ``level`` but copies record attributes onto the line, so this is how its lines get a
+    severity Cloud Logging understands."""
+    previous = logging.getLogRecordFactory()
+    if getattr(previous, "careplix_severity", False):
+        return
+
+    def factory(*args, **kwargs) -> logging.LogRecord:
+        record = previous(*args, **kwargs)
+        record.severity = severity(record.levelno)
+        return record
+
+    factory.careplix_severity = True  # type: ignore[attr-defined]
+    logging.setLogRecordFactory(factory)
+
+
 def configure(level: str = "INFO") -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(JsonFormatter())
     root = logging.getLogger()
     root.handlers[:] = [handler]
     root.setLevel(level)
+    quiet_httpx()
