@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from careplix_api import agents_service
+from careplix_api import agents_service, redteam
 from careplix_api.auth import Principal, require
 from careplix_api.evals import rules
 from careplix_api.evals import service as evals
@@ -83,6 +83,25 @@ async def start_suite_run(
     )
     await session.commit()
     return await evals.run_detail(session, run)
+
+
+@router.get("/red-team/attacks")
+async def red_team_attacks(principal: Principal = Depends(require("view"))):
+    return redteam.view()
+
+
+@router.post("/agents/{agent_id}/red-team")
+async def add_red_team(
+    agent_id: str,
+    principal: Principal = Depends(require("edit_draft")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """Add (or refresh) the agent's red-team scenarios; its suite then runs them."""
+    agent = await agents_service.get_agent(session, principal, agent_id)
+    result = await redteam.add_for_agent(session, principal, settings, agent)
+    await session.commit()
+    return result
 
 
 @router.get("/suite-runs/{run_id}")

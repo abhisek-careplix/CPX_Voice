@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ChevronDown, ChevronRight, CircleDashed, FlaskConical, Play, Square, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, CircleDashed, FlaskConical, Play, ShieldAlert, Square, XCircle } from "lucide-react";
 import { Fragment, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError, type AgentDetail, type AgentSuite, type SuiteResult, type SuiteRun, type SuiteScenarioResult } from "./api";
@@ -52,6 +52,14 @@ export function RegressionSuite({ agent }: { agent: AgentDetail }) {
   const [repeats, setRepeats] = useState(3);
   const [compare, setCompare] = useState(true);
   const [open, setOpen] = useState<string | null>(null);
+  const redTeam = useMutation({
+    mutationFn: () => api.post<{ added: number; updated: number; base_scenario: string }>(`/agents/${agent.id}/red-team`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["suite", agent.id] });
+      qc.invalidateQueries({ queryKey: ["scenarios"] });
+    },
+  });
+  const canEdit = useCan("edit_draft");
   const start = useMutation({
     mutationFn: () => api.post<SuiteRun>(`/agents/${agent.id}/suite/runs`, { use, repeats, compare }),
     onSuccess: (run) => {
@@ -62,6 +70,7 @@ export function RegressionSuite({ agent }: { agent: AgentDetail }) {
 
   const s = suite.data;
   const scenarioCount = s?.scenarios.length ?? 0;
+  const attackCount = s?.scenarios.filter((x) => x.category === "red_team").length ?? 0;
   const withBaseline = compare && use === "draft" && !!agent.current;
   const simulations = scenarioCount * repeats * (withBaseline ? 2 : 1);
   const version = use === "draft" ? agent.draft : agent.current;
@@ -84,6 +93,28 @@ export function RegressionSuite({ agent }: { agent: AgentDetail }) {
           <Banner tone="blue" title="Publishing needs a passed suite on the exact draft">
             An admin can publish anyway with a reason, recorded in the audit log.
           </Banner>
+        )}
+        {s && scenarioCount > 0 && (
+          <div className="row subcard" style={{ gap: 12, flexWrap: "wrap" }}>
+            <ShieldAlert size={18} aria-hidden style={{ color: "var(--accent-text)", flex: "none" }} />
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ fontWeight: 600 }}>{attackCount ? `Red team: ${attackCount} attacks in this suite` : "Red team"}</div>
+              <div className="small muted">
+                Simulated callers try to make the agent break its rules: instruction injection, fishing for patient data, claimed authority, a swapped call-back number, medical advice bait and payment pressure.
+              </div>
+              {redTeam.error && <div className="field-error">{(redTeam.error as ApiError).message}</div>}
+              {redTeam.data && (
+                <div className="small" style={{ color: "var(--green)" }} role="status">
+                  {redTeam.data.added ? `Added ${redTeam.data.added} attacks` : `Refreshed ${redTeam.data.updated} attacks`}, based on “{redTeam.data.base_scenario}”.
+                </div>
+              )}
+            </div>
+            {canEdit && (
+              <button className="btn btn-secondary" disabled={redTeam.isPending} onClick={() => redTeam.mutate()}>
+                <ShieldAlert size={14} aria-hidden /> {attackCount ? "Refresh attacks" : "Add red-team attacks"}
+              </button>
+            )}
+          </div>
         )}
         {s && scenarioCount === 0 ? (
           <div className="subcard small">
