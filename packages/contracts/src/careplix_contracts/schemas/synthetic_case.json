@@ -94,6 +94,11 @@
         },
         "payer_script_id": {
           "type": "string"
+        },
+        "phone": {
+          "type": "string",
+          "pattern": "^\\+1202555\\d{4}$",
+          "description": "Payer's provider-services line (fictional 555 number)."
         }
       }
     },

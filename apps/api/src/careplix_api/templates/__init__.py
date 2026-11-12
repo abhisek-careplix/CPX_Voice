@@ -46,20 +46,7 @@ def get_template(template_id: str) -> dict[str, Any]:
 
 
 def case_context(case_data: dict[str, Any]) -> dict[str, Any]:
-    """Flatten a synthetic case into the field names templates and tools use."""
-    return {
-        "case_ref": case_data["case_id"],
-        "patient_name": case_data["patient"]["display_name"],
-        "date_of_birth": case_data["patient"]["date_of_birth"],
-        "member_id": case_data["patient"]["member_id"],
-        "postal_code": case_data["patient"]["postal_code"],
-        "provider_name": case_data["provider"]["name"],
-        "provider_npi": case_data["provider"]["npi"],
-        "payer_name": case_data["payer"]["name"],
-        "service_description": case_data["service"]["description"],
-        "cpt_code": case_data["service"]["cpt_code"],
-        "units": case_data["service"]["units"],
-        "submitted_on": case_data["request"]["submitted_on"],
-        "urgency": case_data["request"]["urgency"],
-        "known_auth_reference": case_data["request"].get("known_auth_reference"),
-    }
+    """Flatten case data into the field names templates and tools use (see cases.types)."""
+    from careplix_api.cases import types  # local: keeps templates free of package cycles
+
+    return types.flatten(case_data.get("case_type"), case_data)

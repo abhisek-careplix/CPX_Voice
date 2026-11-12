@@ -13,7 +13,7 @@ export default function Tasks() {
       <Toolbar
         eyebrow="Operate"
         title="Tasks"
-        description="A task is a business objective, such as an authorization status for one case. One task can take several calls; its result waits under Results for a reviewer."
+        description="A task is one attempt to finish a case: a published agent calling the right party about it. One task can take several calls; its result waits under Results for a reviewer."
         actions={
           canStart && (
             <Link to="/tasks/new" className="btn btn-primary">
@@ -28,7 +28,7 @@ export default function Tasks() {
           {tasks.error && <ErrorState error={tasks.error} onRetry={() => tasks.refetch()} title="Couldn't load tasks" />}
           {tasks.data?.length === 0 ? (
             <Empty icon={ListChecks} title="No tasks yet" action={canStart && <Link to="/tasks/new" className="btn btn-primary"><Plus size={16} aria-hidden /> Create a task</Link>}>
-              A task names a case, a published agent and an approved destination. Inbound calls create tasks automatically.
+              Create a task from a case under Cases, or start one here. Inbound calls create tasks automatically.
             </Empty>
           ) : (
             <ul className="list">
@@ -37,7 +37,7 @@ export default function Tasks() {
                   <Link to={`/results/${t.id}`} className="list-row">
                     <div className="row-main">
                       <div className="row-title">
-                        {t.case?.case_ref ?? "Unlinked inbound call"} · {t.kind === "inbound" ? "Inbound enquiry" : "Authorization status"}
+                        {t.case?.case_ref ?? "Unlinked inbound call"} · {t.case?.type_name ?? (t.kind === "inbound" ? "Inbound enquiry" : "Call")}
                       </div>
                       <div className="row-sub">
                         {t.agent.name} v{t.agent.version} · {t.destination ? `to ${t.destination}` : "inbound"} · {timeAgo(t.created_at)}

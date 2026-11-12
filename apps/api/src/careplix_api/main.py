@@ -24,6 +24,8 @@ from careplix_api.browser import api as browser_api
 from careplix_api.browser.runtime_client import HttpRuntime
 from careplix_api.browser.service import BrowserRunner
 from careplix_api.calls_service import CallRunner
+from careplix_api.cases import api as cases_api
+from careplix_api.cases import service as cases_service
 from careplix_api.db import Database
 from careplix_api.errors import ApiError
 from careplix_api.evals import api as evals_api
@@ -95,6 +97,8 @@ def create_app(
                 await seed.ensure_reference_connections(session)
         async with app.state.db.sessions() as session:
             await ensure_practice_connections(session, settings)
+        async with app.state.db.sessions() as session:
+            await cases_service.backfill(session)
         if settings.run_background:
             await app.state.browser_runner.recover()
         app.state.integration_worker = IntegrationWorker(
@@ -181,6 +185,7 @@ def create_app(
     app.include_router(care_api.router, prefix="/api")
     app.include_router(shadow_api.router, prefix="/api")
     app.include_router(personas_api.router, prefix="/api")
+    app.include_router(cases_api.router, prefix="/api")
     app.include_router(internal_api.router)
     if settings.is_dev:
         # Local webhook testing; in the cloud the public ingress is its own service (no IAP).

@@ -15,7 +15,8 @@
   },
   "payer": {
     "name": "Summit Care Alliance (synthetic)",
-    "payer_script_id": "summit-adversarial"
+    "payer_script_id": "summit-adversarial",
+    "phone": "+12025550152"
   },
   "service": {
     "description": "Lumbar epidural steroid injection",

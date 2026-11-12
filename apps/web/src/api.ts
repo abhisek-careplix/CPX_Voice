@@ -264,11 +264,66 @@ export interface AgentSuite {
   max_repeats: number;
 }
 
+export type CaseStatus = "open" | "in_progress" | "done" | "closed";
+export type FieldKind = "text" | "date" | "datetime" | "phone" | "code" | "number" | "money";
+
 export interface CaseItem {
   id: string;
   case_ref: string;
+  case_type: string;
+  type_name: string;
+  program: string;
+  status: CaseStatus;
+  source: string;
+  source_label: string;
   synthetic: boolean;
+  subject: string | null;
+  headline: string;
+  counterparty: { role: string; label: string; name: string | null };
+  missing: string[];
   context: Record<string, string | number | null>;
+  task_count: number;
+  last_task_state: TaskState | null;
+  created_at: string | null;
+}
+
+export interface CaseField {
+  key: string;
+  label: string;
+  kind: FieldKind;
+  required: boolean;
+  share: boolean;
+}
+
+export interface CaseType {
+  id: string;
+  name: string;
+  program: string;
+  summary: string;
+  counterparty: string;
+  counterparty_role: string;
+  agents: string[];
+  checks: string[];
+  packs: string[];
+  objective: string | null;
+  fields: CaseField[];
+}
+
+export interface CasePlan {
+  agents: { id: string; name: string; template_id: string; published: boolean; version: number | null }[];
+  suggested_agent_id: string | null;
+  destination: { label: string; name: string | null; on_file: string | null; on_file_approved: boolean; approved: string[] };
+  objective: string | null;
+  checks: string[];
+  packs: string[];
+  shareable: string[];
+}
+
+export interface CaseDetail extends CaseItem {
+  fields: (CaseField & { value: string | number | null })[];
+  source_ref: string | null;
+  tasks: { id: string; state: TaskState; agent: string | null; destination: string | null; created_at: string; outcome_reason: string | null }[];
+  plan: CasePlan;
 }
 
 export interface Route {
@@ -357,7 +412,7 @@ export interface Task {
   additional_instructions: string | null;
   destination: string | null;
   agent: { id: string; name: string; version: number };
-  case: { id: string; case_ref: string; synthetic: boolean } | null;
+  case: { id: string; case_ref: string; synthetic: boolean; type_name: string } | null;
   outcome_reason: string | null;
   next_action: string | null;
   electronic_check: ElectronicCheck | null;
