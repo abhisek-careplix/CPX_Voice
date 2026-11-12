@@ -15,7 +15,8 @@
   },
   "payer": {
     "name": "Harbor Mutual Health (synthetic)",
-    "payer_script_id": "harbor-voicemail"
+    "payer_script_id": "harbor-voicemail",
+    "phone": "+12025550151"
   },
   "service": {
     "description": "Attended polysomnography sleep study",

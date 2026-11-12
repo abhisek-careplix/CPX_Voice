@@ -14,6 +14,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import careplix_api.cases as cases
 import careplix_contracts as contracts
 from careplix_api import events, templates
 from careplix_api.calls_service import ACTIVE_STATES
@@ -160,7 +161,7 @@ async def _get_assigned_context(session, attempt, version, args, _evidence, _env
     if attempt.case_id is None:
         raise Rejected("no_case_bound", "No case is linked to this call yet.")
     case = await session.get(Case, attempt.case_id)
-    context = templates.case_context(case.data)
+    context = cases.context(case)
     allowed = set(version.config["guardrails"].get("allowed_disclosures", []))
     values = {f: context[f] for f in args["fields"] if f in allowed and f in context}
     return {"values": values, "refused": [f for f in args["fields"] if f not in values]}
@@ -181,8 +182,8 @@ async def _verify_caller(session, attempt, _version, args, _evidence, _env=None)
         (
             c
             for c in candidates
-            if c.data["patient"]["member_id"] == args["member_id"]
-            and c.data["patient"]["date_of_birth"] == args["date_of_birth"]
+            if (c.data.get("patient") or {}).get("member_id") == args["member_id"]
+            and (c.data.get("patient") or {}).get("date_of_birth") == args["date_of_birth"]
         ),
         None,
     )

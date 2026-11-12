@@ -209,7 +209,12 @@ async def verify_connection(
         return {"ok": False, "error": conn.last_error, "capability": conn.capability}
 
     case = await session.scalar(
-        select(Case).where(Case.workspace_id == conn.workspace_id).order_by(Case.case_ref)
+        select(Case)
+        .where(
+            Case.workspace_id == conn.workspace_id,
+            or_(Case.case_type.is_(None), Case.case_type == "prior_authorization"),
+        )
+        .order_by(Case.case_ref)
     )
     call, status = await inquire(
         session, conn, case, phase="verify", task_id=None, transport=transport

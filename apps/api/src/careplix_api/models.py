@@ -117,6 +117,15 @@ class Case(IdMixin, Base):
     case_ref: Mapped[str] = mapped_column(String(30))
     synthetic: Mapped[bool] = mapped_column(Boolean, default=True)
     data: Mapped[dict[str, Any]] = mapped_column(JSON)
+    # careplix_api.cases.types id; rows from before case types are prior authorizations.
+    case_type: Mapped[str | None] = mapped_column(String(40), index=True)
+    status: Mapped[str | None] = mapped_column(String(14))  # open|in_progress|done|closed
+    # Where the work came from: sample|manual|import|care_opportunity|backfill|inbound|api
+    source: Mapped[str | None] = mapped_column(String(20))
+    source_ref: Mapped[str | None] = mapped_column(String(80))
+    created_by: Mapped[str | None] = mapped_column(String(36))
+    created_at: Mapped[datetime | None] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(default=utcnow, onupdate=utcnow)
 
 
 class Task(IdMixin, Base):

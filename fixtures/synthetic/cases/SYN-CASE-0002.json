@@ -15,7 +15,8 @@
   },
   "payer": {
     "name": "Northwind Health Plan (synthetic)",
-    "payer_script_id": "northwind-pending-info"
+    "payer_script_id": "northwind-pending-info",
+    "phone": "+12025550150"
   },
   "service": {
     "description": "MRI lumbar spine without contrast",

@@ -16,9 +16,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import careplix_api.cases as cases
 import careplix_contracts as contracts
 from careplix_api import agents_service, connections, events, guardrails, templates
 from careplix_api.auth import Principal, issue_attempt_token
+from careplix_api.cases import service as cases_service
+from careplix_api.cases import types as case_types
 from careplix_api.db import Database, as_utc, new_id, utcnow
 from careplix_api.errors import ApiError
 from careplix_api.integrations import service as integration_service
@@ -130,7 +133,15 @@ def _own_lane(pins: dict[str, Any]) -> bool:
     return bool(pins.get("eval_case_id") or (pins.get("shadow_item_id") and pins.get("simulated")))
 
 
-def _pins(version: AgentVersion, eff: connections.Effective) -> dict[str, Any]:
+def _packs(config: dict[str, Any], case: Case | None) -> list[str]:
+    """Packs a call runs under: the template's required ones, the agent's, then the case type's."""
+    packs = guardrails.effective(config, config["task"]["template_id"])
+    return packs + [p for p in cases.packs(case) if p not in packs]
+
+
+def _pins(
+    version: AgentVersion, eff: connections.Effective, case: Case | None = None
+) -> dict[str, Any]:
     return {
         "agent_version_id": version.id,
         "agent_version": version.number,
@@ -138,9 +149,7 @@ def _pins(version: AgentVersion, eff: connections.Effective) -> dict[str, Any]:
         "config_hash": version.config_hash or agents_service.config_hash(version.config),
         "model_id": version.config["model"]["model_id"] or eff.approved_model,
         "policy_version": templates.POLICY_VERSION,
-        "guardrail_packs": guardrails.pins(
-            guardrails.effective(version.config, version.config["task"]["template_id"])
-        ),
+        "guardrail_packs": guardrails.pins(_packs(version.config, case)),
         "tool_versions": {t["name"]: t["version"] for t in version.config["tools"]},
     }
 
@@ -200,7 +209,7 @@ async def start_browser_session(
         room_name=room_name_for(attempt_id),
         state="Created",
         pins={
-            **_pins(version, eff),
+            **_pins(version, eff, case),
             **({"simulated": True} if simulated else {}),
             **({"eval_case_id": eval_case_id} if eval_case_id else {}),
             **({"shadow_item_id": shadow_item_id} if shadow_item_id else {}),
@@ -249,7 +258,7 @@ def acting_for(case: Case | None, scenario: Scenario | None) -> str:
     if scenario is not None:
         return scenario.on_behalf_of
     if case is not None:
-        return templates.case_context(case.data)["provider_name"]
+        return cases.on_behalf_of(case) or PROVIDER_FALLBACK
     return PROVIDER_FALLBACK
 
 
@@ -289,6 +298,19 @@ async def create_task(
     if template["direction"] != "outbound":
         raise ApiError(422, "agent_not_outbound", "This agent's template answers inbound calls.")
     case = await _resolve_case(session, principal.workspace_id, case_id, required=True)
+    case_type = case_types.get(cases.type_id(case))
+    if agent.template_id not in case_type["agents"]:
+        raise ApiError(
+            422,
+            "agent_cannot_work_case",
+            f"{agent.name} can't work a {case_type['name'].lower()} case. Choose an agent built "
+            "for it.",
+        )
+    gaps = case_types.missing(cases.type_id(case), case.data)
+    if gaps:
+        raise ApiError(
+            422, "case_incomplete", "This case is missing facts the call needs.", {"missing": gaps}
+        )
     number = normalize_e164(destination)
     eff = await connections.load(session, principal.workspace_id, settings)
     if number not in eff.approved_destinations:
@@ -310,13 +332,15 @@ async def create_task(
         agent_version_id=version.id,
         case_id=case.id,
         destination_e164=number,
-        objective=template["objective"],
+        objective=cases.objective(case) or template["objective"],
         additional_instructions=note or None,
         state="Ready",
     )
-    # API first: check the payer's Prior Authorization API before anyone dials (outbox).
-    integration_service.mark_pending(task, "readiness")
-    integration_service.mark_pending(task, "pre_call")
+    if case_type["checks"]:
+        # API first: check the payer's Prior Authorization API before anyone dials (outbox).
+        integration_service.mark_pending(task, "readiness")
+        integration_service.mark_pending(task, "pre_call")
+    cases_service.on_task_created(case)
     session.add(task)
     return task
 
@@ -366,7 +390,7 @@ async def start_call(
         idempotency_key=key,
         destination_e164=task.destination_e164,
         pins={
-            **_pins(version, eff),
+            **_pins(version, eff, await session.get(Case, task.case_id) if task.case_id else None),
             "outbound_trunk_id": eff.outbound_trunk_id,
             **({"sandbox_line": True} if eff.sandbox_outbound else {}),
             **(extra_pins or {}),
@@ -424,7 +448,7 @@ async def start_test_call(
         state="Created",
         destination_e164=number,
         pins={
-            **_pins(version, eff),
+            **_pins(version, eff, case),
             "outbound_trunk_id": eff.outbound_trunk_id,
             "qualification": True,
             **({"sandbox_line": True} if eff.sandbox_outbound else {}),
@@ -629,9 +653,7 @@ async def _claim_payload(
             "platform_policy": templates.PLATFORM_POLICY,
             "template": template["instructions"],
             # VS4: the template's required packs plus the agent's own, server-owned wording.
-            "guardrails": guardrails.prompt_text(
-                guardrails.effective(config, config["task"]["template_id"])
-            ),
+            "guardrails": guardrails.prompt_text(_packs(config, case)),
             "agent": config["instructions"]["agent_text"],
         },
         "identity": config["identity"],
@@ -730,8 +752,11 @@ def build_brief(
     settings: Settings,
     scenario: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    context = templates.case_context(case.data) if case else {}
-    required = template["required_context"]
+    context = cases.context(case) if case else {}
+    # A specialised template names the facts it needs; a general calling agent gets the case's.
+    required = template["required_context"] or (
+        [f["key"] for f in case_types.get(cases.type_id(case))["fields"]] if case else []
+    )
     objective = task.objective if task else template["objective"]
     if scenario is not None:
         # Voice Studio: the scenario is the job (goal, limits, done-when) and its facts are the
@@ -759,8 +784,9 @@ def build_brief(
         },
         "authority": {
             "statement": "Act only on behalf of the provider for the purpose of this task.",
-            "on_behalf_of": context.get("provider_name", PROVIDER_FALLBACK),
-            "disclose_allowlist": config["guardrails"].get("allowed_disclosures", []),
+            "on_behalf_of": (cases.on_behalf_of(case) if case else None) or PROVIDER_FALLBACK,
+            "disclose_allowlist": config["guardrails"].get("allowed_disclosures", [])
+            or (cases.shareable(case) if case and not template["required_context"] else []),
         },
         "objective": objective,
         "desired_findings": list(template["output_fields"]),
@@ -830,7 +856,8 @@ async def finalize(
             # A business outcome needs evidence and review; a finished call is not success (I1).
             task.state = "Review"
             task.next_action = task.next_action or _suggested_next_action(attempt)
-            if task.case_id:
+            case = await session.get(Case, task.case_id) if task.case_id else None
+            if case is not None and case_types.get(cases.type_id(case))["checks"]:
                 # Validate what was heard against the payer system (outbox).
                 integration_service.mark_pending(task, "post_call")
 

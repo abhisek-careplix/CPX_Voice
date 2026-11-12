@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import careplix_api.cases as cases
 import careplix_contracts as contracts
 from careplix_api import (
     agents_service,
@@ -23,6 +24,8 @@ from careplix_api import (
 )
 from careplix_api.auth import SESSION_COOKIE, SESSION_TTL, Principal, issue_session, require
 from careplix_api.calls_service import ACTIVE_STATES, TERMINAL_TASK_STATES, mask_number
+from careplix_api.cases import service as cases_service
+from careplix_api.cases import types as case_types
 from careplix_api.db import as_utc, utcnow
 from careplix_api.errors import ApiError
 from careplix_api.models import (
@@ -288,25 +291,6 @@ async def list_tools(principal: Principal = Depends(viewer)):
 @router.get("/guardrail-packs")
 async def list_guardrail_packs(principal: Principal = Depends(viewer)):
     return guardrails.view()
-
-
-@router.get("/cases")
-async def list_cases(
-    q: str = "", principal: Principal = Depends(viewer), session: AsyncSession = Session
-):
-    cases = await session.scalars(
-        select(Case).where(Case.workspace_id == principal.workspace_id).order_by(Case.case_ref)
-    )
-    needle = q.strip().lower()
-    out = []
-    for c in cases:
-        ctx = templates.case_context(c.data)
-        fields = (c.case_ref, ctx["patient_name"], ctx["service_description"], ctx["payer_name"])
-        label = " ".join(fields).lower()
-        if needle and needle not in label:
-            continue
-        out.append({"id": c.id, "case_ref": c.case_ref, "synthetic": c.synthetic, "context": ctx})
-    return out
 
 
 @router.get("/routes")
@@ -593,7 +577,12 @@ async def _task_view(
         "additional_instructions": t.additional_instructions,
         "destination": t.destination_e164,
         "agent": {"id": agent.id, "name": agent.name, "version": version.number},
-        "case": {"id": case.id, "case_ref": case.case_ref, "synthetic": case.synthetic}
+        "case": {
+            "id": case.id,
+            "case_ref": case.case_ref,
+            "synthetic": case.synthetic,
+            "type_name": case_types.get(cases.type_id(case))["name"],
+        }
         if case
         else None,
         "outcome_reason": t.outcome_reason,
@@ -928,6 +917,7 @@ async def record_outcome(
     task.state, task.outcome_reason, task.outcome_by = body.outcome, body.reason, principal.user_id
     task.next_action = body.next_action
     task.updated_at = utcnow()
+    await cases_service.on_outcome(session, task)
     session.add(
         AuditEvent(
             workspace_id=task.workspace_id,
