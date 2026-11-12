@@ -7,6 +7,9 @@
 #   ./infra/gcp/deploy-labs.sh openemr   # hosted OpenEMR demo: private VM, installed and seeded
 #   ./infra/gcp/deploy-labs.sh deploy    # deploy/refresh the Cloud Run services
 #
+# `build` records the image tag it pushed in .deploy-labs-tag, and `deploy` deploys that tag, so the
+# two steps match even if this checkout moves to another commit in between. TAG=<tag> overrides.
+#
 # Secrets are read from the local .env and written straight into Secret Manager; they are never
 # printed or passed on a command line. Synthetic data only until the G4 PHI gate.
 set -euo pipefail
@@ -19,7 +22,9 @@ SQL_INSTANCE=careplix-voice-labs
 DB_NAME=careplix
 DB_USER=careplix
 MODEL=gemini-live-2.5-flash-native-audio
-TAG=${TAG:-$(git rev-parse --short HEAD)$(git diff --quiet || echo -dirty)}
+TAG=${TAG:-}
+TAG_FILE=.deploy-labs-tag  # the tag `build` last pushed from this checkout (git-ignored)
+head_tag() { echo "$(git rev-parse --short HEAD)$(git diff --quiet || echo -dirty)"; }
 NUMBER=$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')
 REGISTRY="$REGION-docker.pkg.dev/$PROJECT/$REPO"
 SA_STUDIO="careplix-studio@$PROJECT.iam.gserviceaccount.com"
@@ -129,8 +134,29 @@ setup() {
 }
 
 build() {
+  TAG=${TAG:-$(head_tag)}
   $G builds submit --config infra/gcp/cloudbuild.yaml --substitutions "_TAG=$TAG" .
+  echo "$TAG" > "$TAG_FILE"
   echo "built $TAG"
+}
+
+# The tag to deploy: TAG if set, else what `build` last pushed, else this checkout's commit. The
+# images must exist before anything changes: a missing tag used to fail mid-deploy.
+deploy_tag() {
+  local head
+  if [ -z "$TAG" ] && [ -s "$TAG_FILE" ]; then
+    TAG=$(cat "$TAG_FILE")
+    head=$(head_tag)
+    if [ "$TAG" != "$head" ]; then
+      echo "ℹ Deploying $TAG, the images last built here. This checkout is now at $head; run build first to deploy that." >&2
+    fi
+  fi
+  TAG=${TAG:-$(head_tag)}
+  if ! $G artifacts docker images describe "$REGISTRY/api:$TAG" >/dev/null 2>&1; then
+    echo "✗ No images tagged $TAG in $REGISTRY. Run ./infra/gcp/deploy-labs.sh build first; nothing was deployed." >&2
+    exit 1
+  fi
+  echo "deploying $TAG"
 }
 
 url_of() { $G run services describe "$1" --region "$REGION" --format 'value(status.url)' 2>/dev/null || true; }
@@ -201,6 +227,7 @@ REQUIRED_SECRETS="cpx-database-url cpx-session-secret cpx-worker-token cpx-livek
 
 deploy() {
   local livekit_url conn common_env secrets missing=""
+  deploy_tag
   for s in $REQUIRED_SECRETS; do
     $G secrets describe "$s" >/dev/null 2>&1 || missing="$missing $s"
   done

@@ -17,6 +17,10 @@ After a change is done:
    ```
 
    - The build ends with `built <short sha>`; it must match the merge commit on `main`.
+   - `deploy` deploys the tag `build` recorded in `.deploy-labs-tag` and prints `deploying <short sha>`,
+     so the two steps match even if another session moves this checkout in between (it says so when
+     that happens). It stops before changing anything if those images aren't in the registry.
+     `TAG=<sha>` overrides both steps.
    - Add `./infra/gcp/deploy-labs.sh setup` first when a change adds Secret Manager entries.
 4. Finish with what to test in the Studio (careplix-labs) and how to get worker logs if it fails:
 
