@@ -155,7 +155,7 @@ APIs, and the completion contract as proof of work.
 | Text messaging | P2 code | Claude | 1 |
 | A2P 10DLC registration | Brand and campaign registration in Twilio | Owner submits; Claude drafts the text | 0 |
 | Browser agent | B2, B4, B5, then B6 under supervision | Claude; owner confirms Vertex computer-use access | 2 |
-| BAAs with LiveKit and Twilio | Signed BAAs (Twilio needs a HIPAA-eligible edition; ask LiveKit sales) | Owner | 0 |
+| BAAs with LiveKit and Twilio | ✅ **Closed 15 Nov 2026**: signed. Every vendor that touches PHI today (Anthropic, Google, Stedi, NexHealth, LiveKit, Twilio) has a BAA | Owner | Done |
 | Receptionist config | Published receptionists pick up the new tools | Claude | 0 |
 | Sandbox inbound routing | Twilio trunk origination points to the LiveKit SIP endpoint | Owner in Twilio, or Claude with approval | 0 |
 
@@ -167,14 +167,14 @@ APIs, and the completion contract as proof of work.
 | **1** | Four parallel workstreams: **P1** identity and tenancy · **P2** channels and consent · **P3 + P4** memory and outcome engine · **RC1–RC5** | Each merged with tests and a Voice Studio suite where relevant |
 | **2** | Front office completion (reminders, intake, specialty rules, verification and proxies) · clinical support with the review queue · browser B2, B4, B5 · RC6–RC9 | Every §4 workflow runs end to end in labs against the completion contract |
 | **3** | CarePlix Home Health with the design partner's EHR · customer experience (onboarding wizard, complaints, reporting) · P8 commerce | A shift filled end to end in a sandbox agency |
-| **4** | Production readiness: all BAAs, penetration test, SOC 2 preparation, runbooks; pilot with Absolute Health Group | First real-data go-live under shadow mode, then supervised |
+| **4** | Production readiness: BAAs for any new PHI vendors, MFA, retention, penetration test, SOC 2 preparation, runbooks; pilot with Absolute Health Group | First real-data go-live under shadow mode, then supervised |
 
 Workstreams in a wave run as separate sessions on separate branches, each following the repo's ship
 flow. P1 touches every query, so it lands first in Wave 1 and the others rebase onto it.
 
 ## 9. Decisions and asks for the owner (start now, they have lead time)
 
-1. **BAAs**: Twilio (HIPAA-eligible edition) and LiveKit, then each new vendor (email, fax, chat) before it carries PHI.
+1. **BAAs**: ✅ all six current vendors signed (15 Nov 2026). Each new vendor (email, fax, team chat) needs one before it carries PHI.
 2. **10DLC**: register the brand and the campaigns in Twilio; Claude drafts the use-case text and samples.
 3. **Stripe**: create the account; test mode is enough to build.
 4. **Clearinghouse**: enrollment for Absolute Health Group (837P, 835, eligibility); the Stedi production key at the end.
