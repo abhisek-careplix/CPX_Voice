@@ -239,15 +239,19 @@ Referral intake to start of care follows the home-health launch set as the first
 | **2: Practice launch set** | The three Practice lead workflows (§8); RC1–RC5; practice menus from the line pack | Each runs end to end in labs as a playbook, with a Voice Studio suite |
 | **3: Home Health launch set** | The home-care connector contract on the design partner's EHR (CSV and browser agent if no API); the three Home Health lead workflows (§8) | A shift filled end to end in a sandbox agency |
 | **4: widen and differentiate** | Referral intake to start of care, Medicaid hours, credential expiry, family updates; clinical support behind the review queue; the rest of §5.1; RC6–RC9 and denials; browser B2, B4, B5; customer experience (onboarding wizard, complaints, reporting); P8 commerce | Every §5 and §6 workflow runs end to end in labs against the completion contract |
-| **5: production readiness** | BAAs for any new PHI vendors, MFA, retention, penetration test, SOC 2 preparation, runbooks; pilot under shadow mode | First real-data go-live under shadow mode, then supervised |
+| **5: production readiness** | BAAs for any new PHI vendors, MFA, retention, penetration test, SOC 2 preparation, runbooks; Absolute Health Group pilot under shadow mode | First real-data go-live under shadow mode, then supervised |
 
-Phases 2 and 3 can swap, or run together, depending on which line the first paying pilot is in (§11).
+**Decided 16 Nov 2026: the first paying pilot, Absolute Health Group, is a clinic.** CarePlix Practice
+goes first: the Practice launch set (phase 2) is the pilot's scope, and the phase 5 go-live is
+Absolute Health Group under shadow mode. Home Health (phase 3) follows; its long-lead asks (a design
+partner and its EHR's API access) still start now so phase 3 isn't waiting on them.
 Workstreams in a phase run as separate sessions on separate branches, each following the repo's ship
 flow.
 
 ## 11. Decisions and asks for the owner (start now, they have lead time)
 
-1. **First pilot line**: is the first paying pilot (Absolute Health Group) a clinic or an agency? It decides whether phase 2 or phase 3 goes first.
+1. **First pilot line**: ✅ decided 16 Nov 2026. Absolute Health Group is a clinic, so CarePlix Practice goes first (phase 2 before phase 3).
+   Still needed: which EHR and practice-management system Absolute Health Group runs, to confirm the connector path (NexHealth or direct) before phase 2.
 2. **Home health**: one design-partner agency and its EHR's API access.
 3. **10DLC**: register the brand and the campaigns in Twilio; Claude drafts the use-case text and samples. Text blocks every lead workflow.
 4. **BAAs**: ✅ all six current vendors signed (15 Nov 2026). Each new vendor (email, fax, team chat) needs one before it carries PHI.
