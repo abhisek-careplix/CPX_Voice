@@ -14,9 +14,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from careplix_api import (
     connections_api,
+    environment,
     identity_api,
     integrations_api,
     internal_api,
+    retention,
     scenarios_api,
     seed,
     studio_api,
@@ -34,6 +36,7 @@ from careplix_api.channels import case_channel
 from careplix_api.channels import service as channels_service
 from careplix_api.channels import webhooks as channels_webhooks
 from careplix_api.claims import api as claims_api
+from careplix_api.claims import billing_api as claims_billing_api
 from careplix_api.claims import follow_up as claims_follow_up
 from careplix_api.db import Database
 from careplix_api.errors import ApiError
@@ -46,6 +49,7 @@ from careplix_api.opportunities import api as care_api
 from careplix_api.people import api as people_api
 from careplix_api.personas import api as personas_api
 from careplix_api.practice import api as practice_api
+from careplix_api.practice import setup_api as practice_setup_api
 from careplix_api.practice import webhooks as practice_webhooks
 from careplix_api.practice.connections import ensure_practice_connections
 from careplix_api.practice.worker import PracticeWorker
@@ -80,6 +84,7 @@ def create_app(
     settings = settings or get_settings()
     case_channel.install()  # text attempts for playbooks (workstream B's channel hook)
     safe_logging.configure(settings.log_level)
+    environment.install(settings)  # refuses settings that break this environment's rules
     tenancy.install()  # every signed-in request is limited to its own workspace
 
     @asynccontextmanager
@@ -148,6 +153,7 @@ def create_app(
                     if settings.claim_follow_up_enabled
                     else []
                 ),
+                asyncio.create_task(retention.run_forever(app.state.db, settings)),
                 asyncio.create_task(
                     evals_service.run_forever(app.state.db, settings, app.state.gateway)
                 ),
@@ -218,6 +224,7 @@ def create_app(
     app.include_router(studio_api.router, prefix="/api")
     app.include_router(connections_api.router, prefix="/api")
     app.include_router(integrations_api.router, prefix="/api")
+    app.include_router(practice_setup_api.router, prefix="/api")
     app.include_router(practice_api.router, prefix="/api")
     app.include_router(browser_api.router, prefix="/api")
     app.include_router(scenarios_api.router, prefix="/api")
@@ -228,6 +235,7 @@ def create_app(
     app.include_router(cases_api.router, prefix="/api")
     app.include_router(channels_api.router, prefix="/api")
     app.include_router(people_api.router, prefix="/api")
+    app.include_router(claims_billing_api.router, prefix="/api")  # before /claims/{id}
     app.include_router(claims_api.router, prefix="/api")
     app.include_router(internal_api.router)
     app.include_router(channels_api.internal_router)

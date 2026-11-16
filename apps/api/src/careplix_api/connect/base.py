@@ -114,6 +114,11 @@ class Connector:
 
     def confirm_due(self, intent: WriteIntent, now: datetime) -> bool:
         """Whether an accepted write should be read back now (else keep waiting for the EHR)."""
+        return self.confirm_overdue(intent, now)
+
+    def confirm_overdue(self, intent: WriteIntent, now: datetime) -> bool:
+        """Whether an unconfirmed write has waited longer than the EHR should take (then it goes
+        to a person). Cloud EHRs count only office hours: they sync while the office is in."""
         return now - (as_utc(intent.sent_at) or now) > CONFIRM_SLA
 
     async def slot_free(self, opening: Any) -> str | None:

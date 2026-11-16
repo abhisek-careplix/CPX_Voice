@@ -94,8 +94,11 @@ class Settings(BaseSettings):
 
     # Practice EHR via NexHealth (docs/solution/EMR_LAYER_SOLUTION_DESIGN.md). Set by
     # scripts/connect-nexhealth.sh; an empty key leaves the practice layer off.
+    # Sandbox and production keys are separate settings and never stand in for each other: a
+    # sandbox connection reads only NEXHEALTH_API_KEY, a production one only NEXHEALTH_PROD_API_KEY.
     nexhealth_api_key: SecretStr = SecretStr("")
-    nexhealth_env: str = "sandbox"  # sandbox | production
+    nexhealth_prod_api_key: SecretStr = SecretStr("")
+    nexhealth_env: str = "sandbox"  # sandbox | production (the deployment's own lab practice)
     nexhealth_base_url: str = "https://nexhealth.info"
     nexhealth_subdomain: str = ""
     nexhealth_institution_id: str = ""
@@ -138,6 +141,8 @@ class Settings(BaseSettings):
     # monthly chunks (a few per pass) for the record; 0 skips the history.
     nexhealth_window_days: int = 180
     nexhealth_history_months: int = 24
+    # Automation defaults. Each workspace can override them (Practice → Automation settings);
+    # these env values apply where it hasn't.
     eligibility_autopilot: bool = True
     # Medicare benefits planner (CMS HETS). Services per request: 0 sends each list (STCs, then
     # HCPCS) in one request; a rejected list is retried in groups of the fallback size. HETS Rules
@@ -198,9 +203,21 @@ class Settings(BaseSettings):
 
     check_timeout_s: float = 5.0
 
+    # Data retention (careplix_api.retention). 0 keeps call transcripts; the period is a policy
+    # decision recorded in docs/solution/G4_PHI_GATE.md.
+    transcript_retention_days: int = 0
+    retention_interval_s: float = 86400.0
+
     @property
     def is_dev(self) -> bool:
         return self.careplix_env == "dev"
+
+    @property
+    def production_allowed(self) -> bool:
+        """Only a production deployment may have production workspaces or connections (production
+        NexHealth key, clearinghouse production mode). dev, labs and staging are sandbox
+        deployments: offer and accept sandbox only (careplix_api.environment)."""
+        return self.careplix_env == "production"
 
     @property
     def livekit_configured(self) -> bool:
@@ -208,9 +225,24 @@ class Settings(BaseSettings):
             self.livekit_url and self.livekit_api_key and self.livekit_api_secret.get_secret_value()
         )
 
+    @staticmethod
+    def nexhealth_key_env(env: str | None) -> str:
+        """The one setting holding the NexHealth key for a connection env (never a fallback)."""
+        return "NEXHEALTH_PROD_API_KEY" if env == "production" else "NEXHEALTH_API_KEY"
+
+    def nexhealth_key(self, env: str | None) -> str:
+        return getattr(self, self.nexhealth_key_env(env).lower()).get_secret_value()
+
+    @property
+    def nexhealth_envs(self) -> list[str]:
+        """NexHealth envs a practice can be added in here: production only in a production
+        deployment (and never the sandbox there), each only when its key is configured."""
+        allowed = ("production",) if self.production_allowed else ("sandbox",)
+        return [e for e in allowed if self.nexhealth_key(e)]
+
     @property
     def nexhealth_configured(self) -> bool:
-        return bool(self.nexhealth_api_key.get_secret_value() and self.nexhealth_subdomain)
+        return bool(self.nexhealth_key(self.nexhealth_env) and self.nexhealth_subdomain)
 
     @property
     def openemr_configured(self) -> bool:

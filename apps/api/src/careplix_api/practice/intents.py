@@ -25,7 +25,6 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from careplix_api.connect.base import CONFIRM_SLA
 from careplix_api.connect.connectors import connector_for
 from careplix_api.db import Database, as_utc, utcnow
 from careplix_api.errors import ApiError
@@ -159,6 +158,30 @@ class PatientCreate(WriteKind):
         return bool(record.get("foreign_id") or record.get("merged"))
 
 
+@dataclass(frozen=True)
+class LedgerPost(WriteKind):
+    """ERA posting (RC7): ``POST /payments`` or ``POST /adjustments`` for one patient.
+
+    NexHealth answers 202 with no body and its write-back is asynchronous; the insertion event
+    names no record we could match, so these end at ``accepted`` (``not_reported``). Amounts are
+    decimal dollars: a payment is negative (it reduces the balance), an adjustment is positive and
+    its type (``adjustment_type_id``, when the practice has mapped one) decides credit or debit.
+    ``transaction_id`` (50 characters at most) makes each write traceable to its 835."""
+
+    resource: str = "payments"
+    wrapper: str = "payment"
+
+    async def send(self, client, intent, payload):
+        body = {k: v for k, v in payload.items() if k != "location_id" and v not in (None, "", {})}
+        await client.request(
+            "POST",
+            f"/{self.resource}",
+            params={"location_id": payload["location_id"]},
+            json={self.wrapper: body},
+        )
+        return {}
+
+
 def create_patient_body(payload: dict[str, Any]) -> dict[str, Any]:
     bio = {"date_of_birth": payload["date_of_birth"], "phone_number": payload["phone_number"]}
     if payload.get("gender"):
@@ -188,6 +211,11 @@ KINDS: dict[str, WriteKind] = {
     "appointment_check_in": PatchAppointment("L2", "appointment", None, update_field="checkin_at"),
     "appointment_reschedule": PatchAppointment(
         "L2", "appointment", None, update_field="start_time"
+    ),
+    # Financial writes (ERA posting): L3, always a person's approval.
+    "payment_post": LedgerPost("L3", "patient", None),
+    "adjustment_post": LedgerPost(
+        "L3", "patient", None, resource="adjustments", wrapper="adjustment"
     ),
 }
 UPDATE_KINDS = tuple(k for k, spec in KINDS.items() if spec.update_field)
@@ -442,7 +470,7 @@ async def reconcile(
                     await connector.aclose()
                 if record and KINDS[intent.kind].in_ehr(record):
                     apply_insertion(intent, "complete", record.get("foreign_id"))
-                elif now - sent_at > CONFIRM_SLA:
+                elif connector.confirm_overdue(intent, now):
                     intent.state = "needs_review"
                     intent.last_error = "No EHR confirmation within the expected time."
                 else:

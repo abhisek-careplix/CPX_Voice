@@ -34,8 +34,10 @@ from careplix_api.models import (
 )
 from careplix_api.phi import PhiBox, initials
 from careplix_api.practice import (
+    automation,
     backfill,
     eligibility,
+    golive,
     intents,
     medicare,
     payers,
@@ -77,10 +79,7 @@ async def _conn(
         if kind == CLEARINGHOUSE:
             message = "The clearinghouse isn't connected yet. Ask an admin to connect it."
         else:
-            message = (
-                "No practice EHR is connected. Run make openemr-setup or make connect-nexhealth, "
-                "then restart the API."
-            )
+            message = "No practice EHR is connected. An admin adds one in Settings → EHR hub."
         raise ApiError(404, "not_connected", message)
     return rows[0]
 
@@ -223,7 +222,10 @@ async def overview(
             "last_at": webhook_rows[0].received_at if webhook_rows else None,
         },
         "eligibility": {
-            "autopilot": settings.eligibility_autopilot,
+            "autopilot": automation.effective(
+                await session.get(Workspace, ws), settings
+            ).eligibility_autopilot
+            and (ehr is None or golive.automations_allowed(ehr)),
             "states": dict(checks),
             "coverage": {k: v for k, v in coverage.items() if k},
         },
@@ -257,7 +259,10 @@ async def sync_now(
 ):
     conn = await _conn(session, principal, practice=practice)
     report = await sync.sync_practice(session, conn, settings, _transport(request), full=full)
-    queued = await eligibility.schedule(session, conn) if settings.eligibility_autopilot else 0
+    workspace = await session.get(Workspace, principal.workspace_id)
+    autopilot = automation.effective(workspace, settings).eligibility_autopilot
+    allowed = autopilot and golive.automations_allowed(conn)
+    queued = await eligibility.schedule(session, conn) if allowed else 0
     session.add(
         AuditEvent(
             workspace_id=principal.workspace_id,
@@ -1025,7 +1030,10 @@ async def backfill_board(
             "lead_minutes": settings.backfill_lead_minutes,
             "horizon_days": settings.backfill_horizon_days,
             "contact_hours": settings.contact_hours,
-            "enabled": settings.backfill_enabled,
+            "enabled": automation.effective(
+                await session.get(Workspace, principal.workspace_id), settings
+            ).backfill_enabled
+            and golive.automations_allowed(conn),
         },
         "metrics": {
             "states": dict(states),
@@ -1152,6 +1160,11 @@ async def catalog(
                 "verified_at": conn.verified_at,
                 "writes_confirmable": cap.get("writes_confirmable"),
                 "support": {op: connector.support(op) for op in OPERATIONS},
+                "enabled": conn.enabled,
+                "golive": {
+                    "required": golive.required(conn),
+                    "passed_at": ((conn.auth_ref or {}).get("golive") or {}).get("passed_at"),
+                },
             }
         )
     return {

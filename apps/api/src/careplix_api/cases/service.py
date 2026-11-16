@@ -29,6 +29,7 @@ SOURCES = (
     "inbound",
     "api",
     "claim_follow_up",
+    "claim_denial",
     "schedule",
     "webhook",
 )
@@ -41,6 +42,7 @@ SOURCE_LABEL = {
     "inbound": "Inbound call",
     "api": "API",
     "claim_follow_up": "Claim follow-up",
+    "claim_denial": "Claim denial",
     "schedule": "EHR schedule",
     "webhook": "EHR event",
 }

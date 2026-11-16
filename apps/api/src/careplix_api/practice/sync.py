@@ -748,7 +748,9 @@ async def probe_nexhealth(
         location, emrs = None, []
         for inst in institutions:
             for loc in inst.get("locations") or []:
-                if str(loc.get("id")) == loc_id:
+                # The location must belong to this subdomain: the key reaches other practices too.
+                same = inst.get("subdomain") in (None, client.subdomain)
+                if str(loc.get("id")) == loc_id and same:
                     location, emrs = {"id": loc_id, "name": loc.get("name")}, inst.get("emrs") or []
         reads: dict[str, Any] = {}
         now = utcnow()

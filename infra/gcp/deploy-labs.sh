@@ -117,6 +117,12 @@ setup() {
     env_value RESEND_API_KEY | tr -d '\n' | put_secret cpx-resend-api-key
     $G secrets add-iam-policy-binding cpx-resend-api-key --member "serviceAccount:$SA_STUDIO" --role roles/secretmanager.secretAccessor >/dev/null
   fi
+  # Optional: the clearinghouse event destination's signing secret (whsec_…). The webhook service
+  # verifies 277CA/835 events with it; without it they're refused and the Studio polls instead.
+  if [ -n "$(env_value STEDI_WEBHOOK_SECRET || true)" ]; then
+    env_value STEDI_WEBHOOK_SECRET | tr -d '\n' | put_secret cpx-stedi-webhook-secret
+    $G secrets add-iam-policy-binding cpx-stedi-webhook-secret --member "serviceAccount:$SA_WEBHOOKS" --role roles/secretmanager.secretAccessor >/dev/null
+  fi
   # Optional: an Anthropic API key runs the browser agent's Claude on the Anthropic API, not Vertex.
   if [ -n "$(env_value ANTHROPIC_API_KEY || true)" ]; then
     env_value ANTHROPIC_API_KEY | tr -d '\n' | put_secret cpx-anthropic-api-key
@@ -284,9 +290,13 @@ deploy() {
   fi
 
   # 2. Webhook ingress: the only public service. Verifies, dedupes and records IDs; no IAP, no PHI.
+  stedi_webhook_secret=""
+  if $G secrets describe cpx-stedi-webhook-secret >/dev/null 2>&1; then
+    stedi_webhook_secret=",STEDI_WEBHOOK_SECRET=cpx-stedi-webhook-secret:latest"
+  fi
   $G run deploy careplix-webhooks --region "$REGION" --image "$REGISTRY/api:$TAG" \
     --service-account "$SA_WEBHOOKS" --add-cloudsql-instances "$conn" --allow-unauthenticated \
-    --set-env-vars "$webhooks_env" --set-secrets "DATABASE_URL=cpx-database-url:latest,DATA_ENCRYPTION_KEY=cpx-data-key:latest$sms_secrets" \
+    --set-env-vars "$webhooks_env" --set-secrets "DATABASE_URL=cpx-database-url:latest,DATA_ENCRYPTION_KEY=cpx-data-key:latest$stedi_webhook_secret$sms_secrets" \
     --min-instances 0 --max-instances 2 \
     --command sh --args='-c,uvicorn careplix_api.practice.webhooks:app --host 0.0.0.0 --port $PORT'
   webhooks_url=$(url_of careplix-webhooks)
@@ -396,6 +406,7 @@ deploy() {
   echo "Studio: $(url_of careplix-studio)"
   echo "Webhooks: $webhooks_url (register from Studio → Practice once deployed)"
   echo "Texts: in Twilio, set the number's (or Messaging Service's) incoming-message webhook to $webhooks_url/webhooks/twilio/sms (HTTP POST)"
+  echo "Clearinghouse events (test-mode destination, transaction.processed): $webhooks_url/webhooks/stedi"
 }
 
 sandbox_line() {
