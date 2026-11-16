@@ -328,7 +328,7 @@ export interface AgentSuite {
   max_repeats: number;
 }
 
-export type CaseStatus = "open" | "in_progress" | "done" | "closed";
+export type CaseStatus = "open" | "in_progress" | "done" | "handed_off" | "blocked" | "failed" | "closed";
 export type FieldKind = "text" | "date" | "datetime" | "phone" | "code" | "number" | "money";
 
 export interface CaseItem {
@@ -349,6 +349,13 @@ export interface CaseItem {
   task_count: number;
   last_task_state: TaskState | null;
   created_at: string | null;
+  status_reason: string | null;
+  owner_id: string | null;
+  due_at: string | null;
+  next_step: string | null;
+  overdue: boolean;
+  escalated: boolean;
+  playbook: string | null;
 }
 
 export interface CaseField {
@@ -370,6 +377,7 @@ export interface CaseType {
   checks: string[];
   packs: string[];
   objective: string | null;
+  contract: { informed: string[]; sor: string; clinical: boolean };
   fields: CaseField[];
 }
 
@@ -388,6 +396,106 @@ export interface CaseDetail extends CaseItem {
   source_ref: string | null;
   tasks: { id: string; state: TaskState; agent: string | null; destination: string | null; created_at: string; outcome_reason: string | null }[];
   plan: CasePlan;
+  contract: CaseContract;
+  contract_spec: { informed: string[]; sor: string; clinical: boolean };
+  owner: { id: string; name: string } | null;
+  nothing_left: boolean;
+  system_of_record: { system: string | null; ack: string } | null;
+  clinician: { by: string; at: string | null } | null;
+  links: CaseLink[];
+  winner_attempt_id: string | null;
+  attempts: ContactAttempt[];
+  playbook_run: PlaybookRun | null;
+}
+
+export type ContractPartKey = "evidence" | "system_of_record" | "informed" | "next_action" | "clinician";
+
+export interface CaseContract {
+  holds: boolean;
+  missing: ContractPartKey[];
+  parts: { key: ContractPartKey; label: string; met: boolean; detail: string }[];
+}
+
+export interface CaseLink {
+  id: string;
+  part: "evidence" | "informed";
+  kind: string;
+  ref: string | null;
+  label: string;
+  audience: string | null;
+  channel: string | null;
+  delivery: string | null;
+  created_at: string;
+}
+
+export type AttemptChannel = "call" | "text" | "email" | "fax" | "browser";
+export type ContactState = "queued" | "sent" | "confirmed" | "declined" | "no_answer" | "failed" | "superseded" | "too_late" | "cancelled";
+
+export interface ContactAttempt {
+  id: string;
+  round: number;
+  person: string;
+  person_ref: string | null;
+  audience: string;
+  channel: AttemptChannel;
+  address: string | null;
+  state: ContactState;
+  task_id: string | null;
+  message_id: string | null;
+  detail: string | null;
+  notice: string | null;
+  answered_at: string | null;
+  created_at: string;
+}
+
+export interface PlaybookRun {
+  id: string;
+  playbook_id: string;
+  name: string;
+  state: "running" | "waiting" | "done" | "handed_off" | "blocked" | "failed";
+  step: number;
+  steps: { label: string; kind: string; state: "done" | "current" | "todo" }[];
+  next_run_at: string;
+  log: { at: string; step: string; outcome: string; detail: string | null }[];
+}
+
+export interface Playbook {
+  id: string;
+  name: string;
+  case_type: string;
+  case_type_name: string;
+  triggers: { kind: string; label: string }[];
+  steps: { kind: string; label: string }[];
+  due_hours: number;
+  completion: string;
+  hand_off: string;
+}
+
+export type InboxKind = "result_review" | "ehr_write" | "browser_plan" | "browser_step" | "clinician_signoff" | "hand_off" | "escalation";
+
+export interface InboxItem {
+  kind: InboxKind;
+  kind_label: string;
+  id: string;
+  title: string;
+  detail: string;
+  waiting_s: number;
+  href: string;
+  case: { id: string; case_ref: string } | null;
+  approver: "agent" | "staff" | "admin" | "supervisor" | "clinician";
+  can_decide: boolean;
+  decisions: string[];
+  risk?: string | null;
+  level?: string;
+  mine?: boolean;
+}
+
+export interface Inbox {
+  items: InboxItem[];
+  counts: Partial<Record<InboxKind, number>>;
+  total: number;
+  kinds: { kind: InboxKind; label: string }[];
+  policy: { action: string; approver: string }[];
 }
 
 export interface Route {

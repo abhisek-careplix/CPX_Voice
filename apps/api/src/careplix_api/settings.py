@@ -157,6 +157,11 @@ class Settings(BaseSettings):
     backfill_lead_minutes: int = 120
     backfill_horizon_days: int = 14
     contact_hours: str = "08:00-20:00"  # practice-local window for patient outreach
+    # Playbooks (careplix_api.cases.playbooks): which triggers start work without a person, and
+    # whether patient contact waits for contact_hours.
+    playbooks_enabled: bool = True
+    playbook_triggers: str = "care_opportunity,backfill_opening,schedule"
+    playbook_contact_hours: bool = True
     # FO-3 receptionist. Patient-requested bookings and reschedules are L2 (automatic). A plain
     # cancellation is L3 in the EMR design, so by default it waits for one click in the write
     # queue; "auto" cancels at once (and the freed slot goes straight to backfill).
