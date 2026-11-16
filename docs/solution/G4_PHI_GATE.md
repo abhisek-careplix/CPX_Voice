@@ -80,7 +80,9 @@ build, and only after the owner types the project id.
 uses (the internal API has its own identity; no service-account keys); Cloud SQL with high
 availability, daily backups kept 30 days, point-in-time recovery (7 days), encrypted connections
 only and deletion protection; a production data key generated in the project, never copied from
-labs; the production clearinghouse key under its own secret name (`cpx-stedi-prod-api-key`);
+labs; the production NexHealth and clearinghouse keys under their own names (`NEXHEALTH_PROD_API_KEY`
+from `cpx-nexhealth-prod-api-key`, `STEDI_PROD_API_KEY` from `cpx-stedi-prod-api-key`; the sandbox
+`NEXHEALTH_API_KEY` is refused);
 Data Access audit logs for all services; Cloud Logging retention 400 days; Studio behind IAP unless
 `STUDIO_PUBLIC=true` opens it to clinic staff with app sign-in.
 

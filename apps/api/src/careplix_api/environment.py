@@ -74,6 +74,10 @@ def problems(settings: Settings) -> list[str]:
             found.append("NEXHEALTH_ENV must be production: the sandbox holds synthetic patients.")
         if settings.stedi_env != "production":
             found.append("STEDI_ENV must be production: test mode answers for mock members only.")
+        if settings.nexhealth_api_key.get_secret_value():
+            found.append(
+                "NEXHEALTH_API_KEY is the sandbox key; production uses NEXHEALTH_PROD_API_KEY."
+            )
         if (
             settings.stedi_test_api_key.get_secret_value()
             or settings.stedi_api_key.get_secret_value()

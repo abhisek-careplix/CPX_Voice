@@ -70,6 +70,7 @@ def test_production_settings_pass(tmp_path):
         ({"openemr_base_url": "https://10.0.0.5"}, "OPENEMR_BASE_URL"),
         ({"nexhealth_env": "sandbox"}, "NEXHEALTH_ENV"),
         ({"stedi_env": "test"}, "STEDI_ENV"),
+        ({"nexhealth_api_key": "nh-sandbox"}, "NEXHEALTH_API_KEY"),
         ({"stedi_test_api_key": "test-key"}, "test keys"),
         ({"stedi_api_key": "old-test-key"}, "test keys"),
         ({"sandbox_number": "+13127558589"}, "SANDBOX_NUMBER"),

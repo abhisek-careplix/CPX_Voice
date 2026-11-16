@@ -24,7 +24,7 @@ GOOD_ENV = [
     "LIVEKIT_API_KEY=lk",
     "LIVEKIT_API_SECRET=lks",
     "NEXHEALTH_ENV=production",
-    "NEXHEALTH_API_KEY=nh-prod",
+    "NEXHEALTH_PROD_API_KEY=nh-prod",
     "STEDI_ENV=production",
     "STEDI_PROD_API_KEY=stedi-prod",
 ]
@@ -136,6 +136,7 @@ def test_preflight_passes_a_production_env(repo):
     [
         ("NEXHEALTH_ENV=sandbox", "NEXHEALTH_ENV"),
         ("STEDI_ENV=test", "STEDI_ENV"),
+        ("NEXHEALTH_API_KEY=nh-sandbox", "NEXHEALTH_API_KEY"),
         ("STEDI_TEST_API_KEY=tk", "STEDI_TEST_API_KEY"),
         ("STEDI_API_KEY=old", "STEDI_API_KEY"),
         ("OPENEMR_BASE_URL=https://10.0.0.5", "OPENEMR_BASE_URL"),
@@ -160,7 +161,9 @@ def test_every_command_refuses_synthetic_settings_before_touching_anything(
     assert calls == ""
 
 
-@pytest.mark.parametrize("missing", ["STEDI_PROD_API_KEY", "NEXHEALTH_API_KEY", "LIVEKIT_API_KEY"])
+@pytest.mark.parametrize(
+    "missing", ["STEDI_PROD_API_KEY", "NEXHEALTH_PROD_API_KEY", "LIVEKIT_API_KEY"]
+)
 def test_preflight_needs_the_production_keys(repo, missing):
     root, _ = repo
     lines = [entry for entry in GOOD_ENV if not entry.startswith(missing + "=")]
@@ -191,7 +194,8 @@ def test_setup_stores_production_keys_under_their_own_names(repo):
     assert result.returncode == 0, result.stderr
     secrets = root.parent / "secrets"
     assert (secrets / "cpx-stedi-prod-api-key").read_text() == "stedi-prod"
-    assert (secrets / "cpx-nexhealth-api-key").read_text() == "nh-prod"
+    assert (secrets / "cpx-nexhealth-prod-api-key").read_text() == "nh-prod"
+    assert not (secrets / "cpx-nexhealth-api-key").exists()  # the sandbox key's name
     assert not (secrets / "cpx-stedi-api-key").exists()  # the labs (test key) name
     assert len((secrets / "cpx-data-key").read_text()) == 44  # generated here, never copied
     assert all("--project careplix-prod" in line for line in calls.splitlines())
@@ -304,6 +308,8 @@ def test_deploy_ships_the_built_tag_as_production_with_nothing_synthetic(repo):
         assert "STEDI_ENV=production" in command and "NEXHEALTH_ENV=production" in command
         assert "STEDI_PROD_API_KEY=cpx-stedi-prod-api-key:latest" in command
         assert "STEDI_TEST_API_KEY" not in command and "OPENEMR" not in command
+        assert "NEXHEALTH_PROD_API_KEY=cpx-nexhealth-prod-api-key:latest" in command
+        assert "NEXHEALTH_API_KEY=" not in command  # the sandbox key never reaches production
     assert "--service-account careplix-internal@" in deploys["careplix-internal"]
     assert "--ingress internal" in deploys["careplix-worker"]
 
