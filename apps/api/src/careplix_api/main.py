@@ -14,9 +14,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from careplix_api import (
     connections_api,
+    environment,
     identity_api,
     integrations_api,
     internal_api,
+    retention,
     scenarios_api,
     seed,
     studio_api,
@@ -76,6 +78,7 @@ def create_app(
 ) -> FastAPI:
     settings = settings or get_settings()
     safe_logging.configure(settings.log_level)
+    environment.install(settings)  # refuses settings that break this environment's rules
     tenancy.install()  # every signed-in request is limited to its own workspace
 
     @asynccontextmanager
@@ -142,6 +145,7 @@ def create_app(
                     if settings.claim_follow_up_enabled
                     else []
                 ),
+                asyncio.create_task(retention.run_forever(app.state.db, settings)),
                 asyncio.create_task(
                     evals_service.run_forever(app.state.db, settings, app.state.gateway)
                 ),

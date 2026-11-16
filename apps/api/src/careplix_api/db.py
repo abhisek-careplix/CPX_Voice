@@ -88,6 +88,9 @@ class Database:
                 cursor.close()
 
         self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
+        from careplix_api import environment
+
+        environment.listen()  # production audit and refusals apply to every writer
 
     async def create_all(self) -> None:
         async with self.engine.begin() as conn:
