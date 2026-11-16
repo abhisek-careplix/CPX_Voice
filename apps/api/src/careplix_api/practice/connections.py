@@ -175,7 +175,8 @@ async def ensure_practice_connections(session: AsyncSession, settings: Settings)
         wanted.append(
             (
                 CLEARINGHOUSE,
-                "Stedi" + (" (test mode: mock payers)" if settings.stedi_mode == "test" else ""),
+                "Clearinghouse"
+                + (" (test mode: mock payers)" if settings.stedi_mode == "test" else ""),
                 settings.stedi_base_url,
                 {"key_env": settings.stedi_key_env, "env": settings.stedi_mode},
                 settings.stedi_mode == "test",
@@ -239,7 +240,7 @@ async def verify_stedi(
         await audit(
             session,
             conn,
-            "stedi.verify",
+            "clearinghouse.verify",
             "verify",
             ok=False,
             status=err.status,
@@ -252,7 +253,7 @@ async def verify_stedi(
     await audit(
         session,
         conn,
-        "stedi.verify",
+        "clearinghouse.verify",
         "verify",
         ok=ok,
         status="success" if ok else "error",

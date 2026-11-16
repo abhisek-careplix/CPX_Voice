@@ -670,7 +670,7 @@ export interface IntegrationsOverview {
   supported: { kind: string; ig_version: string; operations: string[]; status: string }[];
 }
 
-// ---------- Practice layer (NexHealth + Stedi) ----------
+// ---------- Practice layer (NexHealth + clearinghouse) ----------
 
 export interface PracticeConnection {
   id: string;

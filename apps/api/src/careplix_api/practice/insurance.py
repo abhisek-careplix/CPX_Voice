@@ -171,7 +171,7 @@ async def verify_insurance(session, attempt: CallAttempt, version, args, _eviden
             await audit(
                 session,
                 stedi_conn,
-                "stedi.eligibility",
+                "clearinghouse.eligibility",
                 "voice",
                 ok=False,
                 status=err.status,
@@ -193,7 +193,7 @@ async def verify_insurance(session, attempt: CallAttempt, version, args, _eviden
     await audit(
         session,
         stedi_conn,
-        "stedi.eligibility",
+        "clearinghouse.eligibility",
         "voice",
         ok=summary["coverage"] != "error",
         status="success" if summary["coverage"] != "error" else "error",

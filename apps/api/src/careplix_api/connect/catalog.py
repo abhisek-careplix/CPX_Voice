@@ -20,7 +20,7 @@ Confirm = Literal["immediate", "async", "async_office_hours"]
 # Operations, in the order the Studio shows them.
 OPERATIONS: dict[str, str] = {
     "schedule.read": "Read schedule, patients and coverage",
-    "eligibility.check": "Insurance check (Stedi)",
+    "eligibility.check": "Insurance check (clearinghouse)",
     "appointment.book": "Book appointments",
     "patient.create": "Add new patients",
     "appointment.cancel": "Cancel appointments",

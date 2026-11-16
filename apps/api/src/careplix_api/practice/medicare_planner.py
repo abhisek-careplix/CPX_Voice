@@ -367,7 +367,7 @@ def suggestions(
     ma = (b.get("routing") or {}).get("medicare_advantage")
     if ma:
         name = ma.get("name") or "the plan"
-        payer = f" (Stedi payer {ma['payer_id']})" if ma.get("payer_id") else ""
+        payer = f" (clearinghouse payer {ma['payer_id']})" if ma.get("payer_id") else ""
         out.append(
             _s(
                 BLOCKED,

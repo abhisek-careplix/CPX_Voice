@@ -367,7 +367,9 @@ def test_test_mode_sends_only_stedis_cms_mock_and_reuses_the_day(tmp_path):
         assert view["patient"] == "J. R." and view["benefits"]["routing"]["medicare_advantage"]
         assert [a.detail["outcome"] for a in audits(c)] == ["done", "reused"]
         [call] = [
-            x for x in _db_rows(c, IntegrationCall) if x.operation == "stedi.medicare_benefits"
+            x
+            for x in _db_rows(c, IntegrationCall)
+            if x.operation == "clearinghouse.medicare_benefits"
         ]
         assert call.summary["mock"] is True and "1AA2CC3DD45" not in json.dumps(call.summary)
 

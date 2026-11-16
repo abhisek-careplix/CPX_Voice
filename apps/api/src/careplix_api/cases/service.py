@@ -19,7 +19,16 @@ from careplix_api.models import Agent, AuditEvent, Case, Task
 from careplix_api.settings import Settings
 
 STATUSES = ("open", "in_progress", "done", "closed")
-SOURCES = ("sample", "manual", "import", "care_opportunity", "backfill", "inbound", "api")
+SOURCES = (
+    "sample",
+    "manual",
+    "import",
+    "care_opportunity",
+    "backfill",
+    "inbound",
+    "api",
+    "claim_follow_up",
+)
 SOURCE_LABEL = {
     "sample": "Synthetic sample",
     "manual": "Entered by hand",
@@ -28,6 +37,7 @@ SOURCE_LABEL = {
     "backfill": "Cancellation backfill",
     "inbound": "Inbound call",
     "api": "API",
+    "claim_follow_up": "Claim follow-up",
 }
 # Task outcomes that finish the work; the others leave the case open for another try.
 DONE_OUTCOMES = ("Completed",)

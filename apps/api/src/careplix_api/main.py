@@ -28,6 +28,8 @@ from careplix_api.browser.service import BrowserRunner
 from careplix_api.calls_service import CallRunner
 from careplix_api.cases import api as cases_api
 from careplix_api.cases import service as cases_service
+from careplix_api.claims import api as claims_api
+from careplix_api.claims import follow_up as claims_follow_up
 from careplix_api.db import Database
 from careplix_api.errors import ApiError
 from careplix_api.evals import api as evals_api
@@ -119,6 +121,17 @@ def create_app(
                 asyncio.create_task(
                     judge_service.judge_forever(app.state.db, settings, app.state.judge)
                 ),
+                *(
+                    [
+                        asyncio.create_task(
+                            claims_follow_up.run_forever(
+                                app.state.db, settings, lambda: app.state.integration_transport
+                            )
+                        )
+                    ]
+                    if settings.claim_follow_up_enabled
+                    else []
+                ),
                 asyncio.create_task(
                     evals_service.run_forever(app.state.db, settings, app.state.gateway)
                 ),
@@ -190,6 +203,7 @@ def create_app(
     app.include_router(shadow_api.router, prefix="/api")
     app.include_router(personas_api.router, prefix="/api")
     app.include_router(cases_api.router, prefix="/api")
+    app.include_router(claims_api.router, prefix="/api")
     app.include_router(internal_api.router)
     if settings.is_dev:
         # Local webhook testing; in the cloud the public ingress is its own service (no IAP).
