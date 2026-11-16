@@ -407,14 +407,14 @@ async def run_check(
             if mapping.state == "error":
                 return _requeue(
                     check,
-                    "Stedi's payer directory didn't answer.",
+                    "The clearinghouse payer directory didn't answer.",
                     {"coverage": "error", "error_class": stedi.RETRY},
                 )
             if mapping.state not in payers.SETTLED or not mapping.stedi_payer_id:
                 reason = (
                     f"Confirm which payer “{plan_name}” is in Practice → Payers."
                     if mapping.state == "ambiguous"
-                    else f"Stedi has no payer matching “{plan_name}”: set it in Practice → Payers."
+                    else f"No payer matches “{plan_name}”: set it in Practice → Payers."
                 )
                 return _finish(check, "skipped", reason, {"coverage": "payer_unmapped"})
             payer_id = mapping.stedi_payer_id
@@ -483,7 +483,7 @@ async def run_check(
     call = await audit(
         session,
         stedi_conn,
-        "stedi.eligibility",
+        "clearinghouse.eligibility",
         check.trigger,
         ok=summary["coverage"] != "error",
         status="success" if summary["coverage"] != "error" else "error",
@@ -559,7 +559,7 @@ async def _failed(
     call = await audit(
         session,
         stedi_conn,
-        "stedi.eligibility",
+        "clearinghouse.eligibility",
         check.trigger,
         ok=False,
         status=err.status,

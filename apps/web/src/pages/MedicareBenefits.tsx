@@ -308,12 +308,12 @@ export default function MedicareBenefitsSheet({ patientId, patient, appointmentI
       footer={
         <>
           {testMode && (
-            <button className="btn btn-secondary" onClick={() => refresh.mutate(true)} disabled={refresh.isPending} title="Load a synthetic HETS response built from the CMS companion guide. Nothing is sent to Stedi.">
+            <button className="btn btn-secondary" onClick={() => refresh.mutate(true)} disabled={refresh.isPending} title="Load a synthetic HETS response built from the CMS companion guide. Nothing is sent to the clearinghouse.">
               <FlaskConical size={15} aria-hidden /> Load synthetic sample
             </button>
           )}
           <button className="btn btn-primary" onClick={() => refresh.mutate(false)} disabled={refresh.isPending}>
-            {refresh.isPending ? <span className="spinner" aria-label="Checking" /> : <RefreshCw size={15} aria-hidden />} {testMode ? "Check (Stedi CMS mock)" : "Check with Medicare"}
+            {refresh.isPending ? <span className="spinner" aria-label="Checking" /> : <RefreshCw size={15} aria-hidden />} {testMode ? "Check (CMS test member)" : "Check with Medicare"}
           </button>
         </>
       }
@@ -331,8 +331,8 @@ export default function MedicareBenefitsSheet({ patientId, patient, appointmentI
         )}
         {s?.test_data && (
           <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-            <span className="sample-label">{s.source === "sample" ? "Synthetic sample · test data" : "Test data · Stedi mock member"}</span>
-            {testMode && d?.coverage?.plan_kind !== "medicare" && <span className="small muted">The patient's plan on file isn't Original Medicare; test mode sends Stedi's CMS mock member.</span>}
+            <span className="sample-label">{s.source === "sample" ? "Synthetic sample · test data" : "Test data · clearinghouse test member"}</span>
+            {testMode && d?.coverage?.plan_kind !== "medicare" && <span className="small muted">The patient's plan on file isn't Original Medicare; test mode sends the clearinghouse's CMS mock member.</span>}
           </div>
         )}
         {view.isLoading ? (
@@ -379,7 +379,7 @@ export default function MedicareBenefitsSheet({ patientId, patient, appointmentI
                   {b.routing.medicare_advantage.contract ? ` · contract ${b.routing.medicare_advantage.contract}` : ""}
                   {b.routing.medicare_advantage.plan_benefit_package ? ` · PBP ${b.routing.medicare_advantage.plan_benefit_package}` : ""}
                   {b.routing.medicare_advantage.bill_option ? ` · MA bill option ${b.routing.medicare_advantage.bill_option}` : ""}
-                  {b.routing.medicare_advantage.payer_id ? ` · Stedi payer ${b.routing.medicare_advantage.payer_id}` : ""}
+                  {b.routing.medicare_advantage.payer_id ? ` · payer ${b.routing.medicare_advantage.payer_id}` : ""}
                 </div>
               </section>
             )}

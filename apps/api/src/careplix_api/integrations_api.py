@@ -13,6 +13,7 @@ from careplix_api.auth import Principal, require
 from careplix_api.errors import ApiError
 from careplix_api.integrations import pas
 from careplix_api.integrations import service as integration_service
+from careplix_api.integrations.stedi import white_label
 from careplix_api.models import AuditEvent, IntegrationCall, PayerConnection, Task
 from careplix_api.settings import Settings, get_settings
 from careplix_api.studio_api import Session
@@ -30,8 +31,9 @@ def _connection_view(c: PayerConnection) -> dict[str, Any]:
         "id": c.id,
         "name": c.name,
         "kind": c.kind,
-        "base_url": c.base_url,
-        "ig_version": c.ig_version,
+        # White label: the clearinghouse's address names the vendor.
+        "base_url": "Clearinghouse API" if c.kind == "stedi" else c.base_url,
+        "ig_version": "x12-005010" if c.kind == "stedi" else c.ig_version,
         "auth_type": c.auth_type,
         "auth_ref": {k: v for k, v in (c.auth_ref or {}).items() if k != "key_env"}
         | ({"key_env": "set"} if (c.auth_ref or {}).get("key_env") else {}),
@@ -48,7 +50,8 @@ def _call_view(c: IntegrationCall) -> dict[str, Any]:
     return {
         "id": c.id,
         "connection_id": c.connection_id,
-        "operation": c.operation,
+        # Rows from before the white label carry the vendor's name in the operation.
+        "operation": c.operation.replace("stedi.", "clearinghouse."),
         "phase": c.phase,
         "task_id": c.task_id,
         "ok": c.ok,
@@ -56,7 +59,7 @@ def _call_view(c: IntegrationCall) -> dict[str, Any]:
         "http_status": c.http_status,
         "duration_ms": c.duration_ms,
         "summary": c.summary,
-        "error": c.error,
+        "error": white_label(c.error),
         "at": c.created_at,
     }
 
