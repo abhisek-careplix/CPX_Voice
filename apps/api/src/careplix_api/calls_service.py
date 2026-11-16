@@ -8,6 +8,7 @@ the attempt (readiness deadline), and only from the API.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import re
 from datetime import timedelta
@@ -953,7 +954,8 @@ class CallRunner:
         self._tasks: set[asyncio.Task] = set()
 
     def spawn(self, coro) -> None:
-        task = asyncio.create_task(coro)
+        # Background work runs outside the request's tenant scope, like the other loops.
+        task = asyncio.create_task(coro, context=contextvars.Context())
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 

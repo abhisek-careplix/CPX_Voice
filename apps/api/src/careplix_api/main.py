@@ -14,11 +14,13 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from careplix_api import (
     connections_api,
+    identity_api,
     integrations_api,
     internal_api,
     scenarios_api,
     seed,
     studio_api,
+    tenancy,
 )
 from careplix_api.browser import api as browser_api
 from careplix_api.browser.runtime_client import HttpRuntime
@@ -70,6 +72,7 @@ def create_app(
 ) -> FastAPI:
     settings = settings or get_settings()
     safe_logging.configure(settings.log_level)
+    tenancy.install()  # every signed-in request is limited to its own workspace
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -176,6 +179,7 @@ def create_app(
         """Process liveness only. Says nothing about telephone, model or database health."""
         return {"status": "ok"}
 
+    app.include_router(identity_api.router, prefix="/api")
     app.include_router(studio_api.router, prefix="/api")
     app.include_router(connections_api.router, prefix="/api")
     app.include_router(integrations_api.router, prefix="/api")

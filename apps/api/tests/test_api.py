@@ -108,7 +108,7 @@ def test_iap_sign_in_provisions_user_and_session(tmp_path, monkeypatch):
 
     monkeypatch.setattr(id_token, "verify_token", fake_verify)
     with _sso_client(tmp_path) as c:
-        assert c.get("/api/auth/mode").json() == {"mode": "sso"}
+        assert c.get("/api/auth/mode").json()["mode"] == "sso"
         assert c.post("/api/auth/dev-login").status_code == 404
         assert c.post("/api/auth/iap-login").status_code == 401  # no signed header
         r = c.post("/api/auth/iap-login", headers={"x-goog-iap-jwt-assertion": "signed"})

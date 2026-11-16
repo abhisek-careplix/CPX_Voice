@@ -31,8 +31,14 @@ class StatusIn(BaseModel):
 
 
 @router.get("/case-types")
-async def list_case_types(principal: Principal = Depends(viewer)):
-    return types.view()
+async def list_case_types(principal: Principal = Depends(viewer), session: AsyncSession = Session):
+    """The case types this workspace's product line offers (careplix_api.packs)."""
+    from careplix_api import packs
+    from careplix_api.models import Workspace
+
+    ws = await session.get(Workspace, principal.workspace_id)
+    line = ws.product_line if ws else None
+    return [t for t in types.view() if packs.allows_case_type(line, t["id"])]
 
 
 @router.get("/cases")
