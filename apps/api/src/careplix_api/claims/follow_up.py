@@ -221,11 +221,26 @@ async def run_due(
 
 
 async def run_forever(
-    db: Database, settings: Settings, transport_getter=lambda: None, interval_s: float = 900.0
+    db: Database,
+    settings: Settings,
+    transport_getter=lambda: None,
+    interval_s: float = 900.0,
+    inbound_every_s: float = 60.0,
 ) -> None:
+    """Clearinghouse reports (277CA, 835) every minute; the follow-up schedule every 15."""
+    from careplix_api.claims import inbound  # local: inbound imports follow-up's neighbours
+
+    last_sweep = -interval_s
+    loop = asyncio.get_running_loop()
     while True:
         try:
-            await run_due(db, settings, transport_getter())
+            await inbound.process_events(db, settings, transport_getter())
         except Exception:
-            log.exception("claim follow-up pass failed")
-        await asyncio.sleep(interval_s)
+            log.exception("clearinghouse report pass failed")
+        if loop.time() - last_sweep >= interval_s:
+            last_sweep = loop.time()
+            try:
+                await run_due(db, settings, transport_getter())
+            except Exception:
+                log.exception("claim follow-up pass failed")
+        await asyncio.sleep(inbound_every_s)

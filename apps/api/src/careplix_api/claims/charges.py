@@ -133,6 +133,25 @@ VISITS: tuple[Visit, ...] = (
 VISITS_BY_KEY = {v.key: v for v in VISITS}
 
 
+_MBI_ALPHA = "ACDEFGHJKMNPQRTUVWXY"  # CMS: no S, L, O, I, B or Z
+
+
+def synthetic_mbi(rng: random.Random) -> str:
+    """A random identifier in the Medicare Beneficiary Identifier format (made up)."""
+    alnum = _MBI_ALPHA + "0123456789"
+    shape = ("19", _MBI_ALPHA, alnum, "09", _MBI_ALPHA, alnum, "09", _MBI_ALPHA, _MBI_ALPHA)
+    shape += ("09", "09")
+    out = []
+    for pool in shape:
+        if pool == "19":
+            out.append(str(rng.randint(1, 9)))
+        elif pool == "09":
+            out.append(str(rng.randint(0, 9)))
+        else:
+            out.append(rng.choice(pool))
+    return "".join(out)
+
+
 def view(charge: ClaimCharge) -> dict[str, Any]:
     return {
         "id": charge.id,
@@ -178,7 +197,9 @@ async def add_samples(
                 "first_name": first,
                 "last_name": "Synthetic",
                 "date_of_birth": f"19{rng.randint(45, 89)}-0{rng.randint(1, 9)}-1{n % 10}",
-                "member_id": f"SYN{rng.randint(10**7, 10**8 - 1)}",
+                "member_id": synthetic_mbi(rng)
+                if visit.plan_kind == "medicare"
+                else f"SYN{rng.randint(10**7, 10**8 - 1)}",
                 "gender": "F" if n % 2 else "M",
                 "address": {
                     "address1": f"{100 + n} Sample Street",

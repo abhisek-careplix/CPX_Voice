@@ -76,6 +76,7 @@ class Claim(IdMixin, Base):
     submission_id: Mapped[str | None] = mapped_column(String(60))
     clearinghouse_claim_id: Mapped[str | None] = mapped_column(String(60))
     submitted_at: Mapped[datetime | None] = mapped_column()
+    submit_attempts: Mapped[int | None] = mapped_column(Integer)  # one idempotency key each
     ack_status: Mapped[str | None] = mapped_column(String(12))  # accepted | rejected
     ack_at: Mapped[datetime | None] = mapped_column()
     paid_total: Mapped[str | None] = mapped_column(String(16))
@@ -141,6 +142,55 @@ class BillingProfile(IdMixin, Base):
     submitter_name: Mapped[str] = mapped_column(String(60))
     contact_phone: Mapped[str] = mapped_column(String(10))
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class ClaimTransaction(IdMixin, Base):
+    """Every claim transaction with the clearinghouse, kept as evidence: validation, submission,
+    277CA acknowledgement, 835 remittance, attachment upload. ``raw`` is sealed (it names the
+    patient); ``summary`` holds outcomes only."""
+
+    __tablename__ = "claim_transactions"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    claim_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    kind: Mapped[str] = mapped_column(String(12))  # validate | submit | 277ca | 835 | attachment
+    mode: Mapped[str] = mapped_column(String(12))  # test | production | sample
+    transaction_id: Mapped[str | None] = mapped_column(String(80), index=True)
+    ok: Mapped[bool] = mapped_column(Boolean, default=True)
+    summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    raw: Mapped[str | None] = mapped_column(Text)
+    message: Mapped[str | None] = mapped_column(String(300))
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+
+
+class ClaimWork(IdMixin, Base):
+    """A claim that needs a person: a rejection (277CA) or a denial (835), with its route.
+
+    Rejections are fixed and resubmitted; denials are routed by their CARC/RARC category to a fix
+    and resubmission, a payer call, an appeal, or a write-off for staff to approve."""
+
+    __tablename__ = "claim_work"
+    __table_args__ = (UniqueConstraint("workspace_id", "claim_id", "kind", "source_ref"),)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    claim_id: Mapped[str] = mapped_column(ForeignKey("claims.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(10))  # rejection | denial
+    source_ref: Mapped[str] = mapped_column(String(80))  # the 277CA / 835 transaction
+    category: Mapped[str] = mapped_column(String(24))
+    route: Mapped[str] = mapped_column(String(16))  # fix_resubmit | payer_call | appeal | write_off
+    state: Mapped[str] = mapped_column(String(12), default="open")  # open | done | dismissed
+    title: Mapped[str] = mapped_column(String(160))
+    # [{code, kind (carc|rarc|277), group, text, amount}] — codes and payer text, no patient data.
+    reasons: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    suggestion: Mapped[str | None] = mapped_column(String(300))
+    amount: Mapped[str | None] = mapped_column(String(16))  # denied or adjusted amount
+    due_on: Mapped[str | None] = mapped_column(String(10))  # appeal / corrected-claim deadline
+    case_id: Mapped[str | None] = mapped_column(String(36))
+    appeal_id: Mapped[str | None] = mapped_column(String(36))
+    intent_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    resolved_by: Mapped[str | None] = mapped_column(String(36))
+    resolution: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+    resolved_at: Mapped[datetime | None] = mapped_column()
 
 
 class ClaimStatusCheck(IdMixin, Base):

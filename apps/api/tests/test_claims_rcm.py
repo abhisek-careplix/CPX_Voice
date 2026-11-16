@@ -314,3 +314,504 @@ def test_timely_filing_dates_are_relative_to_today():
     late = VISITS_BY_KEY["late"]
     assert date.today() - timedelta(days=late.days_ago) < date.today() - timedelta(days=90)
     assert json.dumps(x837.TEST_PREFIX)  # serialisable constants
+
+
+# --- scrub (RC5) ---------------------------------------------------------------------------------
+
+from careplix_api.claims import scrub  # noqa: E402
+
+TODAY = date(2026, 11, 16)
+
+
+def _codes(claim, patient=PATIENT, profile=PROFILE, today=TODAY):
+    return {f["code"] for f in scrub.check(claim, patient, profile, today)}
+
+
+def test_a_clean_claim_has_no_errors():
+    findings = scrub.check(_draft(), PATIENT, PROFILE, TODAY)
+    assert not scrub.blocking(findings), findings
+
+
+@pytest.mark.parametrize(
+    ("change", "code"),
+    [
+        ({"diagnoses": []}, "dx_missing"),
+        ({"diagnoses": ["R07.89X", "I10"]}, None),  # dots are dropped; still valid
+        ({"diagnoses": ["7890", "I10"]}, "dx_format"),
+        ({"payer_id": None}, "payer_missing"),
+        ({"place_of_service": "1"}, "place_of_service"),
+        ({"date_of_service": "2025-06-01"}, "timely_filing"),
+        ({"date_of_service": "2026-08-25"}, "timely_filing_soon"),
+    ],
+)
+def test_claim_level_checks(change, code):
+    found = _codes(_draft(**change))
+    assert (code in found) if code else not (found & {"dx_format", "dx_missing"})
+
+
+def _line(**kw):
+    base = {
+        "line_id": "L1",
+        "cpt": "99213",
+        "modifiers": [],
+        "units": "1",
+        "charge": "142.00",
+        "dx": [1],
+        "date_of_service": "2026-11-07",
+    }
+    return {**base, **kw}
+
+
+@pytest.mark.parametrize(
+    ("line", "code", "severity"),
+    [
+        (_line(cpt="93000", modifiers=["25"]), "mod_25_not_em", "error"),
+        (_line(modifiers=["26", "TC"]), "mod_26_tc", "error"),
+        (_line(modifiers=["59"]), "mod_distinct_em", "warning"),
+        (_line(cpt="27447", modifiers=["50"], units="2"), "mod_50_units", "warning"),
+        (_line(modifiers=["A", "25"]), "mod_format", "error"),
+        (_line(modifiers=["RT", "RT"]), "mod_duplicate", "error"),
+        (_line(cpt="9921"), "cpt_format", "error"),
+        (_line(charge="0"), "charge_zero", "error"),
+        (_line(units="0"), "units", "error"),
+        (_line(dx=[]), "dx_pointer_missing", "error"),
+        (_line(dx=[3]), "dx_pointer_range", "error"),
+        (_line(date_of_service="2026-12-01"), "dos_future", "error"),
+        (_line(modifiers=["25"]), "mod_25_alone", "warning"),
+    ],
+)
+def test_line_checks(line, code, severity):
+    findings = scrub.check(_draft(lines=[line]), PATIENT, PROFILE, TODAY)
+    match = [f for f in findings if f["code"] == code]
+    assert match and match[0]["severity"] == severity and match[0]["line_id"] == "L1"
+
+
+def test_hcpcs_and_category_codes_are_accepted():
+    lines = [_line(cpt=c, line_id=f"L{i}") for i, c in enumerate(["G0438", "3074F", "0042T"])]
+    assert not _codes(_draft(lines=lines)) & {"cpt_format"}
+
+
+def test_patient_and_billing_requirements():
+    no_member = {**PATIENT, "member_id": ""}
+    assert "member_id_missing" in _codes(_draft(), patient=no_member)
+    assert "member_id_mbi" in _codes(_draft(plan_kind="medicare"))  # SYN… isn't an MBI
+    assert "member_id_mbi" not in _codes(
+        _draft(plan_kind="medicare"), patient={**PATIENT, "member_id": "1EG4-TE5-MK73"}
+    )
+    assert "patient_dob" in _codes(_draft(), patient={**PATIENT, "date_of_birth": None})
+    bad = {**PROFILE, "npi": "1234567890", "tax_id": "12", "postal_code": "6060"}
+    assert {"billing_npi", "billing_tax_id", "billing_zip"} <= _codes(_draft(), profile=bad)
+
+
+# --- submit and acknowledge (RC5) --------------------------------------------------------------
+
+from careplix_api.claims.models import ClaimTransaction, ClaimWork  # noqa: E402
+
+
+def ack_277(pcn, category="A1", code="20", *, payer_claim="PAYER-1", line=None, text=None):
+    """A 277CA report in the clearinghouse's JSON shape (one claim)."""
+    claim = {
+        "claimStatus": {
+            "referencedTransactionTraceNumber": pcn,
+            "patientAccountNumber": pcn,
+            "tradingPartnerClaimNumber": payer_claim,
+            "statusInformationEffectiveDate": "20261110",
+            "totalClaimChargeAmount": "206.25",
+            "informationClaimStatuses": [
+                {
+                    "informationStatuses": [
+                        {
+                            "healthCareClaimStatusCategoryCode": category,
+                            "statusCode": code,
+                            "statusCodeValue": text or "Accepted for processing.",
+                            "entityIdentifierCode": "IL" if category == "A7" else None,
+                        }
+                    ],
+                    "statusMessage": text,
+                }
+            ],
+        }
+    }
+    if line:
+        claim["serviceLines"] = [
+            {
+                "lineItemControlNumber": "L2",
+                "service": {"procedureCode": "93000", "chargeAmount": "64.25"},
+                "serviceClaimStatuses": [
+                    {
+                        "statusMessage": line,
+                        "serviceStatuses": [
+                            {
+                                "healthCareClaimStatusCategoryCode": "A7",
+                                "statusCode": "454",
+                                "statusCodeValue": "Procedure code for services rendered.",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    return {
+        "meta": {"transactionId": "tx", "applicationMode": "test"},
+        "transactions": [
+            {
+                "payers": [
+                    {
+                        "organizationName": "Test payer",
+                        "claimStatusTransactions": [
+                            {
+                                "claimTransactionBatchNumber": "corr-1",
+                                "providerClaimStatuses": [
+                                    {
+                                        "providerStatuses": [
+                                            {
+                                                "healthCareClaimStatusCategoryCode": "A1",
+                                                "statusCode": "19",
+                                            }
+                                        ]
+                                    }
+                                ],
+                                "claimStatusDetails": [
+                                    {"patientClaimStatusDetails": [{"claims": [claim]}]}
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        ],
+    }
+
+
+class Clearinghouse:
+    """The clearinghouse's claim API: validate, submit (idempotent), reports, polling."""
+
+    def __init__(self):
+        self.validate_errors: list[str] = []
+        self.submit_errors: list[str] = []
+        self.fail_next: int | None = None
+        self.submitted: list[tuple[str, dict]] = []
+        self.answers: dict[str, dict] = {}
+        self.reports: dict[str, dict] = {}
+        self.uploads: list[bytes] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if request.url.host == "upload.test":
+            self.uploads.append(request.content)
+            return httpx.Response(200)
+        assert request.url.host == "ch.test", request.url
+        if path.endswith("/professional-claim-submissions/validate"):
+            errors = [{"description": e} for e in self.validate_errors]
+            return httpx.Response(200, json={"errors": errors} if errors else {})
+        if path.endswith("/professional-claim-submissions"):
+            if self.fail_next:
+                status, self.fail_next = self.fail_next, None
+                return httpx.Response(status, json={"message": "busy"})
+            key = request.headers["Idempotency-Key"]
+            if key not in self.answers:
+                n = len(self.answers) + 1
+                body = {"claimId": f"clm_{n:026d}", "submissionId": f"sbm_{n}"}
+                if self.submit_errors:
+                    body["errors"] = [{"description": e} for e in self.submit_errors]
+                self.answers[key] = body
+                self.submitted.append((key, json.loads(request.content)))
+            return httpx.Response(201, json=self.answers[key])
+        if "/reports/v2/" in path:
+            tx = path.split("/")[-2]
+            return (
+                httpx.Response(200, json=self.reports[tx])
+                if tx in self.reports
+                else (httpx.Response(404, json={"message": "not found"}))
+            )
+        if path.endswith("/polling/transactions"):
+            items = [
+                {
+                    "transactionId": tx,
+                    "direction": "INBOUND",
+                    "x12": {"transactionSetIdentifier": k},
+                }
+                for tx, k in ((tx, "835" if "era" in tx else "277") for tx in self.reports)
+            ]
+            return httpx.Response(200, json={"items": items})
+        if path.endswith("/claim-attachments/file"):
+            return httpx.Response(
+                201, json={"attachmentId": "att_1", "uploadUrl": "https://upload.test/put"}
+            )
+        raise AssertionError(f"unexpected {request.method} {path}")
+
+
+@pytest.fixture
+def ch():
+    return Clearinghouse()
+
+
+@pytest.fixture
+def billing_studio(tmp_path, ch):
+    with _app(
+        tmp_path,
+        httpx.MockTransport(ch),
+        stedi_api_key="st-test",
+        stedi_base_url="https://ch.test",
+    ) as c:
+        c.post("/api/auth/dev-login").raise_for_status()
+        yield c
+
+
+def _submit(c, claim_id):
+    r = c.post(f"/api/claims/{claim_id}/submit")
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _ingest(c, tx, report, ch, kind="277"):
+    ch.reports[tx] = report
+    r = c.post("/api/claims/clearinghouse/fetch", json={"transaction_id": tx, "kind": kind})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_scrub_refuses_the_broken_sample_visits(billing_studio, ch):
+    claims = _drafts(billing_studio, "missing_diagnosis", "bad_modifier", "late", "office_paid")
+    by_cpt_dx = {}
+    for claim in claims:
+        out = billing_studio.post(f"/api/claims/{claim['id']}/scrub").json()
+        codes = {f["code"] for f in out["scrub"]["findings"] if f["severity"] == "error"}
+        by_cpt_dx[claim["test_outcome"], tuple(claim["diagnoses"]), claim["lines"][0]["cpt"]] = (
+            out["stage"],
+            codes,
+        )
+    stages = sorted(by_cpt_dx.values(), key=lambda v: sorted(v[1]))
+    assert ("ready", set()) in stages
+    blocked = [codes for stage, codes in stages if stage == "blocked"]
+    assert {"dx_missing", "dx_pointer_missing"} in [
+        c & {"dx_missing", "dx_pointer_missing"} for c in blocked
+    ]
+    assert any("mod_25_not_em" in c for c in blocked)
+    assert any("timely_filing" in c for c in blocked)
+    # Our errors stop the claim before the clearinghouse's validation is spent on it.
+    assert not ch.submitted
+
+
+def test_clearinghouse_edits_block_the_claim(billing_studio, ch):
+    [claim] = _drafts(billing_studio, "office_paid")
+    ch.validate_errors = ["Stedi says: Subscriber primary identifier is required"]
+    out = billing_studio.post(f"/api/claims/{claim['id']}/submit").json()
+    assert out["result"]["state"] == "blocked" and out["stage"] == "blocked"
+    [finding] = [f for f in out["scrub"]["findings"] if f["source"] == "clearinghouse"]
+    assert finding["message"].startswith("the clearinghouse says")  # white-labelled
+    assert not ch.submitted
+
+
+def test_submit_is_idempotent_on_the_control_number(billing_studio, ch):
+    [claim] = _drafts(billing_studio, "office_partial")
+    ch.fail_next = 429  # busy: nothing submitted, the claim stays ready
+    first = _submit(billing_studio, claim["id"])
+    assert first["result"]["state"] == "error" and first["stage"] == "ready"
+    out = _submit(billing_studio, claim["id"])
+    assert out["stage"] == "submitted" and out["submit_mode"] == "test"
+    assert out["submitted_on"] == date.today().isoformat()
+    [(key, body)] = ch.submitted
+    assert key == f"{claim['claim_number']}-1"
+    assert body["payer"]["id"] == "STEDI"
+    assert body["insured"]["memberId"].startswith("STEDI_PARTIALLY_PAID_SYN")
+    assert body["billing"]["patientControlNumber"] == claim["claim_number"]
+    # Submitting again changes nothing and sends nothing.
+    assert _submit(billing_studio, claim["id"])["result"]["state"] == "submitted"
+    assert len(ch.submitted) == 1
+    kinds = [
+        t["kind"] for t in billing_studio.get(f"/api/claims/{claim['id']}/transactions").json()
+    ]
+    assert kinds.count("submit") == 2 and "validate" in kinds
+
+
+def test_a_rejected_submission_joins_the_queue(billing_studio, ch):
+    [claim] = _drafts(billing_studio, "office_paid")
+    ch.submit_errors = ["Billing provider tax ID is invalid"]
+    out = _submit(billing_studio, claim["id"])
+    assert out["result"]["state"] == "rejected" and out["stage"] == "rejected"
+    [work] = billing_studio.get("/api/claims/work").json()
+    assert work["kind"] == "rejection" and work["category"] == "provider_identity"
+    assert work["route"] == "fix_resubmit" and "billing profile" in work["suggestion"]
+
+
+def test_277ca_acceptance_and_rejection(billing_studio, ch):
+    accepted, rejected = _drafts(billing_studio, "office_paid", "office_partial")
+    for c in (accepted, rejected):
+        _submit(billing_studio, c["id"])
+    out = _ingest(billing_studio, "tx_ack_1", ack_277(accepted["claim_number"]), ch)
+    assert out["accepted"] == 1
+    claim = billing_studio.get(f"/api/claims/{accepted['id']}").json()
+    assert claim["stage"] == "accepted" and claim["payer_claim_number"] == "PAYER-1"
+    assert claim["status"] == "accepted"
+
+    report = ack_277(
+        rejected["claim_number"].lower(),  # payers may change case
+        "A7",
+        "21",
+        text="Missing or invalid information.",
+        line="Procedure code is invalid for the date of service",
+    )
+    assert _ingest(billing_studio, "tx_ack_2", report, ch)["rejected"] == 1
+    assert _ingest(billing_studio, "tx_ack_2", report, ch)["claims"] == 0  # seen already
+    claim = billing_studio.get(f"/api/claims/{rejected['id']}").json()
+    assert claim["stage"] == "rejected"
+    [work] = billing_studio.get("/api/claims/work?kind=rejection").json()
+    assert work["claim_id"] == rejected["id"]
+    assert work["category"] == "patient_identity"  # IL entity + "invalid information"
+    assert {r["level"] for r in work["reasons"]} == {"claim", "line L2"}
+    assert {r["code"] for r in work["reasons"]} == {"21", "454"}
+
+    # Fix and resubmit: a new idempotency key, and the rejection closes.
+    assert (
+        billing_studio.patch(
+            f"/api/claims/{rejected['id']}", json={"place_of_service": "11"}
+        ).status_code
+        == 200
+    )
+    again = _submit(billing_studio, rejected["id"])
+    assert again["stage"] == "submitted"
+    assert [k for k, _ in ch.submitted][-1] == f"{rejected['claim_number']}-2"
+    assert billing_studio.get("/api/claims/work").json() == []
+    [done] = billing_studio.get("/api/claims/work?state=done").json()
+    assert done["resolution"] == "Corrected and resubmitted."
+
+
+def test_277_categories():
+    from careplix_api.claims import acks
+
+    assert acks.categorize([{"text": "Procedure code invalid"}])[0] == "coding"
+    assert acks.categorize([{"text": "Duplicate claim"}])[0] == "duplicate"
+    assert acks.categorize([{"entity": "85", "text": "Missing"}])[0] == "provider_identity"
+    assert acks.categorize([{"text": "Provider not enrolled with payer"}])[0] == "enrollment"
+    assert acks.categorize([{"text": "Something else"}])[0] == "other"
+
+
+def test_webhook_event_fetches_and_applies_the_277(tmp_path, ch):
+    import base64
+    import hashlib
+    import hmac
+    import time
+
+    from careplix_api.claims import inbound
+    from careplix_api.models import WebhookEvent
+
+    secret = "whsec_" + base64.b64encode(b"k" * 24).decode()
+    with _app(
+        tmp_path,
+        httpx.MockTransport(ch),
+        stedi_api_key="st-test",
+        stedi_base_url="https://ch.test",
+        stedi_webhook_secret=secret,
+    ) as c:
+        c.post("/api/auth/dev-login").raise_for_status()
+        [claim] = _drafts(c, "office_paid")
+        _submit(c, claim["id"])
+        ch.reports["tx_hook"] = ack_277(claim["claim_number"])
+        event = {
+            "id": "evt_1",
+            "object": "v1.event",
+            "environment": "TEST",
+            "resource": {"id": "tx_hook", "type": "transaction"},
+            "relatedResources": [
+                {"id": "tx_hook", "type": "transaction.x12.277"},
+                {"id": "exe_1", "type": "execution"},
+            ],
+            "type": "transaction.processed",
+        }
+        body = json.dumps(event).encode()
+        stamp = str(int(time.time()))
+        sig = base64.b64encode(
+            hmac.new(b"k" * 24, f"msg_9.{stamp}.".encode() + body, hashlib.sha256).digest()
+        ).decode()
+        headers = {
+            "webhook-id": "msg_9",
+            "webhook-timestamp": stamp,
+            "webhook-signature": f"v1,{sig}",
+        }
+        assert c.post("/webhooks/stedi", content=body, headers=headers).json()["ok"]
+        [row] = _rows(c, WebhookEvent)
+        assert (row.resource_type, row.resource_ids, row.detail) == (
+            "transaction.x12.277",
+            ["tx_hook"],
+            {"mode": "test"},
+        )
+        out = c.portal.call(
+            lambda: inbound.process_events(
+                c.app.state.db, c.app.state.settings, httpx.MockTransport(ch)
+            )
+        )
+        assert out == {"processed": 1, "failed": 0}
+        assert c.get(f"/api/claims/{claim['id']}").json()["stage"] == "accepted"
+        [tx] = _rows(c, ClaimTransaction, ClaimTransaction.kind == "277ca")
+        assert tx.transaction_id == "tx_hook" and tx.summary["verdict"] == "accepted"
+
+
+def test_poll_applies_recent_acknowledgements(billing_studio, ch):
+    [claim] = _drafts(billing_studio, "office_paid")
+    _submit(billing_studio, claim["id"])
+    ch.reports["tx_poll"] = ack_277(claim["claim_number"])
+    out = billing_studio.post("/api/claims/clearinghouse/poll").json()
+    assert out == [
+        {
+            "transaction_id": "tx_poll",
+            "kind": "277",
+            "claims": 1,
+            "accepted": 1,
+            "rejected": 0,
+            "pending": 0,
+            "unmatched": 0,
+        }
+    ]
+
+
+async def test_production_refuses_synthetic_and_test_claims():
+    from careplix_api.integrations import clearinghouse, stedi
+
+    def handler(request):  # pragma: no cover - never reached
+        raise AssertionError("nothing may be sent")
+
+    prod = clearinghouse.Clearinghouse(
+        stedi.StediClient(
+            "https://ch.test", "k", mode=stedi.PRODUCTION, transport=httpx.MockTransport(handler)
+        )
+    )
+    test = clearinghouse.Clearinghouse(
+        stedi.StediClient(
+            "https://ch.test", "k", mode=stedi.TEST, transport=httpx.MockTransport(handler)
+        )
+    )
+    real = x837.build(_draft(), PATIENT, PROFILE, mode="production")
+    test_payer = x837.build(_draft(test_outcome="paid"), PATIENT, PROFILE, mode="test")
+    for gw, body, synthetic in ((prod, real, True), (prod, test_payer, False), (test, real, False)):
+        with pytest.raises(clearinghouse.ClearinghouseError) as err:
+            await gw.submit_claim(body, idempotency_key="k", synthetic=synthetic)
+        assert err.value.status == "refused"
+    for gw in (prod, test):
+        await gw.aclose()
+
+
+def test_claims_hosts_sit_next_to_the_healthcare_host():
+    from careplix_api.integrations import stedi
+
+    assert (
+        stedi.sibling("https://healthcare.us.stedi.com", "claims.") == "https://claims.us.stedi.com"
+    )
+    assert stedi.sibling("https://ch.test", "claims.") == "https://ch.test"
+
+
+def test_claim_work_is_scoped_to_the_workspace(billing_studio, ch):
+    from .test_tenancy import CLINIC_ADMIN, _dev_login, _email_sign_in, _new_customer
+
+    [claim] = _drafts(billing_studio, "office_paid")
+    ch.submit_errors = ["Billing provider tax ID is invalid"]
+    _submit(billing_studio, claim["id"])
+    assert len(billing_studio.get("/api/claims/work").json()) == 1
+    _new_customer(billing_studio, "practice")
+    billing_studio.cookies.clear()
+    _email_sign_in(billing_studio, CLINIC_ADMIN)
+    assert billing_studio.get("/api/claims/work").json() == []
+    assert billing_studio.get("/api/claims/charges").json() == []
+    assert billing_studio.post(f"/api/claims/{claim['id']}/submit").status_code == 404
+    _dev_login(billing_studio)
+    assert _rows(billing_studio, ClaimWork)

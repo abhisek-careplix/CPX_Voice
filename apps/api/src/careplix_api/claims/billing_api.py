@@ -6,6 +6,7 @@ Mounted before :mod:`.api` so its fixed paths (``/claims/charges``, ``/claims/wo
 
 from __future__ import annotations
 
+import json
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
@@ -14,10 +15,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from careplix_api.auth import Principal, require
-from careplix_api.claims import billing, charges, service, x837
-from careplix_api.claims.models import ClaimCharge
+from careplix_api.claims import acks, billing, charges, inbound, service, submit, x837
+from careplix_api.claims.models import Claim, ClaimCharge, ClaimTransaction, ClaimWork
 from careplix_api.db import utcnow
 from careplix_api.errors import ApiError
+from careplix_api.integrations import clearinghouse
 from careplix_api.models import PayerConnection
 from careplix_api.practice.connections import EHR
 from careplix_api.settings import Settings, get_settings
@@ -57,6 +59,20 @@ class LineEdit(BaseModel):
     modifiers: list[str] | None = Field(default=None, max_length=4)
     units: str | None = Field(default=None, max_length=8)
     dx: list[int] | None = Field(default=None, max_length=4)
+
+
+class SubmitIn(BaseModel):
+    claim_ids: list[str] = Field(min_length=1, max_length=50)
+
+
+class ReportIn(BaseModel):
+    transaction_id: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_-]+$")
+    kind: Literal["277", "835"]
+
+
+class WorkDone(BaseModel):
+    resolution: str | None = Field(default=None, max_length=200)
+    dismiss: bool = False
 
 
 class ClaimEdit(BaseModel):
@@ -207,3 +223,207 @@ async def edit_claim(
         claim.stage = "draft"
     await session.commit()
     return service.view(claim, utcnow().date())
+
+
+# --- scrub and submit (RC5) ---------------------------------------------------------------
+
+
+@router.post("/claims/submit")
+async def submit_many(
+    body: SubmitIn,
+    request: Request,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """Scrub and submit several claims; one result each (a refusal never stops the rest)."""
+    out = []
+    for claim_id in body.claim_ids:
+        claim = await service.get(session, principal.workspace_id, claim_id)
+        result = await submit.submit(
+            session, settings, claim, actor=principal.user_id, transport=_transport(request)
+        )
+        await session.commit()
+        out.append({"claim_id": claim.id, "claim_number": claim.claim_number, **result})
+    return out
+
+
+@router.post("/claims/{claim_id}/scrub")
+async def scrub_claim(
+    claim_id: str,
+    request: Request,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    claim = await service.get(session, principal.workspace_id, claim_id)
+    await submit.scrub_claim(session, settings, claim, transport=_transport(request))
+    await session.commit()
+    return service.view(claim, utcnow().date())
+
+
+@router.post("/claims/{claim_id}/submit")
+async def submit_claim(
+    claim_id: str,
+    request: Request,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    claim = await service.get(session, principal.workspace_id, claim_id)
+    result = await submit.submit(
+        session, settings, claim, actor=principal.user_id, transport=_transport(request)
+    )
+    await session.commit()
+    return {**service.view(claim, utcnow().date()), "result": result}
+
+
+@router.get("/claims/{claim_id}/transactions")
+async def claim_transactions(
+    claim_id: str, principal: Principal = Depends(viewer), session: AsyncSession = Session
+):
+    claim = await service.get(session, principal.workspace_id, claim_id)
+    rows = await session.scalars(
+        select(ClaimTransaction)
+        .where(
+            ClaimTransaction.workspace_id == principal.workspace_id,
+            ClaimTransaction.claim_id == claim.id,
+        )
+        .order_by(ClaimTransaction.created_at.desc())
+    )
+    return [submit.transaction_view(r) for r in rows]
+
+
+@router.get("/claims/{claim_id}/transactions/{row_id}/raw")
+async def claim_transaction_raw(
+    claim_id: str,
+    row_id: str,
+    principal: Principal = Depends(require("review")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """The request and answer as sent and received (reviewers only: they name the patient)."""
+    claim = await service.get(session, principal.workspace_id, claim_id)
+    row = await session.get(ClaimTransaction, row_id)
+    if row is None or row.claim_id != claim.id or row.workspace_id != principal.workspace_id:
+        raise ApiError(404, "not_found", "No transaction matches that.")
+    opened = json.loads(clearinghouse.white_label(json.dumps(submit.evidence(settings, row))))
+    return {"id": row.id, "kind": row.kind, "mode": row.mode, **opened}
+
+
+@router.get("/claims/{claim_id}/x837")
+async def preview_837(
+    claim_id: str,
+    principal: Principal = Depends(require("review")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """The claim as the clearinghouse will receive it, in the connected mode."""
+    claim = await service.get(session, principal.workspace_id, claim_id)
+    conn = await service.clearinghouse_connection(session, principal.workspace_id)
+    from careplix_api.practice.connections import is_test
+
+    mode = clearinghouse.PRODUCTION if conn is not None and not is_test(conn) else "test"
+    profile = billing.view(await billing.get(session, principal.workspace_id))
+    body = x837.build(
+        claim,
+        service.patient(settings, claim),
+        profile,
+        mode=mode,
+        **(await submit._original(session, claim)),
+    )
+    await session.commit()
+    return {"mode": mode, "body": body}
+
+
+# --- what comes back: 277CA, 835 ---------------------------------------------------------
+
+
+@router.post("/claims/clearinghouse/fetch")
+async def fetch_report(
+    body: ReportIn,
+    request: Request,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """Apply one acknowledgement (277) or remittance (835) by its transaction ID."""
+    try:
+        out = await inbound.fetch(
+            session,
+            settings,
+            principal.workspace_id,
+            body.transaction_id,
+            body.kind,
+            _transport(request),
+        )
+    except clearinghouse.ClearinghouseError as err:
+        raise ApiError(502, "clearinghouse_error", err.message) from None
+    await session.commit()
+    return out
+
+
+@router.post("/claims/clearinghouse/poll")
+async def poll_reports(
+    request: Request,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """Check the clearinghouse for acknowledgements and remittances from the last 3 days."""
+    try:
+        out = await inbound.poll(session, settings, principal.workspace_id, _transport(request))
+    except clearinghouse.ClearinghouseError as err:
+        raise ApiError(502, "clearinghouse_error", err.message) from None
+    await session.commit()
+    return out
+
+
+# --- the work queue: rejections and denials ------------------------------------------------
+
+
+@router.get("/claims/work")
+async def work_queue(
+    state: Literal["open", "done", "all"] = "open",
+    kind: Literal["rejection", "denial", "all"] = "all",
+    principal: Principal = Depends(viewer),
+    session: AsyncSession = Session,
+):
+    query = (
+        select(ClaimWork, Claim)
+        .join(Claim, Claim.id == ClaimWork.claim_id)
+        .where(ClaimWork.workspace_id == principal.workspace_id)
+    )
+    if state != "all":
+        query = query.where(ClaimWork.state == state)
+    if kind != "all":
+        query = query.where(ClaimWork.kind == kind)
+    rows = await session.execute(query.order_by(ClaimWork.created_at.desc()).limit(200))
+    return [
+        {
+            **acks.work_view(work),
+            "claim_number": claim.claim_number,
+            "payer_name": claim.payer_name,
+            "date_of_service": claim.date_of_service,
+            "claim_stage": claim.stage,
+        }
+        for work, claim in rows.all()
+    ]
+
+
+@router.post("/claims/work/{work_id}/done")
+async def work_done(
+    work_id: str,
+    body: WorkDone,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+):
+    row = await session.get(ClaimWork, work_id)
+    if row is None or row.workspace_id != principal.workspace_id:
+        raise ApiError(404, "not_found", "No work item matches that.")
+    if row.state == "open":
+        row.state = "dismissed" if body.dismiss else "done"
+        row.resolved_at, row.resolved_by = utcnow(), principal.user_id
+        row.resolution = body.resolution or ("Dismissed." if body.dismiss else "Done.")
+    await session.commit()
+    return acks.work_view(row)
