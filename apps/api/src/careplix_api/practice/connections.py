@@ -32,14 +32,27 @@ def secret(settings: Settings, ref: dict[str, Any] | None) -> str:
     return os.environ.get(name, "")
 
 
+def nexhealth_env(conn: PayerConnection) -> str:
+    """``production`` only when the connection says so; anything else is the sandbox."""
+    return "production" if (conn.auth_ref or {}).get("env") == "production" else "sandbox"
+
+
 def nexhealth_client(
     conn: PayerConnection, settings: Settings, transport: httpx.AsyncBaseTransport | None
 ) -> NexHealthClient:
+    """A client with the key for the connection's env and nothing else: a production practice
+    reads NEXHEALTH_PROD_API_KEY, a sandbox one NEXHEALTH_API_KEY (never the production key).
+
+    Every client for the same key shares one token and one throttle (the limits are per key), so
+    many clinics on CarePlix's production key stay under its 2,000/min together.
+    """
+    env = nexhealth_env(conn)
+    key = settings.nexhealth_key(env)
+    if not key:
+        name = settings.nexhealth_key_env(env)
+        raise NexHealthError("auth", f"This environment has no NexHealth {env} key ({name}).")
     return NexHealthClient(
-        conn.base_url,
-        secret(settings, conn.auth_ref),
-        (conn.auth_ref or {})["subdomain"],
-        transport=transport,
+        conn.base_url, key, (conn.auth_ref or {})["subdomain"], transport=transport
     )
 
 
@@ -132,17 +145,49 @@ async def audit(
     return call
 
 
+def is_env_managed(conn: PayerConnection) -> bool:
+    """Connections the deployment's env creates (the lab practice, the clearinghouse), as
+    opposed to practices a workspace adds in the Studio (``auth_ref.source == "studio"``)."""
+    return (conn.auth_ref or {}).get("source") != "studio"
+
+
+def clearinghouse_key_env(settings: Settings, mode: str) -> str:
+    if mode == "production":
+        return "STEDI_PROD_API_KEY"
+    test_key = settings.stedi_test_api_key.get_secret_value()
+    return "STEDI_TEST_API_KEY" if test_key else "STEDI_API_KEY"
+
+
+def clearinghouse_spec(
+    settings: Settings, mode: str
+) -> tuple[str, str, str, dict[str, Any], bool] | None:
+    """The clearinghouse connection for one mode, or None when that mode's key isn't set."""
+    key_env = clearinghouse_key_env(settings, mode)
+    if not secret(settings, {"key_env": key_env}):
+        return None
+    return (
+        CLEARINGHOUSE,
+        "Clearinghouse" + (" (test mode: mock payers)" if mode == "test" else ""),
+        settings.stedi_base_url,
+        {"key_env": key_env, "env": mode},
+        mode == "test",
+    )
+
+
 async def ensure_practice_connections(session: AsyncSession, settings: Settings) -> None:
-    """Register the Stedi account for every workspace, and the env EHR for lab workspaces."""
-    wanted: list[tuple[str, str, str, dict[str, Any], bool]] = []
+    """Register the clearinghouse for every workspace (in the workspace's chosen mode), and the
+    env EHR for lab workspaces. Practices added in the Studio are left alone."""
+    from careplix_api.practice import automation
+
+    env_ehrs: list[tuple[str, str, str, dict[str, Any], bool]] = []
     if settings.nexhealth_configured:
-        wanted.append(
+        env_ehrs.append(
             (
                 EHR,
                 f"NexHealth · {settings.nexhealth_subdomain}",
                 settings.nexhealth_base_url,
                 {
-                    "key_env": "NEXHEALTH_API_KEY",
+                    "key_env": settings.nexhealth_key_env(settings.nexhealth_env),
                     "env": settings.nexhealth_env,
                     "subdomain": settings.nexhealth_subdomain,
                     "institution_id": settings.nexhealth_institution_id,
@@ -152,7 +197,7 @@ async def ensure_practice_connections(session: AsyncSession, settings: Settings)
             )
         )
     if settings.openemr_configured:
-        wanted.append(
+        env_ehrs.append(
             (
                 OPENEMR,
                 "OpenEMR · local clinic",
@@ -171,27 +216,29 @@ async def ensure_practice_connections(session: AsyncSession, settings: Settings)
                 True,
             )
         )
-    if settings.stedi_configured:
-        wanted.append(
-            (
-                CLEARINGHOUSE,
-                "Clearinghouse"
-                + (" (test mode: mock payers)" if settings.stedi_mode == "test" else ""),
-                settings.stedi_base_url,
-                {"key_env": settings.stedi_key_env, "env": settings.stedi_mode},
-                settings.stedi_mode == "test",
-            )
-        )
     for workspace in list(await session.scalars(select(Workspace))):
+        wanted = []
+        if workspace.env_integrations is not False:
+            # The deployment's own EHR is the lab practice. Customer workspaces never see it.
+            wanted += env_ehrs
+        mode = automation.effective(workspace, settings).clearinghouse_env
+        spec = clearinghouse_spec(settings, mode)
+        if spec is not None:
+            # The clearinghouse account is CarePlix's and serves every workspace.
+            wanted.append(spec)
         for kind, name, url, ref, synthetic in wanted:
-            if kind != CLEARINGHOUSE and workspace.env_integrations is False:
-                # The deployment's own EHR is the lab practice. Customer workspaces never see
-                # it; the clearinghouse account is CarePlix's and serves every workspace.
-                continue
-            conn = await session.scalar(
-                select(PayerConnection).where(
-                    PayerConnection.workspace_id == workspace.id, PayerConnection.kind == kind
-                )
+            conn = next(
+                (
+                    c
+                    for c in await session.scalars(
+                        select(PayerConnection).where(
+                            PayerConnection.workspace_id == workspace.id,
+                            PayerConnection.kind == kind,
+                        )
+                    )
+                    if is_env_managed(c)
+                ),
+                None,
             )
             if conn is None:
                 session.add(
@@ -210,6 +257,9 @@ async def ensure_practice_connections(session: AsyncSession, settings: Settings)
                     )
                 )
             else:
+                if kind == CLEARINGHOUSE and (conn.auth_ref or {}).get("env") != ref["env"]:
+                    # A new mode is a new account: its old verification says nothing about it.
+                    conn.verified_at, conn.capability, conn.last_error = None, None, None
                 # Keep the webhook registration; follow configuration changes for the rest.
                 conn.name, conn.base_url, conn.synthetic = name, url, synthetic
                 conn.auth_ref = {**(conn.auth_ref or {}), **ref}

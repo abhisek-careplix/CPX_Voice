@@ -59,6 +59,10 @@ def problems(settings: Settings) -> list[str]:
             found.append("careplix-labs takes the NexHealth sandbox key only (NEXHEALTH_ENV).")
         if settings.stedi_env == "production":
             found.append("careplix-labs runs the clearinghouse in test mode only (STEDI_ENV).")
+        if settings.nexhealth_prod_api_key.get_secret_value():
+            found.append(
+                "careplix-labs must not hold a production NexHealth key (NEXHEALTH_PROD_API_KEY)."
+            )
         if settings.stedi_prod_api_key.get_secret_value():
             found.append(
                 "careplix-labs must not hold a production clearinghouse key (STEDI_PROD_API_KEY)."
