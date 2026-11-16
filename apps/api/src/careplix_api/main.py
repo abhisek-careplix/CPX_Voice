@@ -28,14 +28,11 @@ from careplix_api.browser.service import BrowserRunner
 from careplix_api.calls_service import CallRunner
 from careplix_api.cases import api as cases_api
 from careplix_api.cases import service as cases_service
-<<<<<<< HEAD
 from careplix_api.channels import api as channels_api
 from careplix_api.channels import service as channels_service
 from careplix_api.channels import webhooks as channels_webhooks
-=======
 from careplix_api.claims import api as claims_api
 from careplix_api.claims import follow_up as claims_follow_up
->>>>>>> origin/main
 from careplix_api.db import Database
 from careplix_api.errors import ApiError
 from careplix_api.evals import api as evals_api
@@ -216,11 +213,8 @@ def create_app(
     app.include_router(shadow_api.router, prefix="/api")
     app.include_router(personas_api.router, prefix="/api")
     app.include_router(cases_api.router, prefix="/api")
-<<<<<<< HEAD
     app.include_router(channels_api.router, prefix="/api")
-=======
     app.include_router(claims_api.router, prefix="/api")
->>>>>>> origin/main
     app.include_router(internal_api.router)
     app.include_router(channels_api.internal_router)
     if settings.is_dev:
