@@ -123,6 +123,8 @@ class Settings(BaseSettings):
     stedi_webhook_secret: SecretStr = SecretStr("")  # Standard Webhooks secret (whsec_…)
     stedi_max_in_flight: int = 8  # per process; Stedi's real-time pool is 50 per account
     stedi_voice_timeout_s: float = 25.0  # a caller waits on the line; the tool limit is 30 s
+    # Claim follow-up: re-check claim status by age; call the payer when it is stale (RC6).
+    claim_follow_up_enabled: bool = True
     # Billing provider NPI sent on eligibility checks when the workspace hasn't set its own
     # (Practice → Eligibility settings). Test mode always sends Stedi's mock NPI.
     practice_npi: str = ""

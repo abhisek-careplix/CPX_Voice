@@ -1,4 +1,8 @@
-"""Stedi clearinghouse client: eligibility (270/271), payer search and webhook verification.
+"""Stedi clearinghouse client: eligibility (270/271), claim status (276/277), payer search and
+webhook verification.
+
+The Studio never names the vendor: :mod:`careplix_api.integrations.clearinghouse` is the gateway the
+product uses, and every message that can reach a person comes out of here vendor-neutral.
 
 Checked against Stedi's docs (stedi.com/docs/healthcare, Nov 2026):
 
@@ -21,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import calendar
+import copy
 import hashlib
 import hmac
 import re
@@ -34,6 +39,7 @@ import httpx
 
 ELIGIBILITY_PATH = "/2026-06-01/eligibility-check"
 PAYER_SEARCH_PATH = "/2024-04-01/payers/search"
+CLAIM_STATUS_PATH = "/2024-04-01/change/medicalnetwork/claimstatus/v2"
 USER_AGENT = "CarePlix-Voice/1.0"
 TIMEOUT_S = 125.0  # Stedi gives up on the payer after 120 s
 TEST, PRODUCTION = "test", "production"
@@ -154,6 +160,75 @@ def looks_mock(request: dict[str, Any]) -> bool:
     )
 
 
+# --- claim status (276/277) mocks ---------------------------------------------------------------
+# The vendor's published claim status example (UnitedHealthcare, "accepted, paid"). Test keys may
+# or may not answer it: the claim status docs only promise answers for production claims the payer
+# has accepted. A test client sends this exact request and nothing else; whatever comes back (an
+# answer or a refusal) is recorded as test-mode evidence.
+CLAIM_STATUS_MOCK = {
+    "tradingPartnerServiceId": "87726",
+    "providers": [
+        {
+            "organizationName": MOCK_PROVIDER_NAME,
+            "npi": MOCK_PROVIDER_NPI,
+            "providerType": "BillingProvider",
+        }
+    ],
+    "subscriber": {
+        "memberId": "UHC123456",
+        "firstName": "Jane",
+        "lastName": "Doe",
+        "dateOfBirth": "19710101",
+        "gender": "F",
+    },
+    "encounter": {"beginningDateOfService": "20250630", "endDateOfService": "20250702"},
+}
+
+
+def claim_status_mock_request() -> dict[str, Any]:
+    return copy.deepcopy(CLAIM_STATUS_MOCK)
+
+
+def is_claim_status_mock(request: dict[str, Any]) -> bool:
+    subscriber, mock = request.get("subscriber") or {}, CLAIM_STATUS_MOCK["subscriber"]
+    return (
+        not request.get("dependent")
+        and str(request.get("tradingPartnerServiceId"))
+        == CLAIM_STATUS_MOCK["tradingPartnerServiceId"]
+        and subscriber.get("memberId") == mock["memberId"]
+        and subscriber.get("dateOfBirth") == mock["dateOfBirth"]
+    )
+
+
+def claim_status_looks_mock(request: dict[str, Any]) -> bool:
+    subscriber = request.get("subscriber") or {}
+    npis = {str(p.get("npi")) for p in request.get("providers") or [] if isinstance(p, dict)}
+    return (
+        is_claim_status_mock(request)
+        or MOCK_PROVIDER_NPI in npis
+        or subscriber.get("memberId") == CLAIM_STATUS_MOCK["subscriber"]["memberId"]
+        or mock_for_member(subscriber.get("memberId")) is not None
+    )
+
+
+# --- white label ---------------------------------------------------------------------------------
+
+_VENDOR = re.compile(r"\bstedi(?:'s)?\b", re.I)
+
+
+def white_label(text: str | None) -> str | None:
+    """The vendor's name out of any text that can reach a person ("Stedi's mock" → "the
+    clearinghouse's mock"). Identifiers in code and settings keep their names."""
+    if text is None:
+        return None
+    return _VENDOR.sub(
+        lambda m: (
+            "the clearinghouse's" if m.group(0).lower().endswith("'s") else "the clearinghouse"
+        ),
+        text,
+    )
+
+
 # --- identifiers ---------------------------------------------------------------------------------
 
 # CMS MBI format: 11 characters; letters exclude S, L, O, I, B and Z.
@@ -230,7 +305,7 @@ def patient_request(
     if payer_id == CMS:
         subscriber = {**subscriber, "member_id": normalize_mbi(subscriber["member_id"])}
     if provider_npi == MOCK_PROVIDER_NPI:
-        raise ValueError("Stedi's mock NPI is for test mode only.")
+        raise ValueError("The test-mode provider NPI is for test mode only.")
     provider: dict[str, Any] = {"npi": provider_npi}
     if pin:
         provider["additionalInformation"] = {"personalIdentificationNumber": pin}
@@ -297,7 +372,8 @@ _AAA_TEXT = {
     "73": "The payer didn't match the member's name.",
     "75": "The payer couldn't find the member.",
     "76": "The payer found more than one member with this ID.",
-    "79": "Stedi couldn't route the request, or the payer couldn't identify a participant.",
+    "79": "The clearinghouse couldn't route the request, or the payer couldn't identify a "
+    "participant.",
     "80": "The payer didn't respond.",
     "97": "The payer rejected the provider's address.",
     "T4": "The payer ID is missing or invalid.",
@@ -365,7 +441,7 @@ def error_message(errors: list[dict[str, Any]], payer_id: str | None) -> str | N
         )
     for e in errors:
         if e["code"] == "42" and e["followup_code"] in ("C", "N", "S"):
-            return "The payer rejected the request format (AAA 42): contact Stedi support."
+            return "The payer rejected the request format (AAA 42): contact clearinghouse support."
     for e in errors:
         text = _AAA_TEXT.get(e["code"]) or e.get("description")
         if text:
@@ -418,7 +494,7 @@ class StediClient:
         max_in_flight: int = 8,
     ):
         if mode not in (TEST, PRODUCTION):
-            raise ValueError(f"unknown Stedi mode {mode!r}")
+            raise ValueError(f"unknown clearinghouse mode {mode!r}")
         self.base_url, self.mode = base_url.rstrip("/"), mode
         self.calls, self._max_in_flight = 0, max_in_flight
         self._http = httpx.AsyncClient(
@@ -455,7 +531,7 @@ class StediClient:
 
     @staticmethod
     def _raise(body: dict[str, Any], http_status: int, reason: str) -> None:
-        message = str(body.get("message") or reason or "Stedi error")
+        message = white_label(str(body.get("message") or reason or "Clearinghouse error"))
         errors = parse_errors(body)
         if http_status in (401, 403):
             raise StediError("auth", message, http_status)
@@ -472,11 +548,22 @@ class StediClient:
         if self.mode == PRODUCTION and looks_mock(request):
             raise StediError("refused", "A mock member can't be sent with a production key.")
         if self.mode == TEST and not is_mock(request):
-            raise StediError("refused", "A test key only sends Stedi's published mock requests.")
+            raise StediError("refused", "A test key only sends the published test-mode members.")
         headers = {"X-Forwarded-For": forwarded_for} if forwarded_for else None
         body, http_status, ms = await self._request(
             "POST", ELIGIBILITY_PATH, json=request, headers=headers
         )
+        if http_status >= 400:
+            self._raise(body, http_status, "")
+        return body, ms
+
+    async def claim_status(self, request: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        """One real-time 276/277. A 200 can still say the payer found nothing (category D0/A4)."""
+        if self.mode == PRODUCTION and claim_status_looks_mock(request):
+            raise StediError("refused", "A test-mode member can't be sent with a production key.")
+        if self.mode == TEST and not is_claim_status_mock(request):
+            raise StediError("refused", "A test key only sends the published test-mode claim.")
+        body, http_status, ms = await self._request("POST", CLAIM_STATUS_PATH, json=request)
         if http_status >= 400:
             self._raise(body, http_status, "")
         return body, ms
