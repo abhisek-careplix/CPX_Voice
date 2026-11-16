@@ -45,6 +45,9 @@ class Workspace(IdMixin, Base):
     # NULL (workspaces from before tenancy) means yes; customer workspaces are created with False
     # so they never see the lab practice's data.
     env_integrations: Mapped[bool | None] = mapped_column(Boolean)
+    # Practice automation choices (careplix_api.practice.automation): cancel mode, backfill,
+    # eligibility autopilot, sync interval, clearinghouse mode. Missing keys use the env default.
+    practice_automation: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
 
 class WorkerProbe(IdMixin, Base):

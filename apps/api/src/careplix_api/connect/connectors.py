@@ -8,12 +8,12 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from typing import Any
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from careplix_api.connect.base import Connector, profile
+from careplix_api.connect.base import CONFIRM_SLA, Connector, profile
 from careplix_api.connect.catalog import (
     PROFILES,
     Profile,
@@ -34,10 +34,42 @@ MAX_SLOT_DAYS = 14  # NexHealth: keep each /available_slots request to 14 days o
 MAX_SLOT_REQUESTS = 4
 
 
+def _zone(timezone: str | None) -> ZoneInfo:
+    try:
+        return ZoneInfo(timezone or "America/New_York")
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo("America/New_York")
+
+
 def office_open(timezone: str | None, now: datetime) -> bool:
     """Weekday office hours in the practice's time zone (when a cloud EHR's sync runs)."""
-    local = now.astimezone(ZoneInfo(timezone or "America/New_York"))
+    local = now.astimezone(_zone(timezone))
     return local.weekday() < 5 and OFFICE_HOURS[0] <= local.time() < OFFICE_HOURS[1]
+
+
+def office_elapsed(timezone: str | None, start: datetime, end: datetime) -> timedelta:
+    """Office-hours time between two moments: what a cloud EHR has had to pick up a write.
+
+    A cancel sent Friday at 17:30 has had 30 minutes by Monday morning, not a weekend.
+    """
+    tz = _zone(timezone)
+    start, end = start.astimezone(tz), end.astimezone(tz)
+    total = timedelta(0)
+    day = start.date()
+    while day <= end.date() and total < timedelta(days=7):
+        if day.weekday() < 5:
+            opens = datetime.combine(day, OFFICE_HOURS[0], tzinfo=tz)
+            closes = datetime.combine(day, OFFICE_HOURS[1], tzinfo=tz)
+            lo, hi = max(opens, start), min(closes, end)
+            if hi > lo:
+                total += hi - lo
+        day += timedelta(days=1)
+    return total
+
+
+def cloud_overdue(timezone: str | None, intent: WriteIntent, now: datetime) -> bool:
+    sent = as_utc(intent.sent_at) or now
+    return office_elapsed(timezone, sent, now) > CONFIRM_SLA
 
 
 class OpenEmrConnector(Connector):
@@ -109,6 +141,12 @@ class OpenEmrConnector(Connector):
             return office_open((self.conn.auth_ref or {}).get("timezone"), now)
         return True
 
+    def confirm_overdue(self, intent: WriteIntent, now: datetime) -> bool:
+        emulating = self.emulating
+        if emulating is not None and emulating.confirm == "async_office_hours":
+            return cloud_overdue((self.conn.auth_ref or {}).get("timezone"), intent, now)
+        return super().confirm_overdue(intent, now)
+
     async def slot_free(self, opening: Any) -> str | None:
         return await self.client.slot_free(opening)
 
@@ -163,6 +201,18 @@ class NexHealthConnector(Connector):
         from careplix_api.practice.backfill import nexhealth_free_operatory
 
         return await nexhealth_free_operatory(self.client, self.conn, opening)
+
+    def _cloud(self) -> bool:
+        profile = self.profile
+        return profile is not None and profile.confirm == "async_office_hours"
+
+    def confirm_overdue(self, intent: WriteIntent, now: datetime) -> bool:
+        """athenahealth, eCW, ModMed, NextGen (cloud): the write lands when the office's
+        Chrome extension syncs, so the wait counts office hours in the location's time zone."""
+        if self._cloud():
+            tz = (self.conn.capability or {}).get("location_tz")
+            return cloud_overdue(tz, intent, now)
+        return super().confirm_overdue(intent, now)
 
     def schedule_online(self) -> bool:
         from careplix_api.practice.sync import schedule_status
