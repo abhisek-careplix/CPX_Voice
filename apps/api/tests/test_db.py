@@ -44,3 +44,21 @@ async def test_start_adds_a_new_nullable_column_to_an_existing_table(tmp_path, b
             async with db.engine.begin() as conn:
                 await conn.run_sync(careplix_api.models.Base.metadata.drop_all)
         await db.dispose()
+
+
+async def test_pool_replaces_dropped_connections(tmp_path):
+    """Cloud SQL reset every pooled connection (15 Nov 2026) and the next query failed once.
+
+    The pool must test a connection before handing it out and retire old ones.
+    """
+    from careplix_api.db import POOL_RECYCLE_S
+
+    db = Database(f"sqlite+aiosqlite:///{tmp_path}/pool.db")
+    try:
+        pool = db.engine.pool
+        assert pool._pre_ping is True
+        assert pool._recycle == POOL_RECYCLE_S
+        async with db.sessions() as session:
+            assert (await session.execute(text("SELECT 1"))).scalar() == 1
+    finally:
+        await db.dispose()
