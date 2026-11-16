@@ -61,6 +61,7 @@ STALE_AFTER = timedelta(days=21)
 CALL_NOW = frozenset({NOT_FOUND, REJECTED, INFO_REQUESTED})
 SOURCE = "claim_follow_up"
 SYSTEM_ACTOR = "system:claims"
+NOT_OUT = frozenset({"draft", "ready", "blocked", "void"})  # claims we haven't submitted
 
 
 def _date(value: str | None) -> date | None:
@@ -168,6 +169,8 @@ async def follow_up(
 ) -> dict[str, Any]:
     """One claim: check it if the schedule says so, then open the payer call if it needs one."""
     now = now or utcnow()
+    if claim.stage in NOT_OUT:
+        return {"checked": False, "case_id": None}  # not at the payer yet
     checked = None
     if due(claim, now):
         checked = await service.check(

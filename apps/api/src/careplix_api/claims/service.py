@@ -84,6 +84,23 @@ def view(claim: Claim, today: date) -> dict[str, Any]:
         "follow_up_case_id": claim.follow_up_case_id,
         "follow_up_reason": claim.follow_up_reason,
         "follow_up_error": claim.follow_up_error,
+        # Claims we build and submit (None on claims we only follow).
+        "stage": claim.stage,
+        "place_of_service": claim.place_of_service,
+        "diagnoses": claim.diagnoses or [],
+        "lines": claim.lines or [],
+        "frequency": claim.frequency,
+        "replaces_claim_id": claim.replaces_claim_id,
+        "test_outcome": claim.test_outcome,
+        "scrub": claim.scrub,
+        "submit_mode": claim.submit_mode,
+        "submitted_at": _iso(claim.submitted_at),
+        "clearinghouse_claim_id": claim.clearinghouse_claim_id,
+        "ack_status": claim.ack_status,
+        "ack_at": _iso(claim.ack_at),
+        "paid_total": claim.paid_total,
+        "patient_responsibility": claim.patient_responsibility,
+        "era_at": _iso(claim.era_at),
     }
 
 

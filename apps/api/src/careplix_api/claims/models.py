@@ -58,7 +58,88 @@ class Claim(IdMixin, Base):
     follow_up_case_id: Mapped[str | None] = mapped_column(String(36))
     follow_up_reason: Mapped[str | None] = mapped_column(String(160))
     follow_up_error: Mapped[str | None] = mapped_column(String(200))
+    # --- claims we build and submit (RC3–RC8); None on claims we only follow -----------------
+    # draft | ready | blocked | submitted | accepted | rejected | paid | partially_paid | denied
+    # | void. ``submitted_on`` stays "" until the clearinghouse takes the claim.
+    stage: Mapped[str | None] = mapped_column(String(16), index=True)
+    place_of_service: Mapped[str | None] = mapped_column(String(2))
+    diagnoses: Mapped[list[str] | None] = mapped_column(JSON)  # ICD-10-CM, no dots, first = primary
+    # [{line_id, cpt, modifiers, units, charge, dx (1-based pointers), date_of_service, charge_id}]
+    lines: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
+    frequency: Mapped[str | None] = mapped_column(String(12))  # original | replacement
+    replaces_claim_id: Mapped[str | None] = mapped_column(String(36))
+    # Test mode only: which remittance the clearinghouse's test payer sends (paid | partial |
+    # denied); it picks the published member-ID prefix.
+    test_outcome: Mapped[str | None] = mapped_column(String(10))
+    scrub: Mapped[dict[str, Any] | None] = mapped_column(JSON)  # {clean, findings, checked_at}
+    submit_mode: Mapped[str | None] = mapped_column(String(12))  # test | production
+    submission_id: Mapped[str | None] = mapped_column(String(60))
+    clearinghouse_claim_id: Mapped[str | None] = mapped_column(String(60))
+    submitted_at: Mapped[datetime | None] = mapped_column()
+    ack_status: Mapped[str | None] = mapped_column(String(12))  # accepted | rejected
+    ack_at: Mapped[datetime | None] = mapped_column()
+    paid_total: Mapped[str | None] = mapped_column(String(16))
+    patient_responsibility: Mapped[str | None] = mapped_column(String(16))
+    era_at: Mapped[datetime | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class ClaimCharge(IdMixin, Base):
+    """One billed service from the EHR (or a synthetic one): the raw material of a claim (RC3).
+
+    NexHealth charges carry the procedure code, fee, date and provider but no diagnoses, units or
+    modifiers: those are added before the claim is scrubbed, and the scrub refuses a claim without
+    them."""
+
+    __tablename__ = "claim_charges"
+    __table_args__ = (UniqueConstraint("workspace_id", "source", "source_ref"),)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    source: Mapped[str] = mapped_column(String(12))  # sample | ehr
+    source_ref: Mapped[str] = mapped_column(String(60))
+    ehr_connection_id: Mapped[str | None] = mapped_column(String(36))
+    synthetic: Mapped[bool] = mapped_column(Boolean, default=True)
+    patient_ref: Mapped[str | None] = mapped_column(String(40), index=True)
+    # Sealed {display_name, first_name, last_name, date_of_birth, member_id, gender, address}.
+    patient: Mapped[str | None] = mapped_column(Text)
+    payer_id: Mapped[str | None] = mapped_column(String(40))
+    payer_name: Mapped[str | None] = mapped_column(String(160))
+    plan_kind: Mapped[str | None] = mapped_column(String(24))
+    provider_ref: Mapped[str | None] = mapped_column(String(40))
+    provider_name: Mapped[str | None] = mapped_column(String(160))
+    provider_npi: Mapped[str | None] = mapped_column(String(10))
+    date_of_service: Mapped[str] = mapped_column(String(10))
+    cpt_code: Mapped[str] = mapped_column(String(10))
+    description: Mapped[str | None] = mapped_column(String(160))
+    modifiers: Mapped[list[str]] = mapped_column(JSON, default=list)
+    units: Mapped[str] = mapped_column(String(8), default="1")
+    amount: Mapped[str] = mapped_column(String(16))
+    diagnoses: Mapped[list[str]] = mapped_column(JSON, default=list)
+    place_of_service: Mapped[str | None] = mapped_column(String(2))
+    test_outcome: Mapped[str | None] = mapped_column(String(10))  # synthetic visits only
+    claim_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class BillingProfile(IdMixin, Base):
+    """Who bills: the billing provider, tax ID and submitter on every claim (one per workspace).
+
+    Test claims to the clearinghouse's test payer must use the NPI and tax ID the provider was
+    enrolled with for remittances (docs/solution/RCM_TEST_MODE_WALKTHROUGH.md)."""
+
+    __tablename__ = "billing_profiles"
+    __table_args__ = (UniqueConstraint("workspace_id"),)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    organization: Mapped[str] = mapped_column(String(60))
+    npi: Mapped[str] = mapped_column(String(10))
+    tax_id: Mapped[str] = mapped_column(String(9))  # EIN, digits only
+    taxonomy: Mapped[str | None] = mapped_column(String(10))
+    address1: Mapped[str] = mapped_column(String(55))
+    city: Mapped[str] = mapped_column(String(30))
+    state: Mapped[str] = mapped_column(String(2))
+    postal_code: Mapped[str] = mapped_column(String(9))
+    submitter_name: Mapped[str] = mapped_column(String(60))
+    contact_phone: Mapped[str] = mapped_column(String(10))
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
 
