@@ -62,3 +62,22 @@ async def test_pool_replaces_dropped_connections(tmp_path):
             assert (await session.execute(text("SELECT 1"))).scalar() == 1
     finally:
         await db.dispose()
+
+
+async def test_the_pool_honours_the_service_budget(tmp_path):
+    from careplix_api.db import from_settings
+    from careplix_api.settings import Settings
+
+    settings = Settings(
+        _env_file=None,
+        database_url=f"sqlite+aiosqlite:///{tmp_path}/budget.db",
+        db_pool_size=2,
+        db_max_overflow=1,
+        db_pool_timeout_s=3,
+    )
+    db = from_settings(settings)
+    try:
+        pool = db.engine.pool
+        assert pool.size() == 2 and pool._max_overflow == 1 and pool._timeout == 3
+    finally:
+        await db.dispose()

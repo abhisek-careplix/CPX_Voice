@@ -32,7 +32,8 @@ from fastapi import APIRouter, Depends, FastAPI, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from careplix_api.db import Database, as_utc, utcnow
+from careplix_api.db import as_utc, utcnow
+from careplix_api.db import from_settings as db_from_settings
 from careplix_api.errors import ApiError
 from careplix_api.integrations import stedi
 from careplix_api.integrations.nexhealth import NexHealthError
@@ -471,7 +472,7 @@ def create_webhook_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        app.state.db = Database(settings.database_url)
+        app.state.db = db_from_settings(settings)
         await app.state.db.create_all()
         yield
         await app.state.db.dispose()

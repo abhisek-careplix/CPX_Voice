@@ -266,3 +266,25 @@ def test_the_studio_gets_customer_sign_in_settings_and_stays_behind_iap_by_defau
     assert 'studio_access="--no-allow-unauthenticated --iap"' in text
     assert "STUDIO_PUBLIC=true needs a sign-in method" in text
     assert "RESEND_API_KEY=cpx-resend-api-key:latest" in text
+
+
+def test_every_database_service_fits_the_cloud_sql_connection_limit():
+    # 16 Nov 2026: with the default pool (15 per process) the new Studio revision couldn't open its
+    # first connection ("remaining connection slots are reserved"), and the deploy failed.
+    text = SCRIPT.read_text()
+    budgets = {}
+    for name in ("STUDIO", "INTERNAL", "WEBHOOKS"):
+        match = re.search(
+            rf'^DB_BUDGET_{name}="DB_POOL_SIZE=(\d+),DB_MAX_OVERFLOW=(\d+)"', text, re.M
+        )
+        assert match, name
+        budgets[name] = int(match.group(1)) + int(match.group(2))
+    for service, name in (
+        ("careplix-studio", "STUDIO"),
+        ("careplix-internal", "INTERNAL"),
+        ("careplix-webhooks", "WEBHOOKS"),
+    ):
+        assert f"$DB_BUDGET_{name}" in _deploy_command(service), service
+    # Two instances of each at worst (the Studio during a rollout; internal and webhooks max 2).
+    usable = 25 - 3  # db-f1-micro: 25 connections, 3 reserved for superusers
+    assert 2 * sum(budgets.values()) <= usable
