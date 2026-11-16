@@ -130,6 +130,49 @@ CASE_TYPES: dict[str, dict[str, Any]] = {
             _f("cpt_code", "CPT code", "claim.cpt_code", "code", required=False),
         ],
     },
+    "claim_denial": {
+        "name": "Claim denial",
+        "program": "Prior auth and claims",
+        "prefix": "DEN",
+        "summary": "Call the payer about a denied claim: why, what fixes it, and the appeal route.",
+        "counterparty": {
+            "role": "payer",
+            "label": "Payer",
+            "name": "payer.name",
+            "phone": "payer.phone",
+        },
+        "on_behalf_of": "provider.name",
+        "subject": "patient.display_name",
+        "headline": ("claim.number", "denial.reason_codes"),
+        "agents": ["errand"],
+        "checks": [],
+        "packs": ["financial-safety", "manipulation-resistance"],
+        "objective": "Claim {claim_number} for {patient_name} (date of service "
+        "{date_of_service}, billed {billed_amount}) was denied with {reason_codes}. Find out "
+        "exactly why, whether a corrected claim or a reconsideration fixes it, what records the "
+        "payer needs, the appeal deadline and address or fax, and a reference number for this "
+        "call. Never agree to a write-off or a payment.",
+        "contract": {
+            "informed": ["staff"],
+            "sor": "The payer's reference number for the call",
+            "clinical": False,
+        },
+        "fields": [
+            _f("patient_name", "Patient", "patient.display_name"),
+            _f("date_of_birth", "Date of birth", "patient.date_of_birth", "date"),
+            _f("member_id", "Member ID", "patient.member_id", "code"),
+            _f("provider_name", "Billing provider", "provider.name"),
+            _f("provider_npi", "Provider NPI", "provider.npi", "code"),
+            _f("payer_name", "Payer", "payer.name"),
+            _f("payer_phone", "Payer phone", "payer.phone", "phone", share=False),
+            _f("claim_number", "Claim number", "claim.number", "code"),
+            _f("date_of_service", "Date of service", "claim.date_of_service", "date"),
+            _f("billed_amount", "Billed amount", "claim.billed_amount", "money"),
+            _f("cpt_code", "CPT code", "claim.cpt_code", "code", required=False),
+            _f("reason_codes", "Denial codes", "denial.reason_codes", "code"),
+            _f("denied_amount", "Denied amount", "denial.amount", "money", required=False),
+        ],
+    },
     "eligibility_check": {
         "name": "Benefits check",
         "program": "Benefits and eligibility",
@@ -436,6 +479,13 @@ def sample_values(type_id: str, rng: random.Random, n: int) -> dict[str, Any]:
             "units": 1,
             "submitted_on": (date.today() - timedelta(days=rng.randint(5, 20))).isoformat(),
             "urgency": "standard",
+        }
+    elif type_id == "claim_denial":
+        base |= {
+            "claim_number": f"CPX{rng.randint(10**9, 10**10 - 1)}",
+            "date_of_service": (date.today() - timedelta(days=rng.randint(30, 75))).isoformat(),
+            "billed_amount": f"${rng.randint(120, 2400)}.00",
+            "reason_codes": rng.choice(["CO-50", "CO-197", "CO-16 / M127", "CO-97"]),
         }
     elif type_id == "claim_status":
         base |= {

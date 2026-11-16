@@ -32,6 +32,7 @@ from careplix_api.cases import api as cases_api
 from careplix_api.cases import service as cases_service
 from careplix_api.cases.playbooks import PlaybookEngine
 from careplix_api.claims import api as claims_api
+from careplix_api.claims import billing_api as claims_billing_api
 from careplix_api.claims import follow_up as claims_follow_up
 from careplix_api.db import Database
 from careplix_api.errors import ApiError
@@ -221,6 +222,7 @@ def create_app(
     app.include_router(personas_api.router, prefix="/api")
     app.include_router(cases_api.router, prefix="/api")
     app.include_router(people_api.router, prefix="/api")
+    app.include_router(claims_billing_api.router, prefix="/api")  # before /claims/{id}
     app.include_router(claims_api.router, prefix="/api")
     app.include_router(internal_api.router)
     if settings.is_dev:

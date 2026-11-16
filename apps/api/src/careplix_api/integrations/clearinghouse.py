@@ -9,6 +9,12 @@ every message that leaves here has the vendor's name taken out (:func:`white_lab
   :func:`summarize_claim_status` into one of :data:`STATUSES`.
 - Payer directory: :meth:`Clearinghouse.search_payers`, each payer reduced by :func:`payer_entry`
   to our id, name and which transactions it supports.
+- Claims (837P): :meth:`Clearinghouse.validate_claim` and :meth:`Clearinghouse.submit_claim`
+  (idempotency key per submission). A test key sends only synthetic claims; a production key never
+  sends a synthetic claim or the test payer.
+- Reports: :meth:`Clearinghouse.report` (277CA, 835 as JSON, summarised by
+  :mod:`.claim_reports`), :meth:`Clearinghouse.recent_reports` (polling) and
+  :meth:`Clearinghouse.upload_attachment` (unsolicited 275).
 
 Eligibility still calls the vendor client directly from ``practice/``; moving it behind this
 gateway is part of RC4.
@@ -295,6 +301,25 @@ class ClaimStatusAnswer:
     request: dict[str, Any] = field(repr=False, default_factory=dict)
 
 
+@dataclass
+class ClaimSubmission:
+    claim_id: str | None
+    submission_id: str | None
+    errors: list[str]  # the clearinghouse's edits failed: stored as rejected, not sent
+    raw: dict[str, Any]
+    ms: int
+
+
+def claim_errors(body: dict[str, Any]) -> list[str]:
+    """Edit failures from a claim validation or submission answer, white-labelled."""
+    out = []
+    for e in body.get("errors") or []:
+        text = e.get("description") if isinstance(e, dict) else e
+        if text:
+            out.append(white_label(str(text)) or "")
+    return out
+
+
 class Clearinghouse:
     """Vendor-neutral transactions over one vendor client, locked to its mode."""
 
@@ -323,6 +348,81 @@ class Clearinghouse:
             payer_claim_number=None if mock else query.payer_claim_number,
         )
         return ClaimStatusAnswer(summary, body, ms, mock, request)
+
+    # --- claims (837P), reports, attachments ---------------------------------------------
+
+    def _guard_claim(self, body: dict[str, Any], *, synthetic: bool) -> None:
+        """A test key sends only synthetic claims; a production key never sends a synthetic
+        claim, the test payer or a test member-ID prefix."""
+        from careplix_api.claims.x837 import is_test_claim  # local: claims imports us
+
+        if self.mode == TEST and not synthetic:
+            raise ClearinghouseError(
+                "refused", "Test mode only sends synthetic claims.", stedi.CORRECT
+            )
+        if self.mode == PRODUCTION and (synthetic or is_test_claim(body)):
+            raise ClearinghouseError(
+                "refused",
+                "A synthetic or test claim can't go out with a production key.",
+                stedi.CORRECT,
+            )
+
+    async def _call(self, coro: Any) -> Any:
+        try:
+            return await coro
+        except stedi.StediError as err:
+            raise ClearinghouseError(
+                err.status, err.message, err.outcome, err.http_status
+            ) from None
+
+    async def validate_claim(
+        self, body: dict[str, Any], *, synthetic: bool
+    ) -> tuple[list[str], dict[str, Any], int]:
+        """The clearinghouse's edits: (problems, raw answer, ms). No problems means clean."""
+        self._guard_claim(body, synthetic=synthetic)
+        raw, ms = await self._call(self._client.validate_claim(body))
+        return claim_errors(raw), raw, ms
+
+    async def submit_claim(
+        self, body: dict[str, Any], *, idempotency_key: str, synthetic: bool
+    ) -> ClaimSubmission:
+        self._guard_claim(body, synthetic=synthetic)
+        raw, ms = await self._call(self._client.submit_claim(body, idempotency_key))
+        return ClaimSubmission(
+            claim_id=raw.get("claimId"),
+            submission_id=raw.get("submissionId"),
+            errors=claim_errors(raw),
+            raw=raw,
+            ms=ms,
+        )
+
+    async def report(self, transaction_id: str, kind: str) -> tuple[dict[str, Any], int]:
+        return await self._call(self._client.report(transaction_id, kind))
+
+    async def recent_reports(self, start: str) -> list[dict[str, str]]:
+        """Inbound 277 and 835 transactions processed since ``start``: [{transaction_id, kind}]."""
+        items = await self._call(self._client.poll_transactions(start))
+        out = []
+        for item in items:
+            x12 = item.get("x12") or {}
+            kind = str(
+                x12.get("transactionSetIdentifier")
+                or (x12.get("metadata") or {})
+                .get("transaction", {})
+                .get("transactionSetIdentifier")
+                or ""
+            )
+            direction = str(item.get("direction") or "").upper()
+            if (
+                kind in ("277", "835")
+                and direction in ("INBOUND", "")
+                and item.get("transactionId")
+            ):
+                out.append({"transaction_id": str(item["transactionId"]), "kind": kind})
+        return out
+
+    async def upload_attachment(self, content_type: str, data: bytes) -> tuple[str, int]:
+        return await self._call(self._client.upload_attachment(content_type, data))
 
     async def search_payers(self, query: str) -> list[dict[str, Any]]:
         try:

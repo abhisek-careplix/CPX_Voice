@@ -84,6 +84,23 @@ def view(claim: Claim, today: date) -> dict[str, Any]:
         "follow_up_case_id": claim.follow_up_case_id,
         "follow_up_reason": claim.follow_up_reason,
         "follow_up_error": claim.follow_up_error,
+        # Claims we build and submit (None on claims we only follow).
+        "stage": claim.stage,
+        "place_of_service": claim.place_of_service,
+        "diagnoses": claim.diagnoses or [],
+        "lines": claim.lines or [],
+        "frequency": claim.frequency,
+        "replaces_claim_id": claim.replaces_claim_id,
+        "test_outcome": claim.test_outcome,
+        "scrub": claim.scrub,
+        "submit_mode": claim.submit_mode,
+        "submitted_at": _iso(claim.submitted_at),
+        "clearinghouse_claim_id": claim.clearinghouse_claim_id,
+        "ack_status": claim.ack_status,
+        "ack_at": _iso(claim.ack_at),
+        "paid_total": claim.paid_total,
+        "patient_responsibility": claim.patient_responsibility,
+        "era_at": _iso(claim.era_at),
     }
 
 
@@ -145,8 +162,13 @@ def patient(settings: Settings, claim: Claim) -> dict[str, Any]:
     return PhiBox(settings).open(claim.patient)
 
 
+TEST_MODE_ROUTE = "Test mode has no 276 claim status: followed by 277CA and 835 age."
+
+
 async def no_route(session: AsyncSession, claim: Claim) -> str | None:
     """Why this claim's payer has no electronic claim status, if it hasn't."""
+    if claim.submit_mode == clearinghouse.TEST:
+        return TEST_MODE_ROUTE  # the clearinghouse's test mode doesn't answer 276
     if claim.plan_kind == "medicare":
         return clearinghouse.claim_status_route(clearinghouse.stedi.CMS, None)
     row = await directory.find(session, claim.workspace_id, claim.payer_id)
@@ -220,7 +242,11 @@ async def check(
     if reason:
         record.source, record.mode, record.state = "none", "none", "unavailable"
         record.status, record.message = UNAVAILABLE, reason
-        _unavailable(claim, reason)
+        if claim.stage is None:
+            _unavailable(claim, reason)
+        else:
+            # A claim we submitted keeps the status its 277CA and 835 gave it.
+            claim.no_route = reason[:120]
         claim.next_check_at = None
     elif use_sample:
         body = samples.response(claim, today)
