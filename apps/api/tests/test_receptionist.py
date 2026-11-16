@@ -91,6 +91,10 @@ def test_claim_carries_the_front_desk_tools_with_their_timeouts(practice):
         "transfer_to_staff",
         "verify_insurance",
         "medicare_benefits",
+        "verify_person",
+        "check_proxy",
+        "get_person_memory",
+        "remember_person_note",
         "record_finding",
         "end_call",
     }
