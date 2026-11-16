@@ -416,7 +416,7 @@ def test_sample_answers_are_kept_as_sealed_evidence(studio):
     studio.post(f"/api/claims/{claim_id}/check").raise_for_status()
     [row] = _rows(studio, ClaimStatusCheck)
     assert row.source == "sample" and row.status == "denied" and row.summary["category_code"]
-    assert "F2" not in (row.raw or "")  # sealed
+    assert row.raw.startswith("gAAAA") and "statusCategoryCode" not in row.raw  # sealed
     opened = PhiBox(studio.app.state.settings).open(row.raw)
     assert opened["response"]["claims"][0]["claimStatus"]["statusCategoryCode"] == "F2"
     evidence = studio.get(f"/api/claims/{claim_id}/checks/{row.id}/response").json()
