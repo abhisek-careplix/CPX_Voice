@@ -99,10 +99,11 @@ def _sync_item(conn: PayerConnection, field: str, label: str) -> dict[str, Any]:
     syncs = _syncs(conn)
     key = f"{field}_sync"
     if not syncs:
+        if nexhealth_env(conn) != "production":
+            # Demo practices: nothing to sync, so nothing to fail. A real clinic must have one.
+            return _item(key, label, True, "Not applicable: the sandbox has no EHR behind it.")
         detail = (
-            "The sandbox has no EHR behind it."
-            if nexhealth_env(conn) != "production"
-            else "NexHealth reports no sync for this location yet (is the Synchronizer or "
+            "NexHealth reports no sync for this location yet (is the Synchronizer or "
             "Chrome extension set up?)."
         )
         return _item(key, label, False, detail)

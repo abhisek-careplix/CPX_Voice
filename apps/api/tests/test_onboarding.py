@@ -367,3 +367,27 @@ def test_cloud_writes_wait_through_the_weekend(emr, now, overdue):
     connector = connector_for(conn, Settings(_env_file=None))
     assert connector.confirm_overdue(intent, now.astimezone(UTC)) is overdue
     assert connector.confirm_due(intent, now.astimezone(UTC)) is overdue
+
+
+def test_a_sandbox_practice_runs_the_whole_go_live_flow_for_demos(tmp_path):
+    fake = MedicalNexHealth("athenahealth")
+    fake.sync_status = []  # NexHealth's sandbox: no EHR behind the location
+    c, _ = _app(tmp_path, fake)
+    with c:
+        c.post("/api/auth/dev-login").raise_for_status()
+        conn_id = c.post("/api/practices/setup", json=SANDBOX).json()["connection"]["connection_id"]
+        _worker(c)
+        view = c.get(f"/api/practices/setup/{conn_id}").json()
+        items = _items(view)
+        assert items["read_sync"] is True and items["write_sync"] is True  # not applicable
+        assert (
+            "Not applicable"
+            in next(i for i in view["golive"]["items"] if i["key"] == "read_sync")["detail"]
+        )
+        c.post(
+            f"/api/practices/setup/{conn_id}/golive-test", json={"patient_id": "9"}
+        ).raise_for_status()
+        for _ in range(3):  # each step is accepted with no EHR to confirm it: one per pass
+            _worker(c)
+        golive = c.get(f"/api/practices/setup/{conn_id}").json()["golive"]
+        assert golive["test"]["step"] == "done" and golive["passed"] and golive["passed_at"]

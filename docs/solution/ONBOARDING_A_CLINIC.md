@@ -11,7 +11,7 @@ Studio: Settings → EHR hub.
 | --- | --- |
 | The clinic has authorised CarePlix in NexHealth | NexHealth sends the practice an authorisation request for our app; their admin approves it. Until NexHealth approves our v3.1 onboarding link, this is done by email with NexHealth. |
 | The practice's **subdomain** and **location id** | NexHealth Developer Portal → the practice → its locations. |
-| NexHealth key for the env | Sandbox: `NEXHEALTH_API_KEY`. Production: `NEXHEALTH_PROD_API_KEY`. A practice only ever reads its own env's key; there is no fallback between them. careplix-labs holds the sandbox key only (G4 PHI gate), so real clinics are added in the production environment. |
+| NexHealth key for the env | Sandbox: `NEXHEALTH_API_KEY`. Production: `NEXHEALTH_PROD_API_KEY`. A practice only ever reads its own env's key; there is no fallback between them. careplix-labs is sandbox and demo only and never stores a production key, so there the form offers Sandbox only. Real clinics will be added the same way in the separate production GCP project. |
 | `WEBHOOK_PUBLIC_URL` | The public `careplix-webhooks` URL. Without it a practice can't be confirmed, so it can't go live. |
 | A **test patient** in the clinic's EHR | Ask the clinic to create a chart named e.g. "Pat Test" and give you its NexHealth patient id. The go-live test only accepts a patient whose name contains "Test". |
 | For cloud EHRs (athena, eCW, ModMed, NextGen) | A dedicated EHR user for NexHealth, and the NexHealth Chrome extension signed in at the front desk. They sync only while the office is signed in. |
@@ -46,7 +46,9 @@ Studio: Settings → EHR hub.
 
    When the last item passes the practice shows **Live** and automations start. Manual actions in the
    Studio (approving a write, *Check now*) always work. Sandbox practices show the checklist but don't
-   need it.
+   need it. To demo it in labs, add a NexHealth sandbox practice and run the test on a sandbox
+   patient whose name contains "Test": the sync items read "not applicable" and each write counts once
+   NexHealth accepts it, since there is no EHR behind the sandbox.
 5. **Automation settings** (EHR hub card, per workspace; the env values are the defaults):
    cancellations by approval or automatic, cancellation backfill, eligibility autopilot, default sync
    interval (each practice can set its own in its Setup sheet), clearinghouse test or production
