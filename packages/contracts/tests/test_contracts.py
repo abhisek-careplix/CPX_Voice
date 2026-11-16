@@ -36,6 +36,7 @@ def test_tool_registry_loads_and_gates_pilot_tools():
         "reschedule_appointment",
         "send_dtmf",
         "set_call_state",
+        "transfer_to_staff",
         "verify_caller",
         "verify_insurance",
     }

@@ -218,6 +218,35 @@ CASE_TYPES: dict[str, dict[str, Any]] = {
             _f("approved_by", "Approved by", "program.approved_by"),
         ],
     },
+    # Opened by a voice agent when a warm transfer can't connect (careplix_api.channels.transfer):
+    # the call-back it promised, with the written summary staff would have heard.
+    "call_back": {
+        "name": "Call-back promise",
+        "program": "Front desk",
+        "prefix": "CB",
+        "summary": "Call back a caller the agent couldn't transfer, using the summary it wrote.",
+        "counterparty": {
+            "role": "patient",
+            "label": "Caller",
+            "name": "caller.name",
+            "phone": "caller.phone",
+        },
+        "on_behalf_of": "practice.name",
+        "subject": "caller.name",
+        "headline": ("handoff.summary",),
+        "agents": ["errand"],
+        "checks": [],
+        "packs": list(PATIENT_CALL_PACKS),
+        "objective": "Call {caller_name} back for {practice_name} about: {summary}. Find out "
+        "what they still need and take a message for the front desk.",
+        "fields": [
+            _f("caller_name", "Caller", "caller.name", required=False),
+            _f("caller_phone", "Call-back number", "caller.phone", "phone", share=False),
+            _f("practice_name", "Practice", "practice.name"),
+            _f("summary", "What they need (agent's summary)", "handoff.summary"),
+            _f("promise", "Promised", "handoff.promise", required=False),
+        ],
+    },
 }
 
 KINDS = ("text", "date", "datetime", "phone", "code", "number", "money")
@@ -387,6 +416,18 @@ def sample_values(type_id: str, rng: random.Random, n: int) -> dict[str, Any]:
             "prep_notes": rng.choice(
                 [None, "Bring your medication list and insurance card.", "Arrive 15 minutes early."]
             ),
+        }
+    elif type_id == "call_back":
+        base |= {
+            "caller_name": name,
+            "caller_phone": base["patient_phone"],
+            "summary": rng.choice(
+                [
+                    "Wants to move next week's visit to a morning; asked for a person.",
+                    "Question about a bill from last month; asked to speak to billing.",
+                ]
+            ),
+            "promise": "today during office hours",
         }
     elif type_id == "care_outreach":
         program, description = rng.choice(_PROGRAMS)

@@ -123,6 +123,14 @@ setup() {
     $G secrets add-iam-policy-binding cpx-anthropic-api-key --member "serviceAccount:$SA_STUDIO" --role roles/secretmanager.secretAccessor >/dev/null
   fi
 
+  # Text messages: the Twilio Auth Token sends texts (Studio) and checks webhook signatures (ingress).
+  if [ -n "$(env_value TWILIO_AUTH_TOKEN || true)" ]; then
+    env_value TWILIO_AUTH_TOKEN | tr -d '\n' | put_secret cpx-twilio-auth-token
+    for sa in "$SA_STUDIO" "$SA_WEBHOOKS"; do
+      $G secrets add-iam-policy-binding cpx-twilio-auth-token --member "serviceAccount:$sa" --role roles/secretmanager.secretAccessor >/dev/null
+    done
+  fi
+
   for secret in cpx-database-url cpx-session-secret cpx-worker-token cpx-livekit-api-key cpx-livekit-api-secret \
     cpx-nexhealth-api-key cpx-stedi-api-key cpx-data-key cpx-browser-token; do
     $G secrets add-iam-policy-binding "$secret" --member "serviceAccount:$SA_STUDIO" --role roles/secretmanager.secretAccessor >/dev/null
@@ -260,11 +268,25 @@ deploy() {
     if [ -n "$value" ]; then common_env="$common_env,$key=$value"; fi
   done
   secrets="DATABASE_URL=cpx-database-url:latest,SESSION_SECRET=cpx-session-secret:latest,WORKER_SERVICE_TOKEN=cpx-worker-token:latest,LIVEKIT_API_KEY=cpx-livekit-api-key:latest,LIVEKIT_API_SECRET=cpx-livekit-api-secret:latest"
+  # Text messages (Twilio): non-secret settings from .env, the Auth Token from Secret Manager. Without
+  # the token (setup stores it once TWILIO_AUTH_TOKEN is in .env) texting stays off.
+  sms_vars=""  # ",KEY=value" pairs, appended to the Studio's and the ingress's env
+  for key in TWILIO_ACCOUNT_SID TWILIO_MESSAGING_SERVICE_SID SMS_FROM_NUMBER SMS_KEYWORD_REPLIES WORKSPACE_TIMEZONE; do
+    value=$(env_value "$key" || true)
+    if [ -n "$value" ]; then sms_vars="$sms_vars,$key=$value"; fi
+  done
+  # The ingress needs the shared sandbox number too: it's the default sender inbound texts reach.
+  webhooks_env="CAREPLIX_ENV=labs$sms_vars"
+  if [ -n "$(env_value SANDBOX_NUMBER || true)" ]; then webhooks_env="$webhooks_env,SANDBOX_NUMBER=$(env_value SANDBOX_NUMBER)"; fi
+  sms_secrets=""
+  if $G secrets describe cpx-twilio-auth-token >/dev/null 2>&1; then
+    sms_secrets=",TWILIO_AUTH_TOKEN=cpx-twilio-auth-token:latest"
+  fi
 
   # 2. Webhook ingress: the only public service. Verifies, dedupes and records IDs; no IAP, no PHI.
   $G run deploy careplix-webhooks --region "$REGION" --image "$REGISTRY/api:$TAG" \
     --service-account "$SA_WEBHOOKS" --add-cloudsql-instances "$conn" --allow-unauthenticated \
-    --set-env-vars "CAREPLIX_ENV=labs" --set-secrets "DATABASE_URL=cpx-database-url:latest,DATA_ENCRYPTION_KEY=cpx-data-key:latest" \
+    --set-env-vars "$webhooks_env" --set-secrets "DATABASE_URL=cpx-database-url:latest,DATA_ENCRYPTION_KEY=cpx-data-key:latest$sms_secrets" \
     --min-instances 0 --max-instances 2 \
     --command sh --args='-c,uvicorn careplix_api.practice.webhooks:app --host 0.0.0.0 --port $PORT'
   webhooks_url=$(url_of careplix-webhooks)
@@ -328,8 +350,8 @@ deploy() {
   fi
   $G run deploy careplix-studio --region "$REGION" --image "$REGISTRY/api:$TAG" \
     --service-account "$SA_STUDIO" --add-cloudsql-instances "$conn" $VPC_FLAGS \
-    --set-env-vars "$common_env,$practice_env,$browser_env,$identity_env,RUN_BACKGROUND=true,PUBLISH_REQUIRES_EVAL=true$studio_iap_env" \
-    --set-secrets "$secrets,$practice_secrets,$studio_secrets" --min-instances 1 --max-instances 1 --no-cpu-throttling \
+    --set-env-vars "$common_env,$practice_env,$browser_env$sms_vars,$identity_env,RUN_BACKGROUND=true,PUBLISH_REQUIRES_EVAL=true$studio_iap_env" \
+    --set-secrets "$secrets,$practice_secrets,$studio_secrets$sms_secrets" --min-instances 1 --max-instances 1 --no-cpu-throttling \
     --timeout 3600 $studio_access
   if [ -n "$studio_iap_env" ]; then
     $G run services add-iam-policy-binding careplix-studio --region "$REGION" \
@@ -373,6 +395,7 @@ deploy() {
 
   echo "Studio: $(url_of careplix-studio)"
   echo "Webhooks: $webhooks_url (register from Studio → Practice once deployed)"
+  echo "Texts: in Twilio, set the number's (or Messaging Service's) incoming-message webhook to $webhooks_url/webhooks/twilio/sms (HTTP POST)"
 }
 
 sandbox_line() {

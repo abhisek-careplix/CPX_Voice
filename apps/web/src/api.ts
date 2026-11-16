@@ -1128,3 +1128,62 @@ export interface CareQueue {
   open_by_program: { program: string; title: string; count: number }[];
   items: CareOpportunity[];
 }
+
+// ---------- Channels: text messages and call hand-offs ----------
+
+export interface ChannelSettings {
+  configured: boolean;
+  sender: string | null;
+  messaging_service: boolean;
+  keyword_replies: "twilio" | "app";
+  inbound_webhook: string | null;
+  sms_enabled: boolean;
+  timezone: string;
+  contact_start: string;
+  contact_end: string;
+  quiet_now: boolean;
+  brand_name: string;
+  help_phone: string | null;
+  staff_number: string | null;
+  staff_number_approved: boolean;
+  staff_label: string;
+  callback_promise: string;
+  approved_destinations: string[];
+}
+
+export interface ChannelMessage {
+  message_id: string;
+  channel: string;
+  direction: "outbound" | "inbound";
+  provider_id: string | null;
+  to: string | null;
+  purpose: string | null;
+  status: string;
+  reason: string | null;
+  error_code: string | null;
+  sent_at: string | null;
+  delivered_at: string | null;
+  body: string | null;
+  case_id: string | null;
+  reply_ref: string | null;
+  expects_reply: boolean;
+  answered_by: string | null;
+  intent: string | null;
+  in_reply_to: string | null;
+  routed_to: string | null;
+  send_after: string | null;
+  created_at: string;
+}
+
+export interface ChannelHandoff {
+  id: string;
+  attempt_id: string;
+  case_id: string | null;
+  reason: string;
+  summary: string | null;
+  staff_label: string | null;
+  state: "dialing" | "connected" | "callback_promised";
+  detail: string | null;
+  created_at: string | null;
+  resolved_at: string | null;
+}

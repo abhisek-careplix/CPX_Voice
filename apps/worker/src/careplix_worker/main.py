@@ -24,7 +24,7 @@ from livekit.plugins import google
 
 from careplix_common.safe_logging import quiet_httpx, scrub, tag_severity
 from careplix_worker import counterpart as counterpart_role
-from careplix_worker import prompt, sandbox_gate
+from careplix_worker import prompt, sandbox_gate, transfer
 from careplix_worker.control_plane import ClaimRejected, ControlPlane, EventReporter
 from careplix_worker.gcp import load_credentials
 from careplix_worker.hold import HoldClock
@@ -67,7 +67,9 @@ class CallRuntime:
     def __init__(self, ctx: JobContext, plane: ControlPlane, reporter: EventReporter, claim: dict):
         self.ctx, self.plane, self.reporter, self.claim = ctx, plane, reporter, claim
         self.ending = False
+        self.transferred = False  # a person took the call: the agent's session is over
         self.session: AgentSession | None = None
+        self.budget: asyncio.Task | None = None
         self.clock = HoldClock(
             max_duration_s=claim["max_duration_s"],
             # Older API builds don't send max_hold_s: no hold allowance beyond the budget.
@@ -114,6 +116,9 @@ class CallRuntime:
             elif name == "end_call":
                 await context.wait_for_playout()
                 await self.hang_up(raw_arguments.get("reason", "objective_complete"))
+            elif name == "transfer_to_staff" and response["result"].get("state") == "transferring":
+                await context.wait_for_playout()  # "connecting you now" is heard before hold
+                return await transfer.run(self, response["result"])
             return response["result"]
 
         return function_tool(
@@ -124,6 +129,15 @@ class CallRuntime:
                 "parameters": spec["parameters"],
             },
         )
+
+    async def handed_over(self) -> None:
+        """Staff are in the caller's room: stop the agent, keep the room and the call."""
+        self.transferred = True
+        if self.budget is not None:
+            self.budget.cancel()  # the person's conversation has no agent talk budget
+        self.reporter.emit("handoff.agent_left", {})
+        if self.session is not None:
+            self.session.shutdown(drain=False)
 
     async def _press(self, digits: str) -> None:
         for digit in digits:
@@ -304,6 +318,8 @@ async def entrypoint(ctx: JobContext) -> None:
 
     @session.on("close")
     def _on_close(event) -> None:
+        if runtime.transferred:
+            return  # staff have the caller; the room ends when either of them hangs up
         asyncio.create_task(runtime.hang_up(f"session_closed:{event.reason}"))
 
     await session.start(
@@ -354,6 +370,7 @@ async def entrypoint(ctx: JobContext) -> None:
         await runtime.hang_up(reason)
 
     budget = asyncio.create_task(_budget())
+    runtime.budget = budget
 
     async def _cancel_budget() -> None:
         budget.cancel()
