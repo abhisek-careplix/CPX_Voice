@@ -47,6 +47,7 @@ def test_deploy_checks_every_secret_before_changing_anything():
     optional = {s for s in referenced if s.startswith("cpx-openemr-")} | {
         "cpx-anthropic-api-key",
         "cpx-resend-api-key",
+        "cpx-stedi-webhook-secret",
     }
     assert referenced - optional <= set(required)
     first_deploy = text.index("run deploy", text.index("deploy() {"))
@@ -148,6 +149,16 @@ def test_labs_runs_stedi_in_test_mode_under_the_test_key_name():
         assert "STEDI_PROD_API_KEY" not in value and "STEDI_ENV=production" not in value
     assert "STEDI_ENV=test," in _variable("practice_env")
     assert "STEDI_TEST_API_KEY=cpx-stedi-api-key:latest" in _variable("practice_secrets")
+
+
+def test_webhook_service_verifies_clearinghouse_events_when_the_secret_is_stored():
+    """The webhook service needs the event destination's secret to accept 277CA/835 events; it's
+    optional (the Studio can poll), so it's added only when Secret Manager has it."""
+    script = SCRIPT.read_text()
+    assert _variable("stedi_webhook_secret") == ""
+    guard = script.index("secrets describe cpx-stedi-webhook-secret")
+    assert script.index("STEDI_WEBHOOK_SECRET=cpx-stedi-webhook-secret:latest") > guard
+    assert "$stedi_webhook_secret" in _deploy_command("careplix-webhooks")
 
 
 # --- build and deploy use the same image tag ------------------------------------------------------

@@ -34,7 +34,8 @@ CarePlix adds the prefix itself from the claim's **Test payer outcome**; never t
       **Claim payment (835)**. Submit. It goes live on its own within about a minute.
 3. **Webhook for acknowledgements and remittances (recommended).** Stedi portal, **Test mode on** (test
    events only go to test-mode destinations): **Webhooks / Event destinations → New destination**:
-   URL `https://<careplix-webhooks service URL>/webhooks/stedi`, event type `transaction.processed`.
+   URL `https://<careplix-webhooks service URL>/webhooks/stedi` (the deploy prints it as "Clearinghouse
+   events"), event type `transaction.processed`.
    Copy the signing secret (`whsec_…`) into `.env` as `STEDI_WEBHOOK_SECRET` and run
    `./infra/gcp/deploy-labs.sh setup` before the deploy. Without a webhook, use **Check for responses**
    (polls the last three days) or paste a transaction ID under **Claims → Clearinghouse → Clearinghouse
@@ -76,10 +77,15 @@ CarePlix adds the prefix itself from the claim's **Test payer outcome**; never t
 
 ## If something fails
 
-Worker and API logs:
+The claims loops (277CA/835 intake every minute, follow-up every 15 minutes) run in the Studio service;
+webhook deliveries land in `careplix-webhooks`:
 
 ```bash
-gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="careplix-worker"' --project careplix-labs --freshness=1h --limit 100 --format='value(timestamp,severity,textPayload,jsonPayload.message)'
+gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="careplix-studio" AND (textPayload:"claims" OR jsonPayload.logger="careplix.claims")' --project careplix-labs --freshness=1h --limit 100 --format='value(timestamp,severity,textPayload,jsonPayload.message)'
+```
+
+```bash
+gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="careplix-webhooks"' --project careplix-labs --freshness=1h --limit 50 --format='value(timestamp,severity,httpRequest.status,httpRequest.requestUrl)'
 ```
 
 - *Validation errors from the clearinghouse* show on the claim's scrub with the clearinghouse's own text;
