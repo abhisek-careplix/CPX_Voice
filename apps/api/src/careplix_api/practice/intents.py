@@ -25,7 +25,6 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from careplix_api.connect.base import CONFIRM_SLA
 from careplix_api.connect.connectors import connector_for
 from careplix_api.db import Database, as_utc, utcnow
 from careplix_api.errors import ApiError
@@ -442,7 +441,7 @@ async def reconcile(
                     await connector.aclose()
                 if record and KINDS[intent.kind].in_ehr(record):
                     apply_insertion(intent, "complete", record.get("foreign_id"))
-                elif now - sent_at > CONFIRM_SLA:
+                elif connector.confirm_overdue(intent, now):
                     intent.state = "needs_review"
                     intent.last_error = "No EHR confirmation within the expected time."
                 else:

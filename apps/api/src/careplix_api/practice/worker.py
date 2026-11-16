@@ -12,8 +12,17 @@ from sqlalchemy import select
 from careplix_api.connect.connectors import connector_for
 from careplix_api.db import Database, as_utc, utcnow
 from careplix_api.integrations.nexhealth import NexHealthError
-from careplix_api.models import EhrRecord, PayerConnection, WebhookEvent, WriteIntent
-from careplix_api.practice import backfill, eligibility, intents, sync, webhooks
+from careplix_api.models import EhrRecord, PayerConnection, WebhookEvent, Workspace, WriteIntent
+from careplix_api.practice import (
+    automation,
+    backfill,
+    eligibility,
+    golive,
+    intents,
+    onboarding,
+    sync,
+    webhooks,
+)
 from careplix_api.practice.connections import EHR_KINDS
 from careplix_api.practice.records import parse_dt
 from careplix_api.settings import Settings
@@ -181,13 +190,47 @@ class PracticeWorker:
                 conn.capability = caps
             await session.commit()
 
-    def _sync_due(self, conn: PayerConnection) -> tuple[bool, bool]:
-        """(due, full). The first sync is full; later ones follow the configured interval."""
+    def _sync_due(self, conn: PayerConnection, workspace: Workspace | None) -> tuple[bool, bool]:
+        """(due, full). The first sync is full; later ones follow the practice's interval."""
         last = parse_dt(((conn.capability or {}).get("last_sync") or {}).get("at"))
         if last is None:
             return True, True
-        interval = connector_for(conn, self.settings).sync_interval_s()
+        default = connector_for(conn, self.settings).sync_interval_s()
+        interval = automation.sync_interval(conn, workspace, self.settings, default)
         return bool(interval) and utcnow() - last >= timedelta(seconds=interval), False
+
+    async def _practice_pass(self, conn_id: str, report: dict[str, Any], transport) -> bool:
+        """Sync, onboarding progress, go-live test and eligibility scheduling for one practice.
+        Returns whether its eligibility autopilot is on (and allowed)."""
+        async with self.db.sessions() as session:
+            conn = await session.get(PayerConnection, conn_id)
+            workspace = await session.get(Workspace, conn.workspace_id)
+            settings = automation.effective(workspace, self.settings)
+            due, full = self._sync_due(conn, workspace)
+            if due:
+                await sync.sync_practice(session, conn, self.settings, transport, full=full)
+                report["synced"] += 1
+            await onboarding.refresh_first_sync(session, conn)
+            await golive.refresh(session, conn, self.settings)
+            autopilot = settings.eligibility_autopilot and golive.automations_allowed(conn)
+            if autopilot:
+                report["eligibility_queued"] += await eligibility.schedule(session, conn)
+            await session.commit()
+            return autopilot
+
+    async def _backfill_pass(self, conn_id: str, report: dict[str, Any], transport) -> None:
+        async with self.db.sessions() as session:
+            conn = await session.get(PayerConnection, conn_id)
+            workspace = await session.get(Workspace, conn.workspace_id)
+            if not automation.effective(workspace, self.settings).backfill_enabled:
+                return
+            if not golive.automations_allowed(conn):
+                return  # a real clinic that hasn't passed go-live: no offers go out
+            await backfill.expire(session, conn, self.settings)
+            report["backfill_opened"] += await backfill.detect(
+                session, conn, self.settings, transport
+            )
+            await session.commit()
 
     async def run_once(self) -> dict[str, Any]:
         report: dict[str, Any] = {
@@ -196,38 +239,45 @@ class PracticeWorker:
             "writes": 0,
             "eligibility_queued": 0,
             "eligibility_run": 0,
+            "backfill_opened": 0,
+            "errors": 0,
         }
         transport = self.transport_getter()
+        autopilot = False
         for conn_id in await self._connections():
-            report["webhooks"] += await self.process_webhooks(conn_id)
-            await self.check_webhooks(conn_id)
-            async with self.db.sessions() as session:
-                conn = await session.get(PayerConnection, conn_id)
-                due, full = self._sync_due(conn)
-                if due:
-                    await sync.sync_practice(session, conn, self.settings, transport, full=full)
-                    report["synced"] += 1
-                if self.settings.eligibility_autopilot:
-                    report["eligibility_queued"] += await eligibility.schedule(session, conn)
-                await session.commit()
+            # One clinic's failure (key revoked, NexHealth down for that subdomain) never stops
+            # the others: it is recorded on the connection and retried next pass.
+            try:
+                report["webhooks"] += await self.process_webhooks(conn_id)
+                await self.check_webhooks(conn_id)
+                autopilot |= await self._practice_pass(conn_id, report, transport)
+            except Exception as exc:  # noqa: BLE001
+                report["errors"] += 1
+                log.exception("practice pass failed for one connection")
+                await self._record_error(conn_id, exc)
         report["writes"] = await intents.execute_approved(self.db, self.settings, transport)
         await intents.reconcile(self.db, self.settings, transport)
-        if self.settings.eligibility_autopilot:
+        if autopilot:
             report["eligibility_run"] = await eligibility.run_pending(
                 self.db, self.settings, transport
             )
-        if self.settings.backfill_enabled:
-            # After eligibility, so candidate ranking sees this pass's coverage results.
-            report["backfill_opened"] = 0
-            for conn_id in await self._connections():
-                async with self.db.sessions() as session:
-                    conn = await session.get(PayerConnection, conn_id)
-                    await backfill.expire(session, conn, self.settings)
-                    report["backfill_opened"] += await backfill.detect(
-                        session, conn, self.settings, transport
-                    )
-                    await session.commit()
+        # After eligibility, so candidate ranking sees this pass's coverage results.
+        for conn_id in await self._connections():
+            try:
+                await self._backfill_pass(conn_id, report, transport)
+            except Exception as exc:  # noqa: BLE001
+                report["errors"] += 1
+                log.exception("backfill pass failed for one connection")
+                await self._record_error(conn_id, exc)
         return report
+
+    async def _record_error(self, conn_id: str, exc: Exception) -> None:
+        message = getattr(exc, "message", None) or str(exc) or type(exc).__name__
+        async with self.db.sessions() as session:
+            conn = await session.get(PayerConnection, conn_id)
+            if conn is not None:
+                conn.last_error = str(message)[:120]
+                await session.commit()
 
     async def run_forever(self, interval_s: float = 5.0) -> None:
         while True:

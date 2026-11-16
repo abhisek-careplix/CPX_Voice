@@ -9,8 +9,15 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
+from sqlalchemy import select
 
-from careplix_api.models import AuditEvent, EhrRecord, FrontDeskMessage, WriteIntent
+from careplix_api.models import (
+    AuditEvent,
+    EhrRecord,
+    FrontDeskMessage,
+    PayerConnection,
+    WriteIntent,
+)
 from careplix_api.practice.openemr import OpenEmrClient
 
 from .conftest import WORKER
@@ -214,9 +221,23 @@ def test_another_patients_visit_cannot_be_touched(practice):
     assert router.nexhealth.appointments[502]["cancelled"] is False
 
 
-@pytest.mark.parametrize("practice", [{"nexhealth_env": "production"}], indirect=True)
+@pytest.mark.parametrize(
+    "practice",
+    # A production practice reads only the production key (the sandbox key is absent here).
+    [{"nexhealth_env": "production", "nexhealth_api_key": "", "nexhealth_prod_api_key": "nh-test"}],
+    indirect=True,
+)
 def test_a_browser_test_never_writes_to_a_real_practice(practice):
     c, router = practice
+
+    async def go_live():  # past its go-live checklist, so only the test-call rule applies
+        async with c.app.state.db.sessions() as session:
+            for conn in await session.scalars(select(PayerConnection)):
+                if conn.kind == "nexhealth":
+                    conn.auth_ref = {**conn.auth_ref, "golive": {"passed_at": "2026-11-16"}}
+            await session.commit()
+
+    c.portal.call(go_live)
     call = _verified_call(c)
     call.ok("find_slots")
     out = call.tool("book_appointment", slot_id="S1")

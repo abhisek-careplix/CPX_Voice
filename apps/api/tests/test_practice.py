@@ -257,7 +257,10 @@ class FakeNexHealth:
             return httpx.Response(
                 201, json={"data": {"id": 12, "target_url": body["target_url"], "secret_key": "sk"}}
             )
-        assert q.get("subdomain") == "demo"
+        assert q.get("subdomain"), f"{request.method} {path} without subdomain"
+        if q.get("subdomain") != "demo":
+            # Another practice's subdomain: the key isn't authorised for it.
+            return httpx.Response(403, json={"code": False, "error": ["Forbidden subdomain"]})
         if path == "/locations":
             return httpx.Response(
                 200, json={"data": [{**institution, "locations": [self.location]}]}
@@ -346,7 +349,8 @@ class FakeNexHealth:
         if parts[0] == "appointments" and len(parts) == 2 and request.method == "PATCH":
             if self.patch_error:
                 return httpx.Response(400, json={"error": [self.patch_error]})
-            appt = self.appointments[int(parts[1])]
+            booked = {b["id"]: b for b in self.booked}  # visits booked through the API too
+            appt = self.appointments.get(int(parts[1])) or booked[int(parts[1])]
             appt.update(body["appt"])
             return httpx.Response(200, json={"data": {"appt": appt}})
         if parts[0] == "appointments" and len(parts) == 2:
