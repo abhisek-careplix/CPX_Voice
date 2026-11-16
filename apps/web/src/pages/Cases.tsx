@@ -1,17 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, Briefcase, ChevronRight, EyeOff, FlaskConical, Phone, Plus, Search, ShieldCheck } from "lucide-react";
+import { AlertCircle, Briefcase, ChevronRight, Clock, EyeOff, FlaskConical, Phone, Plus, Search, ShieldCheck, Workflow } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api, ApiError, type CaseDetail, type CaseField, type CaseItem, type CaseStatus, type CaseType } from "../api";
+import { api, ApiError, type CaseDetail, type CaseField, type CaseItem, type CaseStatus, type CaseType, type Playbook } from "../api";
 import { useCan } from "../App";
 import { Banner, Card, Empty, ErrorState, ListSkeleton, Pill, Segmented, Sheet, TaskPill, Toolbar, timeAgo, useToast } from "../ui";
+import { CaseActions, ContractSection, PlaybookSection } from "./CaseWork";
 
-export const CASE_STATUS: Record<CaseStatus, { label: string; tone: "blue" | "orange" | "green" | "gray" }> = {
+export const CASE_STATUS: Record<CaseStatus, { label: string; tone: "blue" | "orange" | "green" | "gray" | "red" | "purple" }> = {
   open: { label: "Open", tone: "blue" },
   in_progress: { label: "In progress", tone: "orange" },
+  handed_off: { label: "Handed off", tone: "purple" },
+  blocked: { label: "Blocked", tone: "red" },
   done: { label: "Done", tone: "green" },
+  failed: { label: "Failed", tone: "red" },
   closed: { label: "Closed", tone: "gray" },
 };
+// The status filter shows the live and finished states; "closed" is only on rows from before Cases v2.
+const FILTER_STATUSES: CaseStatus[] = ["open", "in_progress", "handed_off", "blocked", "done", "failed"];
+
+export function usePlaybooks() {
+  return useQuery({ queryKey: ["playbooks"], queryFn: () => api.get<{ playbooks: Playbook[] }>("/playbooks"), staleTime: 60_000 });
+}
 
 const PACK_NAME: Record<string, string> = {
   "clinical-scope": "Clinical scope",
@@ -49,7 +59,7 @@ export default function Cases() {
       <Toolbar
         eyebrow="Operate"
         title="Cases"
-        description="Each case is one piece of work: a prior auth to chase, a claim to check, a patient to remind. Its type decides which agents can work it, who they call and what they know. Tasks are created from cases."
+        description="Each case is one piece of work: a prior auth to chase, a claim to check, a patient to remind. Playbooks start and work cases on their own; a case is done only when its completion contract holds: evidence, the system of record updated, people told, and an owned next action."
         actions={
           canStart && (
             <>
@@ -81,7 +91,7 @@ export default function Cases() {
             label="Status"
             value={status}
             onChange={setStatus}
-            options={[{ value: "all", label: "All" }, ...(Object.keys(CASE_STATUS) as CaseStatus[]).map((s) => ({ value: s, label: CASE_STATUS[s].label }))]}
+            options={[{ value: "all", label: "All" }, ...FILTER_STATUSES.map((s) => ({ value: s, label: CASE_STATUS[s].label }))]}
           />
         </div>
         <Card>
@@ -121,6 +131,16 @@ export default function Cases() {
                         {[c.subject, c.counterparty.name && c.counterparty.name !== c.subject && `${c.counterparty.label}: ${c.counterparty.name}`, c.source_label, c.task_count ? `${c.task_count} task${c.task_count === 1 ? "" : "s"}` : "No tasks yet"].filter(Boolean).join(" · ")}
                       </div>
                     </div>
+                    {c.playbook && (
+                      <span className="chip" title="Worked by a playbook">
+                        <Workflow size={12} aria-hidden /> Playbook
+                      </span>
+                    )}
+                    {c.overdue && (
+                      <Pill tone="red" icon={Clock}>
+                        Overdue
+                      </Pill>
+                    )}
                     {c.missing.length > 0 && (
                       <Pill tone="orange" icon={AlertCircle}>
                         Missing facts
@@ -146,9 +166,15 @@ function CaseSheet({ id, onClose }: { id: string; onClose: () => void }) {
   const canStart = useCan("start_task");
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const detail = useQuery({ queryKey: ["case", id], queryFn: () => api.get<CaseDetail>(`/cases/${id}`) });
+  const detail = useQuery({
+    queryKey: ["case", id],
+    queryFn: () => api.get<CaseDetail>(`/cases/${id}`),
+    // While a playbook waits on someone's answer, keep the sheet current.
+    refetchInterval: (q) => (q.state.data?.playbook_run && ["running", "waiting"].includes(q.state.data.playbook_run.state) ? 4000 : false),
+  });
+  const playbooks = usePlaybooks();
   const setStatus = useMutation({
-    mutationFn: (status: "open" | "closed") => api.post<CaseDetail>(`/cases/${id}/status`, { status }),
+    mutationFn: (status: "open") => api.post<CaseDetail>(`/cases/${id}/status`, { status }),
     onSuccess: (c) => {
       qc.setQueryData(["case", id], c);
       qc.invalidateQueries({ queryKey: ["cases"] });
@@ -167,17 +193,13 @@ function CaseSheet({ id, onClose }: { id: string; onClose: () => void }) {
         c &&
         canStart && (
           <>
-            {c.status === "closed" ? (
+            {!["open", "in_progress"].includes(c.status) && (
               <button className="btn btn-secondary" onClick={() => setStatus.mutate("open")} disabled={setStatus.isPending}>
                 Reopen case
               </button>
-            ) : (
-              <button className="btn btn-secondary" onClick={() => setStatus.mutate("closed")} disabled={setStatus.isPending}>
-                Close case
-              </button>
             )}
             <span className="spacer" />
-            <button className="btn btn-primary" disabled={c.status === "closed" || c.missing.length > 0} onClick={() => navigate(`/tasks/new?case=${c.id}`)}>
+            <button className="btn btn-secondary" disabled={["closed", "done", "failed"].includes(c.status) || c.missing.length > 0} onClick={() => navigate(`/tasks/new?case=${c.id}`)}>
               <Phone size={15} aria-hidden /> Create task
             </button>
           </>
@@ -194,6 +216,10 @@ function CaseSheet({ id, onClose }: { id: string; onClose: () => void }) {
             {c.synthetic && <span className="sample-label">Synthetic</span>}
             {c.created_at && <span className="small muted">Added {timeAgo(c.created_at)}</span>}
           </div>
+
+          <CaseActions c={c} />
+          <ContractSection c={c} />
+          <PlaybookSection c={c} hasPlaybook={!!playbooks.data?.playbooks.some((p) => p.case_type === c.case_type)} />
 
           {c.missing.length > 0 && (
             <Banner tone="orange" title="This case is missing facts the call needs" icon={AlertCircle}>

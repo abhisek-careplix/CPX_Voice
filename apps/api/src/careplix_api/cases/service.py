@@ -12,13 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import careplix_api.cases as cases
 from careplix_api import agents_service, connections
 from careplix_api.auth import Principal
-from careplix_api.cases import types
+from careplix_api.cases import attempts, contract, playbooks, types
+from careplix_api.cases.models import PlaybookRun
 from careplix_api.db import as_utc, utcnow
 from careplix_api.errors import ApiError
-from careplix_api.models import Agent, AuditEvent, Case, Task
+from careplix_api.models import Agent, AuditEvent, Case, Task, User
 from careplix_api.settings import Settings
 
-STATUSES = ("open", "in_progress", "done", "closed")
+STATUSES = contract.STATUSES
 SOURCES = (
     "sample",
     "manual",
@@ -28,6 +29,8 @@ SOURCES = (
     "inbound",
     "api",
     "claim_follow_up",
+    "schedule",
+    "webhook",
 )
 SOURCE_LABEL = {
     "sample": "Synthetic sample",
@@ -38,7 +41,11 @@ SOURCE_LABEL = {
     "inbound": "Inbound call",
     "api": "API",
     "claim_follow_up": "Claim follow-up",
+    "schedule": "EHR schedule",
+    "webhook": "EHR event",
 }
+# Hand-entered sources must use made-up people until the PHI gate.
+TYPED_SOURCES = ("manual", "webhook", "import")
 # Task outcomes that finish the work; the others leave the case open for another try.
 DONE_OUTCOMES = ("Completed",)
 OPEN_TASK_STATES = ("Draft", "Ready", "Running", "Review")
@@ -81,6 +88,13 @@ def row(case: Case, tasks: list[Task] | None = None) -> dict[str, Any]:
         "task_count": len(tasks),
         "last_task_state": last.state if last else None,
         "created_at": as_utc(case.created_at).isoformat() if case.created_at else None,
+        "status_reason": case.status_reason,
+        "owner_id": case.owner_id,
+        "due_at": as_utc(case.due_at).isoformat() if case.due_at else None,
+        "next_step": case.next_step,
+        "overdue": contract.overdue(case),
+        "escalated": case.escalated_at is not None,
+        "playbook": case.playbook,
     }
 
 
@@ -230,6 +244,46 @@ async def detail(
             for task in tasks
         ],
         "plan": await plan(session, principal, settings, case),
+        **await completion(session, case),
+    }
+
+
+async def completion(session: AsyncSession, case: Case) -> dict[str, Any]:
+    """The completion contract, its links, contact attempts and the playbook working the case."""
+    links = await contract.links(session, case)
+    owner = await session.get(User, case.owner_id) if case.owner_id else None
+    run = await session.scalar(select(PlaybookRun).where(PlaybookRun.case_id == case.id))
+    return {
+        "contract": contract.evaluate(case, links),
+        "contract_spec": contract.spec(case),
+        "owner": {"id": owner.id, "name": owner.display_name} if owner else None,
+        "nothing_left": bool(case.nothing_left),
+        "system_of_record": {"system": case.sor_system, "ack": case.sor_ack}
+        if case.sor_ack
+        else None,
+        "clinician": {
+            "by": case.clinician_by,
+            "at": as_utc(case.clinician_at).isoformat() if case.clinician_at else None,
+        }
+        if case.clinician_by
+        else None,
+        "links": [
+            {
+                "id": lk.id,
+                "part": lk.part,
+                "kind": lk.kind,
+                "ref": lk.ref,
+                "label": lk.label,
+                "audience": lk.audience,
+                "channel": lk.channel,
+                "delivery": lk.delivery,
+                "created_at": as_utc(lk.created_at).isoformat(),
+            }
+            for lk in links
+        ],
+        "winner_attempt_id": case.winner_attempt_id,
+        "attempts": [attempts.view(a) for a in await attempts.for_case(session, case)],
+        "playbook_run": playbooks.run_view(run),
     }
 
 
@@ -264,7 +318,10 @@ async def create(
     *,
     source: str = "manual",
     source_ref: str | None = None,
+    allow_incomplete: bool = False,
 ) -> Case:
+    """A new case. Triggers pass ``allow_incomplete``: a case with gaps is still work, and its
+    playbook blocks it with the missing facts named instead of losing the event."""
     if type_id not in types.CASE_TYPES:
         raise ApiError(422, "unknown_case_type", "Choose one of the listed case types.")
     from careplix_api import packs
@@ -280,13 +337,26 @@ async def create(
     if source not in SOURCES:
         raise ApiError(422, "unknown_source", "Unknown case source.")
     # Until the PHI gate, every case is synthetic, and hand-entered people must say so.
-    if source == "manual" and not types.is_synthetic_text(values):
+    has_patient = any(f["key"] == "patient_name" for f in types.get(type_id)["fields"])
+    if source in TYPED_SOURCES and has_patient and not types.is_synthetic_text(values):
         raise ApiError(
             422,
             "synthetic_only",
             "Cases hold synthetic data only for now. Use a made-up patient name that includes "
             '"Synthetic", "Sample", "Example" or "Test".',
         )
+    known = {f["key"]: f for f in types.get(type_id)["fields"]}
+    _validate(type_id, values)
+    ref = await _next_ref(session, principal.workspace_id, type_id)
+    data = types.build(type_id, ref, values)
+    gaps = types.missing(type_id, data)
+    if gaps and not allow_incomplete:
+        labels = ", ".join(known[k]["label"] for k in gaps)
+        raise ApiError(422, "case_incomplete", f"Fill in: {labels}.", {"missing": gaps})
+    return await _insert(session, principal, type_id, ref, data, source, source_ref)
+
+
+def _validate(type_id: str, values: dict[str, Any]) -> None:
     known = {f["key"]: f for f in types.get(type_id)["fields"]}
     for key, val in values.items():
         if key not in known:
@@ -297,12 +367,35 @@ async def create(
             )
         if known[key]["kind"] == "number" and val not in (None, "") and not str(val).isdigit():
             raise ApiError(422, "not_a_number", f"{known[key]['label']} must be a whole number.")
-    ref = await _next_ref(session, principal.workspace_id, type_id)
-    data = types.build(type_id, ref, values)
-    gaps = types.missing(type_id, data)
-    if gaps:
-        labels = ", ".join(known[k]["label"] for k in gaps)
-        raise ApiError(422, "case_incomplete", f"Fill in: {labels}.", {"missing": gaps})
+
+
+async def update_facts(
+    session: AsyncSession, principal: Principal, case: Case, values: dict[str, Any]
+) -> None:
+    """Fill in or correct facts; the type's paths and checks apply as on creation."""
+    tid = cases.type_id(case)
+    _validate(tid, values)
+    merged = {**cases.context(case), **values}
+    if "patient_name" in values and not types.is_synthetic_text(merged):
+        raise ApiError(
+            422, "synthetic_only", "Cases hold synthetic data only for now. Use a made-up name."
+        )
+    rebuilt = types.build(tid, case.case_ref, {k: v for k, v in merged.items() if k != "case_ref"})
+    extra = {k: v for k, v in (case.data or {}).items() if k not in rebuilt}
+    case.data = {**extra, **rebuilt, "synthetic": case.synthetic}
+    case.updated_at = utcnow()
+    _audit(session, principal, "case.facts", case, {"fields": sorted(values)})
+
+
+async def _insert(
+    session: AsyncSession,
+    principal: Principal,
+    type_id: str,
+    ref: str,
+    data: dict[str, Any],
+    source: str,
+    source_ref: str | None,
+) -> Case:
     case = Case(
         workspace_id=principal.workspace_id,
         case_ref=ref,
@@ -313,6 +406,7 @@ async def create(
         source=source,
         source_ref=source_ref,
         created_by=principal.user_id,
+        owner_id=principal.user_id if principal.user_id != "playbook" else None,
     )
     session.add(case)
     await session.flush()
@@ -339,33 +433,76 @@ async def add_samples(
     return made
 
 
-async def set_status(session: AsyncSession, principal: Principal, case: Case, status: str) -> None:
-    if status not in ("open", "closed"):
-        raise ApiError(422, "bad_status", "A case can be reopened or closed by hand.")
-    case.status, case.updated_at = status, utcnow()
-    _audit(session, principal, f"case.{'reopen' if status == 'open' else 'close'}", case, {})
+async def set_status(
+    session: AsyncSession,
+    principal: Principal,
+    case: Case,
+    status: str,
+    *,
+    reason: str | None = None,
+    owner_id: str | None = None,
+    due_at=None,
+    next_step: str | None = None,
+) -> None:
+    """A person moves the case. ``done`` only when the completion contract holds."""
+    if status == "in_progress":
+        raise ApiError(422, "bad_status", "Cases move to in progress when work starts on them.")
+    await contract.transition(
+        session,
+        case,
+        status,
+        principal.user_id,
+        reason=reason,
+        owner_id=owner_id,
+        due_at=due_at,
+        next_step=next_step,
+    )
+    if status in ("done", "failed", "closed"):
+        run = await session.scalar(select(PlaybookRun).where(PlaybookRun.case_id == case.id))
+        if run is not None and run.state in ("running", "waiting", "blocked", "handed_off"):
+            run.state = "done" if status == "done" else "failed"
 
 
 def on_task_created(case: Case) -> None:
-    if status_of(case) in ("open", "done"):
+    if status_of(case) in ("open", "done", "handed_off", "blocked"):
         case.status, case.updated_at = "in_progress", utcnow()
 
 
-async def on_outcome(session: AsyncSession, task: Task) -> None:
-    """A reviewed outcome moves the case: done when completed, back to open otherwise."""
+async def on_outcome(session: AsyncSession, task: Task, settings: Settings | None = None) -> None:
+    """A reviewed outcome is evidence on the case; it never marks the case done by itself.
+
+    A completed call adds the task (its transcript and findings) as evidence and, when a playbook
+    contacted this person, answers that attempt. The case is done only once the completion
+    contract holds; without other open tasks an unsuccessful one returns the case to open.
+    """
     if not task.case_id:
         return
     case = await session.get(Case, task.case_id)
-    if case is None or status_of(case) == "closed":
+    if case is None or status_of(case) in contract.TERMINAL:
         return
+    if task.state in DONE_OUTCOMES and not await contract.has_link(
+        session, case, "evidence", "task", task.id
+    ):
+        contract.add_link(
+            session,
+            case,
+            part="evidence",
+            kind="task",
+            ref=task.id,
+            label=f"Call reviewed: {task.state.lower()}",
+            actor=task.outcome_by,
+        )
+    if settings is not None:
+        await attempts.on_task_outcome(session, settings, task)
+    if case.playbook:
+        case.updated_at = utcnow()
+        return  # the playbook moves the case
     others = await session.scalar(
         select(func.count())
         .select_from(Task)
         .where(Task.case_id == case.id, Task.id != task.id, Task.state.in_(OPEN_TASK_STATES))
     )
-    if task.state in DONE_OUTCOMES:
-        case.status = "done"
-    elif not others:
+    if task.state not in DONE_OUTCOMES and not others:
         case.status = "open"
     case.updated_at = utcnow()
 

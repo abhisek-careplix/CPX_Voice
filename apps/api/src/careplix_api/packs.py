@@ -26,6 +26,7 @@ SHARED_SECTIONS = (
     "hub",
     "browser",
     "approvals",
+    "inbox",
 )
 
 PACKS: dict[str, dict[str, Any]] = {
@@ -39,6 +40,7 @@ PACKS: dict[str, dict[str, Any]] = {
             "eligibility_check",
             "appointment_reminder",
             "care_outreach",
+            "slot_backfill",
         ),
     },
     "home_health": {
