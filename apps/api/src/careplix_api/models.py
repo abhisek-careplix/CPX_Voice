@@ -164,13 +164,30 @@ class Case(IdMixin, Base):
     data: Mapped[dict[str, Any]] = mapped_column(JSON)
     # careplix_api.cases.types id; rows from before case types are prior authorizations.
     case_type: Mapped[str | None] = mapped_column(String(40), index=True)
-    status: Mapped[str | None] = mapped_column(String(14))  # open|in_progress|done|closed
-    # Where the work came from: sample|manual|import|care_opportunity|backfill|inbound|api
+    # open|in_progress|done|handed_off|blocked|failed (and closed, from before Cases v2)
+    status: Mapped[str | None] = mapped_column(String(14))
+    # Where the work came from: sample|manual|import|care_opportunity|backfill|inbound|api|…
     source: Mapped[str | None] = mapped_column(String(20))
     source_ref: Mapped[str | None] = mapped_column(String(80))
     created_by: Mapped[str | None] = mapped_column(String(36))
     created_at: Mapped[datetime | None] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime | None] = mapped_column(default=utcnow, onupdate=utcnow)
+    # --- Cases v2: the completion contract (careplix_api.cases.contract). All nullable, so rows
+    # from before keep working. Evidence and people-informed messages are CaseLink rows.
+    status_reason: Mapped[str | None] = mapped_column(String(300))  # why blocked/failed/handed off
+    owner_id: Mapped[str | None] = mapped_column(String(36), index=True)  # the staff owner
+    due_at: Mapped[datetime | None] = mapped_column(index=True)
+    next_step: Mapped[str | None] = mapped_column(String(300))
+    nothing_left: Mapped[bool | None] = mapped_column(Boolean)  # "owned next action: none"
+    sor_system: Mapped[str | None] = mapped_column(String(40))  # nexhealth | payer | care | …
+    sor_ack: Mapped[str | None] = mapped_column(String(120))  # the acknowledgement id
+    clinician_by: Mapped[str | None] = mapped_column(String(36))  # clinical cases: who signed off
+    clinician_at: Mapped[datetime | None] = mapped_column()
+    playbook: Mapped[str | None] = mapped_column(String(40))  # careplix_api.cases.playbooks id
+    # Contact-many: the attempt whose "yes" won. Set once, by an atomic claim.
+    winner_attempt_id: Mapped[str | None] = mapped_column(String(36))
+    escalated_at: Mapped[datetime | None] = mapped_column()
+    closed_at: Mapped[datetime | None] = mapped_column()
 
 
 class Task(IdMixin, Base):
