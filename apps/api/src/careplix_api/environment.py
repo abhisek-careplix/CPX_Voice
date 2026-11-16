@@ -128,20 +128,21 @@ def is_production(settings: Settings | None = None) -> bool:
     return (settings.careplix_env if settings is not None else current()) == PRODUCTION
 
 
+def refuse_production_here(what: str, settings: Settings) -> None:
+    """Raise a 409 when ``what`` (a production key, connection or mode) is chosen in a sandbox
+    deployment. Workspaces and connections there can never be production."""
+    if not settings.production_allowed:
+        raise ApiError(
+            409,
+            "production_not_allowed",
+            f"{what} needs the production environment; this one is sandbox only.",
+        )
+
+
 def refuse_in_production(what: str, settings: Settings | None = None) -> None:
     """Raise a 409 when ``what`` (a synthetic-only shortcut) is attempted in production."""
     if is_production(settings):
         raise ApiError(409, "not_in_production", f"{what} isn't available in production.")
-
-
-def refuse_production_here(what: str, settings: Settings | None = None) -> None:
-    """Raise a 409 when ``what`` (production-only) is attempted in a sandbox deployment."""
-    if not (settings or get_settings()).production_allowed:
-        raise ApiError(
-            409,
-            "production_not_allowed",
-            f"{what} can't be added here: this is a sandbox deployment.",
-        )
 
 
 def check_sign_in(settings: Settings, provider: str, email: str) -> None:

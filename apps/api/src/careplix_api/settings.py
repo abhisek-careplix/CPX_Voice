@@ -196,6 +196,13 @@ class Settings(BaseSettings):
         return self.careplix_env == "dev"
 
     @property
+    def production_allowed(self) -> bool:
+        """Only a production deployment may have production workspaces or connections (production
+        NexHealth key, clearinghouse production mode). dev, labs and staging are sandbox
+        deployments: offer and accept sandbox only (careplix_api.environment)."""
+        return self.careplix_env == "production"
+
+    @property
     def livekit_configured(self) -> bool:
         return bool(
             self.livekit_url and self.livekit_api_key and self.livekit_api_secret.get_secret_value()
@@ -208,12 +215,6 @@ class Settings(BaseSettings):
 
     def nexhealth_key(self, env: str | None) -> str:
         return getattr(self, self.nexhealth_key_env(env).lower()).get_secret_value()
-
-    @property
-    def production_allowed(self) -> bool:
-        """Only a production deployment holds production workspaces and connections; dev, labs
-        and staging are sandbox deployments (careplix_api.environment)."""
-        return self.careplix_env == "production"
 
     @property
     def nexhealth_envs(self) -> list[str]:
