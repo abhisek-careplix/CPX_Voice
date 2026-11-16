@@ -32,6 +32,8 @@ After a change is done:
 
 - The owner's working clone is `~/Desktop/CarePlix_Voice` (it has the `.env`). Never ask for secrets
   in chat; the deploy script reads them from `.env` and Secret Manager.
-- Everything is dev (careplix-labs) with synthetic data.
+- Everything is dev (careplix-labs) with synthetic data. Production (`careplix-prod`,
+  `infra/gcp/deploy-prod.sh`) is separate and is set up and deployed only when the owner says so;
+  see `docs/solution/G4_PHI_GATE.md`. The ship flow above deploys labs only.
 - Outbound calls go through the Twilio SIP trunk `careplix-voice.pstn.twilio.com`, with caller ID
   +1 312 755 8589. Only numbers under Connections → Approved destinations are dialled.

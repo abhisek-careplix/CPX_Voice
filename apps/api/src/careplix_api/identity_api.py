@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from careplix_api import identity, packs, tenancy
+from careplix_api import environment, identity, packs, tenancy
 from careplix_api.auth import (
     SESSION_COOKIE,
     SESSION_TTL,
@@ -102,6 +102,7 @@ class EmailVerifyIn(BaseModel):
 
 
 async def _signed_in(response, session, settings, ident) -> dict[str, Any]:
+    environment.check_sign_in(settings, ident.provider, ident.email)
     principal = await identity.establish(session, settings, ident)
     set_session_cookie(response, settings, principal)
     return me_payload(principal)
