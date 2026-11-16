@@ -57,7 +57,7 @@ async def overview(principal: Principal = Depends(viewer), session: AsyncSession
             {"id": "claim_status", "label": "Claim status (276/277)", "ready": True},
             {"id": "claims", "label": "Claim submission (837P)", "ready": True},
             {"id": "acknowledgements", "label": "Claim acknowledgements (277CA)", "ready": True},
-            {"id": "era", "label": "Remittance (835)", "ready": False},
+            {"id": "era", "label": "Remittance (835)", "ready": True},
         ],
         "payers": payers,
     }

@@ -193,6 +193,38 @@ class ClaimWork(IdMixin, Base):
     resolved_at: Mapped[datetime | None] = mapped_column()
 
 
+class EraPosting(IdMixin, Base):
+    """One claim's payment from an 835, proposed for posting to the EHR (RC7).
+
+    The EHR stays the system of record: the payment and each adjustment become write intents that
+    staff approve (L3). ``state``: proposed → posting (intents out) → posted, or ``manual`` when
+    the EHR can't take the write and staff post it by hand, or ``unmatched``."""
+
+    __tablename__ = "era_postings"
+    __table_args__ = (UniqueConstraint("workspace_id", "transaction_id", "payer_claim_number"),)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    claim_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    transaction_id: Mapped[str] = mapped_column(String(80))
+    patient_control_number: Mapped[str] = mapped_column(String(40))
+    payer_claim_number: Mapped[str] = mapped_column(String(60))
+    payer_name: Mapped[str | None] = mapped_column(String(160))
+    claim_status_code: Mapped[str | None] = mapped_column(String(4))
+    outcome: Mapped[str] = mapped_column(String(16))  # paid | partially_paid | denied | reversed
+    charge: Mapped[str] = mapped_column(String(16))
+    paid: Mapped[str] = mapped_column(String(16))
+    patient_responsibility: Mapped[str] = mapped_column(String(16))
+    # [{group, code, amount, text, line_id}] claim and line adjustments together.
+    adjustments: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    remarks: Mapped[list[str]] = mapped_column(JSON, default=list)
+    payment_method: Mapped[str | None] = mapped_column(String(4))
+    trace_number: Mapped[str | None] = mapped_column(String(60))  # check / EFT number
+    paid_on: Mapped[str | None] = mapped_column(String(10))
+    state: Mapped[str] = mapped_column(String(12), default="proposed")
+    intent_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    note: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+
+
 class ClaimStatusCheck(IdMixin, Base):
     """One claim status answer (276/277), kept as evidence with the payer's response."""
 

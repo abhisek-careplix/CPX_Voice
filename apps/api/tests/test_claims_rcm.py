@@ -815,3 +815,277 @@ def test_claim_work_is_scoped_to_the_workspace(billing_studio, ch):
     assert billing_studio.post(f"/api/claims/{claim['id']}/submit").status_code == 404
     _dev_login(billing_studio)
     assert _rows(billing_studio, ClaimWork)
+
+
+# --- ERA 835 posting (RC7) -----------------------------------------------------------------------
+
+from careplix_api.claims import era  # noqa: E402
+from careplix_api.integrations import claim_reports  # noqa: E402
+
+
+def era_835(pcn, outcome="paid", *, charge="206.25", lines=(("L1", "142.00"), ("L2", "64.25"))):
+    """An 835 report in the clearinghouse's JSON shape, the way its test payer pays: in full,
+    60 % with CO-45 and PR-2 at 20 % each, or denied with CO-31."""
+    total = Decimal(charge)
+    pct = {"paid": Decimal("1"), "partial": Decimal("0.6"), "denied": Decimal("0")}[outcome]
+    paid = (total * pct).quantize(Decimal("0.01"))
+    adj = []
+    if outcome == "partial":
+        fifth = (total * Decimal("0.2")).quantize(Decimal("0.01"))
+        adj = [
+            {
+                "claimAdjustmentGroupCode": "CO",
+                "adjustmentReasonCode1": "45",
+                "adjustmentAmount1": str(fifth),
+            },
+            {
+                "claimAdjustmentGroupCode": "PR",
+                "adjustmentReasonCode1": "2",
+                "adjustmentAmount1": str(fifth),
+            },
+        ]
+    if outcome == "denied":
+        adj = [
+            {
+                "claimAdjustmentGroupCode": "CO",
+                "adjustmentReasonCode1": "31",
+                "adjustmentAmount1": str(total),
+            }
+        ]
+    service_lines = [
+        {
+            "lineItemControlNumber": lid,
+            "servicePaymentInformation": {
+                "adjudicatedProcedureCode": "99213",
+                "lineItemChargeAmount": amt,
+                "lineItemProviderPaymentAmount": str(
+                    (Decimal(amt) * pct).quantize(Decimal("0.01"))
+                ),
+            },
+        }
+        for lid, amt in lines
+    ]
+    return {
+        "transactions": [
+            {
+                "controlNumber": "0001",
+                "financialInformation": {
+                    "totalActualProviderPaymentAmount": str(paid),
+                    "paymentMethodCode": "NON" if outcome == "denied" else "ACH",
+                    "checkIssueOrEFTEffectiveDate": "20261114",
+                },
+                "paymentAndRemitReassociationDetails": {"checkOrEFTTraceNumber": "EFT12345"},
+                "payer": {"name": "Test payer"},
+                "detailInfo": [
+                    {
+                        "paymentInfo": [
+                            {
+                                "claimPaymentInfo": {
+                                    "patientControlNumber": pcn,
+                                    "claimStatusCode": "4" if outcome == "denied" else "1",
+                                    "totalClaimChargeAmount": charge,
+                                    "claimPaymentAmount": str(paid),
+                                    "patientResponsibilityAmount": adj[1]["adjustmentAmount1"]
+                                    if outcome == "partial"
+                                    else "0",
+                                    "payerClaimControlNumber": f"PAY-{pcn}",
+                                },
+                                "claimAdjustments": adj,
+                                "outpatientAdjudication": {"claimPaymentRemarkCode1": "N130"}
+                                if outcome == "denied"
+                                else {},
+                                "serviceLines": service_lines,
+                            }
+                        ]
+                    }
+                ],
+            }
+        ]
+    }
+
+
+from decimal import Decimal  # noqa: E402
+
+
+def test_835_summary_shapes_paid_partial_denied():
+    [paid] = claim_reports.summarize_835(era_835("CPX1"))
+    assert (paid["outcome"], paid["paid"], paid["trace_number"]) == ("paid", "206.25", "EFT12345")
+    assert paid["paid_on"] == "2026-11-14" and paid["payment_method"] == "ACH"
+    [partial] = claim_reports.summarize_835(era_835("CPX1", "partial"))
+    assert partial["outcome"] == "partially_paid" and partial["paid"] == "123.75"
+    assert [(a["group"], a["code"], a["amount"]) for a in partial["adjustments"]] == [
+        ("CO", "45", "41.25"),
+        ("PR", "2", "41.25"),
+    ]
+    assert partial["patient_responsibility"] == "41.25"
+    [denied] = claim_reports.summarize_835(era_835("CPX1", "denied"))
+    assert denied["outcome"] == "denied" and denied["remarks"] == ["N130"]
+
+
+def test_posting_proposals_post_payment_and_write_offs_never_patient_share():
+    claim = _draft()
+    [partial] = claim_reports.summarize_835(era_835(claim.claim_number, "partial"))
+    writes = era.proposals(claim, partial)
+    assert [(w["kind"], w["amount"]) for w in writes] == [
+        ("payment_post", "123.75"),
+        ("adjustment_post", "41.25"),
+    ]
+    assert writes[0]["payload"]["amount"] == -123.75  # payments reduce the balance
+    assert writes[0]["payload"]["transaction_id"].startswith("ERA-P-CPX0000000001")
+    assert len(writes[1]["payload"]["transaction_id"]) <= 50
+    assert "CO-45" in writes[1]["reason"]
+
+
+def test_remittances_settle_claims_and_propose_postings(billing_studio, ch):
+    paid, partial, denied = _drafts(
+        billing_studio, "office_paid", "office_partial", "office_denied"
+    )
+    for c in (paid, partial, denied):
+        _submit(billing_studio, c["id"])
+    report = era_835(
+        paid["claim_number"],
+        charge=paid["billed_amount"],
+        lines=(("L1", "198.50"), ("L2", "42.00")),
+    )
+    report["transactions"] += era_835(partial["claim_number"], "partial")["transactions"]
+    report["transactions"] += era_835(
+        denied["claim_number"], "denied", charge="235.00", lines=(("L1", "235.00"),)
+    )["transactions"]
+    out = _ingest(billing_studio, "tx_era_1", report, ch, kind="835")
+    assert (out["claims"], out["paid"], out["partially_paid"], out["denied"]) == (3, 1, 1, 1)
+    assert _ingest(billing_studio, "tx_era_1", report, ch, kind="835")["claims"] == 0
+
+    claims = {c["id"]: c for c in billing_studio.get("/api/claims").json()}
+    assert claims[paid["id"]]["stage"] == "paid" and claims[paid["id"]]["paid_total"] == "240.50"
+    assert claims[partial["id"]]["stage"] == "partially_paid"
+    assert claims[partial["id"]]["patient_responsibility"] == "41.25"
+    assert claims[denied["id"]]["stage"] == "denied" and claims[denied["id"]]["status"] == "denied"
+    postings = {p["claim_id"]: p for p in billing_studio.get("/api/claims/era").json()}
+    # Synthetic samples have no EHR patient: posted by hand.
+    assert postings[paid["id"]]["state"] == "manual"
+    assert postings[denied["id"]]["state"] == "review"
+    r = billing_studio.post(f"/api/claims/era/{postings[paid['id']]['id']}/posted")
+    assert r.json()["state"] == "posted"
+
+
+def test_ehr_claims_post_through_write_intents(tmp_path, ch):
+    """A claim built from NexHealth charges: its remittance becomes L3 write intents that a person
+    approves; approval sends POST /payments and POST /adjustments."""
+    from careplix_api.models import EhrRecord, PayerConnection, WriteIntent
+    from careplix_api.phi import PhiBox
+
+    nex_writes = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "nex.test":
+            if request.url.path.endswith("/authenticates"):
+                return httpx.Response(200, json={"data": {"token": "t"}})
+            if request.method == "POST":
+                nex_writes.append((request.url.path, json.loads(request.content)))
+                return httpx.Response(202)
+            if request.url.path.endswith("/charges"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "data": [
+                            {
+                                "id": 501,
+                                "patient_id": 3,
+                                "provider_id": 15,
+                                "procedure_code": "99213",
+                                "fee": {"amount": "142.00"},
+                                "charged_at": date.today().isoformat(),
+                            }
+                        ],
+                        "page_info": {"has_next_page": False},
+                    },
+                )
+            return httpx.Response(200, json={"data": []})
+        return ch(request)
+
+    with _app(
+        tmp_path,
+        httpx.MockTransport(handler),
+        stedi_api_key="st-test",
+        stedi_base_url="https://ch.test",
+    ) as c:
+        c.post("/api/auth/dev-login").raise_for_status()
+        ws = c.get("/api/me").json()["workspace_id"]
+        settings = c.app.state.settings
+
+        async def seed():
+            box = PhiBox(settings)
+            async with c.app.state.db.sessions() as session:
+                conn = PayerConnection(
+                    workspace_id=ws,
+                    kind="nexhealth",
+                    name="Sandbox practice",
+                    base_url="https://nex.test",
+                    auth_ref={"subdomain": "s", "location_id": "1", "env": "sandbox"},
+                    enabled=True,
+                )
+                session.add(conn)
+                await session.flush()
+                rows = [
+                    (
+                        "patient",
+                        "3",
+                        {},
+                        {
+                            "first_name": "Cedar",
+                            "last_name": "Synthetic",
+                            "date_of_birth": "1970-02-03",
+                            "gender": "Female",
+                        },
+                        "3",
+                    ),
+                    ("provider", "15", {"name": "Dr Synthetic", "npi": "1999999984"}, None, None),
+                    ("coverage", "77", {"plan_id": "9", "priority": 1}, {"member_id": "M100"}, "3"),
+                    ("insurance_plan", "9", {"name": "Aetna", "payer_id": "60054"}, None, None),
+                ]
+                for resource, sid, attrs, pii, pref in rows:
+                    session.add(
+                        EhrRecord(
+                            workspace_id=ws,
+                            connection_id=conn.id,
+                            resource=resource,
+                            source_id=sid,
+                            attrs=attrs,
+                            pii=box.seal(pii) if pii else None,
+                            patient_ref=pref,
+                            status="active",
+                        )
+                    )
+                await session.commit()
+
+        c.portal.call(seed)
+        assert c.post("/api/claims/charges/pull").json()[0]["added"] == 1
+        [claim] = c.post("/api/claims/build", json={}).json()
+        assert claim["diagnoses"] == []  # NexHealth charges carry none
+        c.patch(
+            f"/api/claims/{claim['id']}",
+            json={"diagnoses": ["J06.9"], "lines": [{"line_id": "L1", "dx": [1]}]},
+        )
+        claim = _submit(c, claim["id"])
+        assert claim["stage"] == "submitted", claim
+        _ingest(
+            c,
+            "tx_era_ehr",
+            era_835(claim["claim_number"], "partial", charge="142.00", lines=(("L1", "142.00"),)),
+            ch,
+            kind="835",
+        )
+        [posting] = c.get("/api/claims/era").json()
+        assert posting["state"] == "proposed" and len(posting["intent_ids"]) == 2
+        intents = {i.kind: i for i in _rows(c, WriteIntent)}
+        assert {i.level for i in intents.values()} == {"L3"}
+        assert intents["payment_post"].state == "proposed"
+        assert intents["payment_post"].target_source_id == "3"
+        out = c.post(f"/api/claims/era/{posting['id']}/approve").json()
+        assert out["state"] == "posted", [(i.state, i.last_error) for i in _rows(c, WriteIntent)]
+        (pay_path, pay), (adj_path, adj) = nex_writes
+        assert pay_path.endswith("/payments") and adj_path.endswith("/adjustments")
+        assert pay["payment"]["patient_id"] == 3 and pay["payment"]["amount"] == -85.2
+        assert pay["payment"]["charge_splits"] == {"501": -85.2}
+        assert adj["adjustment"]["amount"] == 28.4
+        assert all(i.state == "accepted" for i in _rows(c, WriteIntent))

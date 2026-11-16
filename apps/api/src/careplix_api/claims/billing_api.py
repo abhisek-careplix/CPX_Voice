@@ -15,8 +15,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from careplix_api.auth import Principal, require
-from careplix_api.claims import acks, billing, charges, inbound, service, submit, x837
-from careplix_api.claims.models import Claim, ClaimCharge, ClaimTransaction, ClaimWork
+from careplix_api.claims import acks, billing, charges, era, inbound, service, submit, x837
+from careplix_api.claims.models import (
+    Claim,
+    ClaimCharge,
+    ClaimTransaction,
+    ClaimWork,
+    EraPosting,
+)
 from careplix_api.db import utcnow
 from careplix_api.errors import ApiError
 from careplix_api.integrations import clearinghouse
@@ -427,3 +433,75 @@ async def work_done(
         row.resolution = body.resolution or ("Dismissed." if body.dismiss else "Done.")
     await session.commit()
     return acks.work_view(row)
+
+
+# --- remittances: posting proposals (RC7) -----------------------------------------------------
+
+
+@router.get("/claims/era")
+async def era_postings(principal: Principal = Depends(viewer), session: AsyncSession = Session):
+    rows = list(
+        await session.scalars(
+            select(EraPosting)
+            .where(EraPosting.workspace_id == principal.workspace_id)
+            .order_by(EraPosting.created_at.desc())
+            .limit(200)
+        )
+    )
+    for row in rows:
+        await era.refresh_state(session, row)
+    await session.commit()
+    return [era.view(r) for r in rows]
+
+
+async def _posting(session: AsyncSession, principal: Principal, posting_id: str) -> EraPosting:
+    row = await session.get(EraPosting, posting_id)
+    if row is None or row.workspace_id != principal.workspace_id:
+        raise ApiError(404, "not_found", "No remittance posting matches that.")
+    return row
+
+
+@router.post("/claims/era/{posting_id}/approve")
+async def approve_posting(
+    posting_id: str,
+    request: Request,
+    principal: Principal = Depends(require("admin")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """Approve every proposed write of one posting and send them (the batch approval)."""
+    from careplix_api.models import WriteIntent
+    from careplix_api.practice import intents
+
+    row = await _posting(session, principal, posting_id)
+    approved = []
+    for intent_id in row.intent_ids or []:
+        intent = await session.get(WriteIntent, intent_id)
+        if intent is not None and intent.state == "proposed":
+            await intents.decide(session, intent, principal.user_id, True)
+            approved.append(intent.id)
+    row.state = "posting" if approved else row.state
+    await session.commit()
+    if approved:
+        await intents.execute_approved(
+            request.app.state.db, settings, _transport(request), only=approved
+        )
+    await session.refresh(row)
+    await era.refresh_state(session, row)
+    await session.commit()
+    return era.view(row)
+
+
+@router.post("/claims/era/{posting_id}/posted")
+async def mark_posted(
+    posting_id: str,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+):
+    """Staff posted it in the EHR by hand."""
+    row = await _posting(session, principal, posting_id)
+    if row.state not in ("manual", "needs_review", "review"):
+        raise ApiError(409, "invalid_state", f"This posting is {row.state}.")
+    row.state, row.note = "posted", f"Posted by hand ({principal.user_id})."[:200]
+    await session.commit()
+    return era.view(row)
