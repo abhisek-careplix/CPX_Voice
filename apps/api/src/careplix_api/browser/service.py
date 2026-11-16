@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import contextvars
 import logging
 from collections.abc import Callable
 from datetime import timedelta
@@ -459,7 +460,8 @@ class BrowserRunner:
         return self._box
 
     def spawn(self, run_id: str) -> None:
-        task = asyncio.create_task(self.drive(run_id))
+        # Background work runs outside the request's tenant scope, like the other loops.
+        task = asyncio.create_task(self.drive(run_id), context=contextvars.Context())
         self._tasks[run_id] = task
         task.add_done_callback(lambda _t: self._tasks.pop(run_id, None))
 

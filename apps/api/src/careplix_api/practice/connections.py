@@ -133,7 +133,7 @@ async def audit(
 
 
 async def ensure_practice_connections(session: AsyncSession, settings: Settings) -> None:
-    """Register the configured NexHealth location and Stedi account for every workspace."""
+    """Register the Stedi account for every workspace, and the env EHR for lab workspaces."""
     wanted: list[tuple[str, str, str, dict[str, Any], bool]] = []
     if settings.nexhealth_configured:
         wanted.append(
@@ -183,6 +183,10 @@ async def ensure_practice_connections(session: AsyncSession, settings: Settings)
         )
     for workspace in list(await session.scalars(select(Workspace))):
         for kind, name, url, ref, synthetic in wanted:
+            if kind != CLEARINGHOUSE and workspace.env_integrations is False:
+                # The deployment's own EHR is the lab practice. Customer workspaces never see
+                # it; the clearinghouse account is CarePlix's and serves every workspace.
+                continue
             conn = await session.scalar(
                 select(PayerConnection).where(
                     PayerConnection.workspace_id == workspace.id, PayerConnection.kind == kind

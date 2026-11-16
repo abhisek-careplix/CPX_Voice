@@ -90,59 +90,6 @@ async def dev_login(
     return _me(principal)
 
 
-@router.get("/auth/mode")
-async def auth_mode(settings: Settings = Depends(get_settings)):
-    return {"mode": "dev" if settings.is_dev else "sso"}
-
-
-@router.post("/auth/iap-login")
-async def iap_login(
-    request: Request,
-    response: Response,
-    session: AsyncSession = Session,
-    settings: Settings = Depends(get_settings),
-):
-    """Exchange the IAP-verified Google identity for a Studio session (cloud deployments)."""
-    from careplix_api.auth import verify_iap_assertion
-    from careplix_api.models import Membership, User
-
-    email = verify_iap_assertion(request, settings)
-    user = await session.scalar(select(User).where(User.email == email))
-    if user is None:
-        user = User(email=email, display_name=email.split("@")[0].replace(".", " ").title())
-        session.add(user)
-        await session.flush()
-    membership = await session.scalar(select(Membership).where(Membership.user_id == user.id))
-    if membership is None:
-        workspace = await session.scalar(select(Workspace).order_by(Workspace.created_at).limit(1))
-        if workspace is None:
-            raise ApiError(503, "not_seeded", "No workspace exists yet.")
-        membership = Membership(
-            user_id=user.id, workspace_id=workspace.id, role=settings.iap_default_role
-        )
-        session.add(membership)
-        session.add(
-            AuditEvent(
-                workspace_id=workspace.id,
-                actor=user.id,
-                action="user.provisioned",
-                target=user.id,
-                detail={"role": membership.role},
-            )
-        )
-    await session.commit()
-    principal = Principal(user.id, membership.workspace_id, membership.role, user.display_name)
-    response.set_cookie(
-        SESSION_COOKIE,
-        issue_session(settings, principal),
-        max_age=int(SESSION_TTL.total_seconds()),
-        httponly=True,
-        samesite="strict",
-        secure=True,
-    )
-    return _me(principal)
-
-
 @router.post("/auth/logout")
 async def logout(response: Response):
     response.delete_cookie(SESSION_COOKIE)
@@ -150,24 +97,25 @@ async def logout(response: Response):
 
 
 def _me(p: Principal) -> dict[str, Any]:
-    from careplix_api.auth import PERMISSIONS
+    from careplix_api.identity_api import me_payload
 
-    return {
-        "user_id": p.user_id,
-        "display_name": p.display_name,
-        "role": p.role,
-        "workspace_id": p.workspace_id,
-        "permissions": sorted(k for k, roles in PERMISSIONS.items() if p.role in roles),
-    }
+    return me_payload(p)
 
 
 @router.get("/me")
 async def me(principal: Principal = Depends(viewer), session: AsyncSession = Session):
+    from careplix_api import packs
+    from careplix_api.models import User
+
     workspace = await session.get(Workspace, principal.workspace_id)
+    user = await session.get(User, principal.user_id)
     return {
         **_me(principal),
+        "email": user.email if user else None,
         "workspace_name": workspace.name,
         "emergency_stop": workspace.emergency_stop,
+        "product_line": packs.line_of(workspace.product_line),
+        "pack": packs.pack(workspace.product_line),
     }
 
 

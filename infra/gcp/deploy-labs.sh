@@ -112,6 +112,11 @@ setup() {
   stedi_test_key | tr -d '\n' | put_secret cpx-stedi-api-key
   $G secrets describe cpx-data-key >/dev/null 2>&1 ||
     python3 -c 'import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode(), end="")' | put_secret cpx-data-key
+  # Optional: a Resend key turns on email sign-in codes and invitation emails (no PHI in either).
+  if [ -n "$(env_value RESEND_API_KEY || true)" ]; then
+    env_value RESEND_API_KEY | tr -d '\n' | put_secret cpx-resend-api-key
+    $G secrets add-iam-policy-binding cpx-resend-api-key --member "serviceAccount:$SA_STUDIO" --role roles/secretmanager.secretAccessor >/dev/null
+  fi
   # Optional: an Anthropic API key runs the browser agent's Claude on the Anthropic API, not Vertex.
   if [ -n "$(env_value ANTHROPIC_API_KEY || true)" ]; then
     env_value ANTHROPIC_API_KEY | tr -d '\n' | put_secret cpx-anthropic-api-key
@@ -282,13 +287,38 @@ deploy() {
     if [ -n "$value" ]; then browser_env="$browser_env,$key=$value"; fi
   done
 
-  # 3. Studio + API + background loops, behind IAP (CarePlix Google accounts only).
+  # 3. Studio + API + background loops: behind IAP (CarePlix Google accounts), or public with
+  #    customer sign-in when STUDIO_PUBLIC=true.
   practice_env="NEXHEALTH_ENV=$(env_value NEXHEALTH_ENV),NEXHEALTH_SUBDOMAIN=$(env_value NEXHEALTH_SUBDOMAIN),NEXHEALTH_INSTITUTION_ID=$(env_value NEXHEALTH_INSTITUTION_ID),NEXHEALTH_LOCATION_ID=$(env_value NEXHEALTH_LOCATION_ID),STEDI_ENV=test,WEBHOOK_PUBLIC_URL=$webhooks_url"
   # Labs only ever gets the Stedi test key, under the test key's name (never STEDI_PROD_API_KEY).
   practice_secrets="NEXHEALTH_API_KEY=cpx-nexhealth-api-key:latest,STEDI_TEST_API_KEY=cpx-stedi-api-key:latest,DATA_ENCRYPTION_KEY=cpx-data-key:latest"
   studio_secrets="BROWSER_SERVICE_TOKEN=cpx-browser-token:latest"
   if $G secrets describe cpx-anthropic-api-key >/dev/null 2>&1; then
     studio_secrets="$studio_secrets,ANTHROPIC_API_KEY=cpx-anthropic-api-key:latest"
+  fi
+  # Customer sign-in (OPERATING_PLAN P1). Client ids are public; the Resend key is a secret.
+  studio_url=$(url_of careplix-studio 2>/dev/null || true)
+  identity_env="STUDIO_URL=$studio_url"
+  for key in GOOGLE_CLIENT_ID MICROSOFT_CLIENT_ID EMAIL_FROM PLATFORM_ADMINS; do
+    value=$(env_value "$key" || true)
+    # --set-env-vars splits on commas, so a list of platform admins travels with semicolons.
+    if [ -n "$value" ]; then identity_env="$identity_env,$key=$(printf '%s' "$value" | tr ',' ';')"; fi
+  done
+  if $G secrets describe cpx-resend-api-key >/dev/null 2>&1; then
+    studio_secrets="$studio_secrets,RESEND_API_KEY=cpx-resend-api-key:latest"
+  fi
+  # STUDIO_PUBLIC=true opens the Studio to customers with app sign-in (Google, Microsoft, email
+  # codes) instead of IAP, which admits CarePlix Google accounts only. Off by default.
+  if [ "$(env_value STUDIO_PUBLIC || true)" = "true" ]; then
+    if [ -z "$(env_value GOOGLE_CLIENT_ID || true)$(env_value MICROSOFT_CLIENT_ID || true)$(env_value RESEND_API_KEY || true)" ]; then
+      echo "✗ STUDIO_PUBLIC=true needs a sign-in method: GOOGLE_CLIENT_ID, MICROSOFT_CLIENT_ID or RESEND_API_KEY in .env." >&2
+      exit 1
+    fi
+    studio_access="--allow-unauthenticated --no-iap"
+    studio_iap_env=""
+  else
+    studio_access="--no-allow-unauthenticated --iap"
+    studio_iap_env=",IAP_AUDIENCE=/projects/$NUMBER/locations/$REGION/services/careplix-studio"
   fi
   oe_addr=$(oe_ip)
   if [ -n "$oe_addr" ] && $G secrets describe cpx-openemr-client-secret >/dev/null 2>&1; then
@@ -298,13 +328,15 @@ deploy() {
   fi
   $G run deploy careplix-studio --region "$REGION" --image "$REGISTRY/api:$TAG" \
     --service-account "$SA_STUDIO" --add-cloudsql-instances "$conn" $VPC_FLAGS \
-    --set-env-vars "$common_env,$practice_env,$browser_env,RUN_BACKGROUND=true,PUBLISH_REQUIRES_EVAL=true,IAP_AUDIENCE=/projects/$NUMBER/locations/$REGION/services/careplix-studio" \
+    --set-env-vars "$common_env,$practice_env,$browser_env,$identity_env,RUN_BACKGROUND=true,PUBLISH_REQUIRES_EVAL=true$studio_iap_env" \
     --set-secrets "$secrets,$practice_secrets,$studio_secrets" --min-instances 1 --max-instances 1 --no-cpu-throttling \
-    --timeout 3600 --no-allow-unauthenticated --iap
-  $G run services add-iam-policy-binding careplix-studio --region "$REGION" \
-    --member "serviceAccount:service-$NUMBER@gcp-sa-iap.iam.gserviceaccount.com" --role roles/run.invoker >/dev/null
-  $G iap web add-iam-policy-binding --resource-type=cloud-run --service careplix-studio --region "$REGION" \
-    --member "domain:careplix.com" --role roles/iap.httpsResourceAccessor >/dev/null
+    --timeout 3600 $studio_access
+  if [ -n "$studio_iap_env" ]; then
+    $G run services add-iam-policy-binding careplix-studio --region "$REGION" \
+      --member "serviceAccount:service-$NUMBER@gcp-sa-iap.iam.gserviceaccount.com" --role roles/run.invoker >/dev/null
+    $G iap web add-iam-policy-binding --resource-type=cloud-run --service careplix-studio --region "$REGION" \
+      --member "domain:careplix.com" --role roles/iap.httpsResourceAccessor >/dev/null
+  fi
 
   # 4. Worker-facing internal API: same image, no background loops, IAM-only for the worker. Call
   #    claims and the receptionist's EHR tools run here, so it needs the practice settings and the

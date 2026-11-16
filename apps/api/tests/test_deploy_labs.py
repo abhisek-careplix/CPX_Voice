@@ -42,8 +42,12 @@ def test_deploy_checks_every_secret_before_changing_anything():
     text = SCRIPT.read_text()
     required = _variable("REQUIRED_SECRETS").split()
     referenced = set(re.findall(r"=(cpx-[a-z-]+):latest", text))
-    # Deployed only when present: the hosted OpenEMR's secrets and the optional Anthropic key.
-    optional = {s for s in referenced if s.startswith("cpx-openemr-")} | {"cpx-anthropic-api-key"}
+    # Deployed only when present: the hosted OpenEMR's secrets and the optional Anthropic and
+    # Resend keys.
+    optional = {s for s in referenced if s.startswith("cpx-openemr-")} | {
+        "cpx-anthropic-api-key",
+        "cpx-resend-api-key",
+    }
     assert referenced - optional <= set(required)
     first_deploy = text.index("run deploy", text.index("deploy() {"))
     assert text.index("REQUIRED_SECRETS", text.index("deploy() {")) < first_deploy
@@ -241,3 +245,13 @@ def test_deploy_stops_before_changing_anything_when_the_images_are_missing(tmp_p
     assert result.returncode == 1
     assert f"No images tagged {head}" in result.stderr and "nothing was deployed" in result.stderr
     assert "run deploy" not in calls
+
+
+def test_the_studio_gets_customer_sign_in_settings_and_stays_behind_iap_by_default():
+    command = _deploy_command("careplix-studio")
+    assert "$identity_env" in command and "$studio_access" in command
+    text = SCRIPT.read_text()
+    # IAP unless the owner opts in with STUDIO_PUBLIC=true, and public needs a sign-in method.
+    assert 'studio_access="--no-allow-unauthenticated --iap"' in text
+    assert "STUDIO_PUBLIC=true needs a sign-in method" in text
+    assert "RESEND_API_KEY=cpx-resend-api-key:latest" in text
