@@ -195,7 +195,9 @@ async def _cases(session: AsyncSession, principal: Principal) -> list[dict[str, 
             )
         gap = await _packet_gap(session, case) if case.escalated_at is None else None
         if gap:
-            missing = ", ".join(i["label"].lower() for i in gap)
+            from careplix_api.priorauth.packet import in_sentence
+
+            missing = ", ".join(in_sentence(i["label"]) for i in gap)
             out.append(
                 _item(
                     principal,

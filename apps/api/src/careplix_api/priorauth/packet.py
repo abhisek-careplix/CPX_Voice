@@ -102,6 +102,12 @@ async def checklist(session: AsyncSession, case: Case, provided: dict[str, Any])
     return items
 
 
+def in_sentence(label: str) -> str:
+    """A label mid-sentence: "Diagnosis codes (ICD-10)" → "diagnosis codes (ICD-10)"; "CPT code"
+    stays as it is."""
+    return label if label[:2].isupper() else label[:1].lower() + label[1:]
+
+
 def missing(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [i for i in items if i["required"] and not i["present"]]
 

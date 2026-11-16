@@ -213,7 +213,8 @@ def test_a_271_auth_flag_opens_one_case_with_the_facts_and_a_packet_task(tmp_pat
             "Recent clinical notes showing medical necessity",
         }
         [task] = c.get("/api/inbox?kind=auth_packet").json()["items"]
-        assert task["case"]["id"] == case["id"] and "cpt code" in task["detail"]
+        assert task["case"]["id"] == case["id"]
+        assert "CPT code, diagnosis codes (ICD-10)" in task["detail"]
         assert c.get("/api/inbox?kind=hand_off").json()["items"] == []
 
         # Staff fill the gaps; the last document resumes the playbook. With no PAS endpoint,

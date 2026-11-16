@@ -106,7 +106,7 @@ async def prepare_packet(ctx: RunContext, step: Step) -> Outcome:
     ctx.put(packet=items, packet_checked_at=utcnow().isoformat())
     gaps = packet.missing(items)
     if gaps:
-        names = ", ".join(i["label"].lower() for i in gaps)
+        names = ", ".join(packet.in_sentence(i["label"]) for i in gaps)
         return Outcome(
             "block",
             f"The prior auth packet is missing: {names}."[:300],
