@@ -1373,3 +1373,80 @@ def test_overdue_appeals_are_flagged():
     assert v["days_left"] == -15 and v["overdue"] is True
     row.state = "sent"
     assert appeals.view(row, date(2026, 11, 16))["overdue"] is False
+
+
+# --- claim status follow-up for claims we submitted (RC6) -------------------------------------
+
+from datetime import UTC, datetime  # noqa: E402
+
+from careplix_api.claims import follow_up  # noqa: E402
+from careplix_api.models import Case  # noqa: E402
+
+
+def _sweep(c, days):
+    now = datetime.now(UTC) + timedelta(days=days)
+    return c.portal.call(
+        lambda: follow_up.run_due(c.app.state.db, c.app.state.settings, None, now=now)
+    )
+
+
+def test_submitted_claims_follow_277ca_and_835_age(billing_studio, ch):
+    silent, accepted, paid, rejected = _drafts(
+        billing_studio, "office_paid", "office_partial", "office_denied", "medicare_ack_only"
+    )
+    for c in (silent, accepted, paid, rejected):
+        _submit(billing_studio, c["id"])
+    _ingest(billing_studio, "tx_a", ack_277(accepted["claim_number"]), ch)
+    _ingest(billing_studio, "tx_p", ack_277(paid["claim_number"]), ch)
+    _ingest(
+        billing_studio,
+        "tx_r",
+        ack_277(rejected["claim_number"], "A7", "21", text="Missing or invalid information."),
+        ch,
+    )
+    _ingest(
+        billing_studio,
+        "tx_e",
+        era_835(paid["claim_number"], charge="235.00", lines=(("L1", "235.00"),)),
+        ch,
+        kind="835",
+    )
+
+    assert _sweep(billing_studio, 1)["cases"] == 0
+    # Day 4: no acknowledgement for the silent claim → one payer call.
+    assert _sweep(billing_studio, 4)["cases"] == 1
+    # Day 31: the accepted claim has no remittance → its call; the others never get one.
+    assert _sweep(billing_studio, 31)["cases"] == 1
+    assert _sweep(billing_studio, 60)["cases"] == 0
+    refs = {c.source_ref for c in _rows(billing_studio, Case, Case.source == follow_up.SOURCE)}
+    assert refs == {f"claim:{silent['id']}", f"claim:{accepted['id']}"}
+    detail = billing_studio.get(f"/api/claims/{accepted['id']}").json()
+    assert detail["follow_up_reason"].startswith("Accepted, but no remittance (835)")
+    # Test mode never sends a 276 for our claims; their status stays what the 277CA said.
+    assert detail["status"] == "accepted" and detail["no_route"].startswith("Test mode")
+
+
+def test_manual_check_on_a_test_mode_claim_keeps_its_status(billing_studio, ch):
+    [claim] = _drafts(billing_studio, "office_paid")
+    _submit(billing_studio, claim["id"])
+    _ingest(billing_studio, "tx_m", ack_277(claim["claim_number"]), ch)
+    out = billing_studio.post(f"/api/claims/{claim['id']}/check").json()
+    assert out["status"] == "accepted" and out["stage"] == "accepted"
+    assert out["checks"][0]["state"] == "unavailable"
+    assert not [s for s in ch.submitted if "claimstatus" in json.dumps(s)]
+
+
+def test_needs_call_rules_for_submitted_claims():
+    now = datetime(2026, 12, 20, tzinfo=UTC)
+    sent = datetime(2026, 11, 16, tzinfo=UTC)
+
+    def claim(stage, **kw):
+        return Claim(stage=stage, submitted_at=sent, submitted_on="2026-11-16", **kw)
+
+    assert follow_up.needs_call(claim("draft"), now) is None
+    assert follow_up.needs_call(claim("rejected", status="rejected"), now) is None
+    assert follow_up.needs_call(claim("denied", status="denied"), now) is None
+    assert "No acknowledgement" in follow_up.needs_call(claim("submitted"), now)
+    assert "no remittance" in follow_up.needs_call(claim("accepted"), now)
+    assert follow_up.needs_call(claim("accepted", era_at=now), now) is None
+    assert follow_up.due(claim("rejected"), now) is False

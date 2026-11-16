@@ -162,8 +162,13 @@ def patient(settings: Settings, claim: Claim) -> dict[str, Any]:
     return PhiBox(settings).open(claim.patient)
 
 
+TEST_MODE_ROUTE = "Test mode has no 276 claim status: followed by 277CA and 835 age."
+
+
 async def no_route(session: AsyncSession, claim: Claim) -> str | None:
     """Why this claim's payer has no electronic claim status, if it hasn't."""
+    if claim.submit_mode == clearinghouse.TEST:
+        return TEST_MODE_ROUTE  # the clearinghouse's test mode doesn't answer 276
     if claim.plan_kind == "medicare":
         return clearinghouse.claim_status_route(clearinghouse.stedi.CMS, None)
     row = await directory.find(session, claim.workspace_id, claim.payer_id)
@@ -237,7 +242,11 @@ async def check(
     if reason:
         record.source, record.mode, record.state = "none", "none", "unavailable"
         record.status, record.message = UNAVAILABLE, reason
-        _unavailable(claim, reason)
+        if claim.stage is None:
+            _unavailable(claim, reason)
+        else:
+            # A claim we submitted keeps the status its 277CA and 835 gave it.
+            claim.no_route = reason[:120]
         claim.next_check_at = None
     elif use_sample:
         body = samples.response(claim, today)

@@ -10,6 +10,11 @@ Schedule (by claim age, from the day the payer received it):
 - first electronic check at :data:`FIRST_CHECK_AGE`, then every week until the payer finalizes it
   (paid, denied, finalized, no payment); connectivity errors retry within the hour.
 
+Claims we submitted (``stage`` set) follow their 277CA and 835 instead: a call when there's no
+acknowledgement :data:`ACK_OVERDUE` after submission, or no remittance :data:`ERA_OVERDUE` after
+it (test mode and traditional Medicare have no 276; elsewhere a 276 still runs on the schedule).
+Their rejections and denials are worked from the claims work queue, not by a status call.
+
 A payer call (a ``claim_status`` case) is opened once per claim when:
 
 - the payer can't find the claim, rejected it, or asks for more information: at once;
@@ -62,6 +67,9 @@ CALL_NOW = frozenset({NOT_FOUND, REJECTED, INFO_REQUESTED})
 SOURCE = "claim_follow_up"
 SYSTEM_ACTOR = "system:claims"
 NOT_OUT = frozenset({"draft", "ready", "blocked", "void"})  # claims we haven't submitted
+OUT_AT_PAYER = frozenset({"submitted", "accepted"})  # submitted, waiting for the payer
+ACK_OVERDUE = timedelta(days=3)  # 277CAs come within a day or two
+ERA_OVERDUE = timedelta(days=30)  # Medicare pays clean claims from day 14; most payers by 30
 
 
 def _date(value: str | None) -> date | None:
@@ -75,14 +83,37 @@ def due(claim: Claim, now: datetime) -> bool:
     """Whether the schedule asks about this claim now."""
     if claim.status in FINAL or claim.no_route:
         return False
+    if claim.stage is not None and claim.stage not in OUT_AT_PAYER:
+        return False  # not out yet, settled by a remittance, or in the rejection queue
     submitted = _date(claim.submitted_on)
     if submitted is None or now.date() - submitted < FIRST_CHECK_AGE:
         return False
     return claim.next_check_at is None or as_utc(claim.next_check_at) <= now
 
 
+def submitted_needs_call(claim: Claim, now: datetime) -> str | None:
+    """Claims we submitted: acknowledgement and remittance age are the signal (all that test
+    mode and traditional Medicare give), plus what a 276 said where the payer answers one.
+    Rejections and denials have their own queue, so they never open a status call."""
+    if claim.stage not in OUT_AT_PAYER:
+        return None
+    sent = as_utc(claim.submitted_at).date() if claim.submitted_at else _date(claim.submitted_on)
+    if sent is None:
+        return None
+    age = (now.date() - sent).days
+    if claim.stage == "submitted" and age >= ACK_OVERDUE.days:
+        return f"No acknowledgement (277CA) {age} days after submission."
+    if claim.status in (NOT_FOUND, INFO_REQUESTED):
+        return f"Electronic status: {STATUS_LABEL[claim.status].lower()}."
+    if claim.era_at is None and age >= ERA_OVERDUE.days:
+        return f"Accepted, but no remittance (835) {age} days after submission."
+    return None
+
+
 def needs_call(claim: Claim, now: datetime) -> str | None:
     """Why a person (or the calling agent) should phone the payer about this claim, or None."""
+    if claim.stage is not None:
+        return submitted_needs_call(claim, now)
     status = claim.status
     if status is None or status in FINAL:
         return None
