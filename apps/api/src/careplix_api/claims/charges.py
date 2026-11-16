@@ -376,7 +376,10 @@ async def pull_ehr(
     from careplix_api.db import utcnow
     from careplix_api.practice.connections import is_test, location_id, nexhealth_client
 
-    client = nexhealth_client(conn, settings, transport)
+    try:
+        client = nexhealth_client(conn, settings, transport)
+    except NexHealthError as err:  # e.g. no key for this practice's environment
+        return {"ok": False, "read": 0, "added": 0, "error": err.message[:200]}
     since = (utcnow() - timedelta(days=days)).isoformat()
     try:
         rows, _ = await client.list_all(

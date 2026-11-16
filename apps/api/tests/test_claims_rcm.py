@@ -162,6 +162,7 @@ def test_control_numbers_are_unique_and_fit_clm01():
 
 
 def _app(tmp_path, transport=None, **overrides):
+    overrides.setdefault("nexhealth_api_key", "nex-sandbox-key")
     settings = make_settings(tmp_path, run_background=False, payer_sandbox_url="", **overrides)
     return TestClient(create_app(settings, FakeGateway(settings), integration_transport=transport))
 
