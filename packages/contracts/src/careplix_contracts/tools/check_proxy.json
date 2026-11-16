@@ -1,0 +1,81 @@
+{
+  "name": "check_proxy",
+  "version": "1.0.0",
+  "description": "When a verified caller is calling for someone else (a parent, spouse, client or patient), check they are an authorised representative for what they are asking about before saying anything about that person. Ask for the person's first name, last name and date of birth and what the call is about. If it is not authorised, share nothing about that person and offer a message.",
+  "classification": "read",
+  "execution": "api",
+  "allowed_roles": [
+    "agent_runtime"
+  ],
+  "timeout_ms": 5000,
+  "idempotency": "naturally_idempotent",
+  "limits": {
+    "max_attempts_per_call": 2
+  },
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "first_name",
+      "last_name",
+      "topic"
+    ],
+    "properties": {
+      "first_name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 60
+      },
+      "last_name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 60
+      },
+      "date_of_birth": {
+        "type": "string",
+        "format": "date"
+      },
+      "zip": {
+        "type": "string",
+        "pattern": "^[0-9]{5}$"
+      },
+      "member_id": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 40
+      },
+      "topic": {
+        "enum": [
+          "general",
+          "appointments",
+          "schedule",
+          "billing",
+          "care_plan",
+          "records"
+        ],
+        "description": "What the caller wants to discuss for that person."
+      }
+    }
+  },
+  "result_schema": {
+    "type": "object",
+    "required": [
+      "authorized",
+      "message"
+    ],
+    "properties": {
+      "authorized": {
+        "type": "boolean"
+      },
+      "scope": {
+        "type": "array"
+      },
+      "message": {
+        "type": "string"
+      }
+    }
+  },
+  "owner": "person-memory",
+  "release": "D",
+  "enabled_in_demo": true
+}

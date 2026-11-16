@@ -1,0 +1,61 @@
+{
+  "name": "remember_person_note",
+  "version": "1.0.0",
+  "description": "Record something useful learned on this call about the verified person, such as a preference, new availability or the best time to reach them, so future calls know it. Keep it short and factual; never record medical details, card numbers or anything the person asked you not to keep. Set stop_contact when the person asks not to be called or texted again.",
+  "classification": "write",
+  "execution": "api",
+  "allowed_roles": [
+    "agent_runtime"
+  ],
+  "timeout_ms": 5000,
+  "idempotency": "keyed",
+  "limits": {
+    "max_attempts_per_call": 5
+  },
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "topic",
+      "text"
+    ],
+    "properties": {
+      "topic": {
+        "enum": [
+          "preference",
+          "availability",
+          "contact",
+          "schedule",
+          "note"
+        ]
+      },
+      "text": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 300
+      },
+      "stop_contact": {
+        "type": "boolean"
+      }
+    }
+  },
+  "result_schema": {
+    "type": "object",
+    "required": [
+      "state"
+    ],
+    "properties": {
+      "state": {
+        "enum": [
+          "recorded"
+        ]
+      },
+      "stop_contact": {
+        "type": "boolean"
+      }
+    }
+  },
+  "owner": "person-memory",
+  "release": "D",
+  "enabled_in_demo": true
+}

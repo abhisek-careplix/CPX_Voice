@@ -20,6 +20,7 @@ import CareOpportunities from "./pages/CareOpportunities";
 import Calls from "./pages/Calls";
 import Connections from "./pages/Connections";
 import Integrations from "./pages/Integrations";
+import People from "./pages/People";
 import Practice from "./pages/Practice";
 import ResultDetail from "./pages/ResultDetail";
 import Personas from "./pages/Personas";
@@ -135,6 +136,11 @@ function Shell() {
           {show("cases") && (
             <NavLink to="/cases" className="nav-link">
               <Briefcase size={16} aria-hidden /> Cases
+            </NavLink>
+          )}
+          {show("people") && (
+            <NavLink to="/people" className="nav-link">
+              <Users size={16} aria-hidden /> People
             </NavLink>
           )}
           {show("tasks") && (
@@ -275,6 +281,7 @@ function Shell() {
           <Route path="/agents" element={<Gate show={show("agents")}><Agents /></Gate>} />
           <Route path="/agents/:id" element={<Gate show={show("agents")}><AgentEditor /></Gate>} />
           <Route path="/cases" element={<Gate show={show("cases")}><Cases /></Gate>} />
+          <Route path="/people" element={<Gate show={show("people")}><People /></Gate>} />
           <Route path="/tasks" element={<Gate show={show("tasks")}><Tasks /></Gate>} />
           <Route path="/tasks/new" element={<Gate show={show("tasks")}><TaskComposer /></Gate>} />
           <Route path="/calls" element={<Gate show={show("calls")}><Calls /></Gate>} />

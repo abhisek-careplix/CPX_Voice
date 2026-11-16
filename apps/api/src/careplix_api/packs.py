@@ -18,6 +18,7 @@ SHARED_SECTIONS = (
     "personas",
     "shadow",
     "cases",
+    "people",
     "tasks",
     "calls",
     "results",

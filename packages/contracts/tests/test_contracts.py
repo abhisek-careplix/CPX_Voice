@@ -25,19 +25,23 @@ def test_tool_registry_loads_and_gates_pilot_tools():
         "book_appointment",
         "book_new_patient",
         "cancel_appointment",
+        "check_proxy",
         "end_call",
         "find_patient",
         "find_slots",
         "get_assigned_context",
+        "get_person_memory",
         "leave_message",
         "list_appointments",
         "medicare_benefits",
         "record_finding",
+        "remember_person_note",
         "reschedule_appointment",
         "send_dtmf",
         "set_call_state",
         "verify_caller",
         "verify_insurance",
+        "verify_person",
     }
     # Pilot-only tools must never be enabled in the demo (FR13, FR15).
     for name, tool in tools.items():
