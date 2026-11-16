@@ -28,6 +28,7 @@ from careplix_api.browser.service import BrowserRunner
 from careplix_api.calls_service import CallRunner
 from careplix_api.cases import api as cases_api
 from careplix_api.cases import service as cases_service
+from careplix_api.cases.playbooks import PlaybookEngine
 from careplix_api.claims import api as claims_api
 from careplix_api.claims import follow_up as claims_follow_up
 from careplix_api.db import Database
@@ -112,6 +113,13 @@ def create_app(
         app.state.practice_worker = PracticeWorker(
             app.state.db, settings, lambda: app.state.integration_transport
         )
+        app.state.playbooks = PlaybookEngine(
+            app.state.db,
+            settings,
+            app.state.gateway,
+            app.state.runner,
+            lambda: app.state.integration_transport,
+        )
         # One service runs the background loops; others (e.g. the worker-facing internal API) don't.
         loops = (
             [
@@ -144,6 +152,8 @@ def create_app(
             if settings.run_background
             else []
         )
+        if settings.run_background and settings.playbooks_enabled:
+            loops.append(asyncio.create_task(app.state.playbooks.run_forever()))
         yield
         for loop in loops:
             loop.cancel()

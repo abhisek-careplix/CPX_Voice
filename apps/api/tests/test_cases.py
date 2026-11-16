@@ -172,7 +172,10 @@ def test_reviewed_outcomes_move_the_case(client):
         json={"outcome": "Completed", "reason": "Patient confirmed."},
     ).raise_for_status()
     detail = client.get(f"/api/cases/{case['id']}").json()
-    assert detail["status"] == "done" and len(detail["tasks"]) == 2
+    # A completed call is evidence, not completion: the contract still wants the rest (§2).
+    assert detail["status"] == "in_progress" and len(detail["tasks"]) == 2
+    assert detail["contract"]["missing"] == ["system_of_record", "informed", "next_action"]
+    assert [lk["ref"] for lk in detail["links"]] == [second["id"]]
     closed = client.post(f"/api/cases/{case['id']}/status", json={"status": "closed"}).json()
     assert closed["status"] == "closed"
 
