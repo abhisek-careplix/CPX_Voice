@@ -404,3 +404,41 @@ def test_find_patient_is_enough_to_read_a_linked_patients_memory(agency):
     assert other.ok("find_patient", **JANE) == {"verified": True}
     assert other.ok("get_person_memory", topic="general")["facts"]["first_name"] == "Jane"
     assert any(r.reason == "find_patient" for r in _checks(c, "identity"))
+
+
+def test_another_workspaces_people_are_invisible(agency):
+    c = agency
+    from careplix_api.models import Workspace
+    from careplix_api.phi import PhiBox
+
+    async def other_workspace():
+        async with c.app.state.db.sessions() as session:
+            ws = Workspace(name="Other agency (synthetic)")
+            session.add(ws)
+            await session.flush()
+            box = PhiBox(c.app.state.settings)
+            person = Person(
+                workspace_id=ws.id,
+                kind="client",
+                pii=box.seal({**ROSA, "first_name": "Olga", "lat": 41.97, "lon": -87.66}),
+            )
+            session.add(person)
+            await session.commit()
+            return person.id
+
+    foreign = c.portal.call(other_workspace)
+    assert c.get(f"/api/people/{foreign}").status_code == 404
+    assert foreign not in {p["id"] for p in c.get("/api/people").json()}
+    starts, ends = _shift()
+    ranked = c.post(
+        "/api/people/rank", json={"starts_at": starts, "ends_at": ends, "client_id": foreign}
+    )
+    assert ranked.status_code == 404
+    rosa = _id(c, "R. S.")
+    linked = c.post(
+        f"/api/people/{rosa}/relationships", json={"related_id": foreign, "relation": "child"}
+    )
+    assert linked.status_code == 404
+    call = _call(c)
+    olga = {**ROSA, "first_name": "Olga"}
+    assert call.ok("verify_person", **olga) == {"verified": False}

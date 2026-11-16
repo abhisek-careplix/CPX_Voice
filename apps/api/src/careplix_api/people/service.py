@@ -589,6 +589,7 @@ async def add_relationship(
         raise ApiError(422, "invalid_dates", "An authorisation can't end before it starts.")
     existing = await session.scalar(
         select(Relationship).where(
+            Relationship.workspace_id == principal.workspace_id,
             Relationship.subject_id == subject.id,
             Relationship.related_id == related.id,
             Relationship.relation == relation,

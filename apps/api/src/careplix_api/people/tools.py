@@ -60,11 +60,20 @@ def _bind_patient(attempt: CallAttempt, person: Person) -> None:
     attempt.front_desk = desk
 
 
+async def _person(session, attempt: CallAttempt, person_id: str | None) -> Person | None:
+    """A person in this call's workspace only."""
+    if not person_id:
+        return None
+    return await session.scalar(
+        select(Person).where(Person.workspace_id == attempt.workspace_id, Person.id == person_id)
+    )
+
+
 async def _caller(session, attempt: CallAttempt) -> tuple[dict[str, Any], Person | None]:
     """The verified caller: by ``verify_person``, or the patient ``find_patient`` verified."""
     state = _state(attempt)
     if state.get("caller_id"):
-        return state, await session.get(Person, state["caller_id"])
+        return state, await _person(session, attempt, state["caller_id"])
     desk = attempt.front_desk or {}
     if desk.get("patient_ref") and desk.get("connection_id"):
         person = await session.scalar(
@@ -313,7 +322,7 @@ async def get_person_memory(session, attempt, _version, args, _evidence, env: To
     state, caller = await _verified(session, attempt)
     rules = await service.load_policy(session, attempt.workspace_id)
     topic = args["topic"]
-    subject = await session.get(Person, state.get("subject_id") or caller.id)
+    subject = await _person(session, attempt, state.get("subject_id")) or caller
     proxy = subject.id != caller.id
     refusal = None
     if topic not in (state.get("scope") or []):
@@ -372,7 +381,7 @@ async def get_person_memory(session, attempt, _version, args, _evidence, env: To
         )
         firsts = []
         for r in fits:
-            other = await session.get(Person, r.related_id)
+            other = await _person(session, attempt, r.related_id)
             if other is not None:
                 firsts.append((await service.identity(session, other, box)).get("first_name"))
         if firsts:
@@ -423,11 +432,14 @@ async def remember_person_note(session, attempt, _version, args, _evidence, env:
     written = await session.scalar(
         select(func.count())
         .select_from(Observation)
-        .where(Observation.source_attempt_id == attempt.id)
+        .where(
+            Observation.workspace_id == attempt.workspace_id,
+            Observation.source_attempt_id == attempt.id,
+        )
     )
     if written >= MAX_NOTES:
         raise Rejected("note_limit", "That's as many notes as I can keep from one call.")
-    subject = await session.get(Person, state.get("subject_id") or caller.id)
+    subject = await _person(session, attempt, state.get("subject_id")) or caller
     stop = bool(args.get("stop_contact"))
     if stop and subject.id != caller.id and "general" not in (state.get("scope") or []):
         subject = caller  # a representative without that scope can only stop contact to themselves
