@@ -43,6 +43,13 @@ def _app(tmp_path, fake=None, **overrides):
     return c, fake
 
 
+@pytest.fixture
+def production_deployment(monkeypatch):
+    """Behave as a production deployment for the cap only (the full CAREPLIX_ENV=production
+    startup rules are environment.py's and its tests')."""
+    monkeypatch.setattr(Settings, "production_allowed", property(lambda self: True))
+
+
 def _steps(view) -> dict[str, bool | None]:
     return {s["key"]: s["ok"] for s in view["onboarding"]["steps"]}
 
@@ -84,8 +91,9 @@ def test_a_clinic_admin_adds_a_sandbox_practice_and_it_syncs(tmp_path):
         assert c.get("/api/practices").json()["mirror"]["patient"] == 5
         # The same location can't be added twice.
         assert c.post("/api/practices/setup", json=SANDBOX).status_code == 409
-        # Production is for CarePlix staff (and needs a production key anyway).
-        assert c.post("/api/practices/setup", json=PRODUCTION).status_code == 409
+        # Never production in a sandbox deployment.
+        r = c.post("/api/practices/setup", json=PRODUCTION)
+        assert r.status_code == 409 and r.json()["error"]["code"] == "production_not_allowed"
 
 
 def test_a_wrong_location_or_subdomain_stays_disabled(tmp_path):
@@ -157,12 +165,20 @@ async def test_clinics_on_one_key_share_its_token_and_throttle(tmp_path):
         await client.aclose()
 
 
-def test_a_workspace_switches_its_clearinghouse_to_production(tmp_path):
-    c, _ = _app(tmp_path)
+def test_a_workspace_switches_its_clearinghouse_to_production(tmp_path, monkeypatch):
+    c, _ = _app(tmp_path, stedi_prod_api_key="st-prod")
     with c:
         c.post("/api/auth/dev-login").raise_for_status()
         r = c.put("/api/practices/automation", json={"clearinghouse_env": "production"})
-        assert r.status_code == 409  # no production clearinghouse key here
+        # A sandbox deployment (dev, labs, staging) never runs production mode, key or not.
+        assert r.status_code == 409 and r.json()["error"]["code"] == "production_not_allowed"
+    monkeypatch.setattr(Settings, "production_allowed", property(lambda self: True))
+    (tmp_path / "nokey").mkdir()
+    c, _ = _app(tmp_path / "nokey")
+    with c:
+        c.post("/api/auth/dev-login").raise_for_status()
+        r = c.put("/api/practices/automation", json={"clearinghouse_env": "production"})
+        assert r.status_code == 409 and r.json()["error"]["code"] == "production_unavailable"
     (tmp_path / "prod").mkdir()
     c, _ = _app(tmp_path / "prod", stedi_prod_api_key="st-prod")
     with c:
@@ -192,7 +208,7 @@ def _production_practice(c) -> str:
     return view.json()["connection"]["connection_id"]
 
 
-def test_a_real_clinic_runs_no_automation_until_go_live_passes(tmp_path):
+def test_a_real_clinic_runs_no_automation_until_go_live_passes(tmp_path, production_deployment):
     c, fake = _app(tmp_path, nexhealth_api_key="", nexhealth_prod_api_key="nh-test")
     with c:
         c.post("/api/auth/dev-login").raise_for_status()  # CarePlix staff
@@ -243,7 +259,7 @@ def test_a_real_clinic_runs_no_automation_until_go_live_passes(tmp_path):
         assert call.ok("find_slots")["slots"]  # live now (same call: one call at a time)
 
 
-def test_go_live_lists_what_blocks_it(tmp_path):
+def test_go_live_lists_what_blocks_it(tmp_path, production_deployment):
     fake = MedicalNexHealth("eclinicalworks")
     fake.location["insert_appt_client"] = False
     fake.sync_status[0]["write_status"] = "red"
@@ -266,7 +282,7 @@ def test_a_mismatched_ehr_is_flagged(tmp_path):
         assert _items(view)["ehr_match"] is False
 
 
-def test_only_carePlix_staff_add_production_practices(tmp_path):
+def test_only_carePlix_staff_add_production_practices(tmp_path, production_deployment):
     c, _ = _app(tmp_path, nexhealth_prod_api_key="nh-test")
     with c:
         c.post("/api/auth/dev-login").raise_for_status()
@@ -391,3 +407,35 @@ def test_a_sandbox_practice_runs_the_whole_go_live_flow_for_demos(tmp_path):
             _worker(c)
         golive = c.get(f"/api/practices/setup/{conn_id}").json()["golive"]
         assert golive["test"]["step"] == "done" and golive["passed"] and golive["passed_at"]
+
+
+def test_each_deployment_adds_only_its_own_kind_of_practice(tmp_path, monkeypatch):
+    # A sandbox deployment holding a production key still refuses production practices.
+    c, _ = _app(tmp_path, nexhealth_prod_api_key="nh-test")
+    with c:
+        c.post("/api/auth/dev-login").raise_for_status()
+        envs = {e["env"]: e for e in c.get("/api/practices/setup/options").json()["envs"]}
+        assert envs["sandbox"]["available"] and not envs["production"]["available"]
+        assert "sandbox deployment" in envs["production"]["reason"]
+        r = c.post("/api/practices/setup", json=PRODUCTION)
+        assert r.status_code == 409 and r.json()["error"]["code"] == "production_not_allowed"
+    assert make_settings(tmp_path, nexhealth_prod_api_key="p").nexhealth_envs == []
+    # A production deployment refuses sandbox practices, even with a sandbox key present.
+    monkeypatch.setattr(Settings, "production_allowed", property(lambda self: True))
+    monkeypatch.setattr("careplix_api.environment.is_production", lambda settings=None: True)
+    (tmp_path / "prod").mkdir()
+    c, _ = _app(tmp_path / "prod", nexhealth_prod_api_key="nh-test")
+    with c:
+        c.post("/api/auth/dev-login").raise_for_status()
+        envs = {e["env"]: e for e in c.get("/api/practices/setup/options").json()["envs"]}
+        assert envs["production"]["available"] and not envs["sandbox"]["available"]
+        r = c.post("/api/practices/setup", json=SANDBOX)
+        assert r.status_code == 409 and r.json()["error"]["code"] == "not_in_production"
+
+
+def test_labs_refuses_a_production_nexhealth_key(tmp_path):
+    from careplix_api import environment
+
+    labs = make_settings(tmp_path, careplix_env="labs", nexhealth_prod_api_key="p")
+    assert any("NEXHEALTH_PROD_API_KEY" in p for p in environment.problems(labs))
+    assert not labs.production_allowed

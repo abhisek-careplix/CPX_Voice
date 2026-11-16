@@ -210,9 +210,17 @@ class Settings(BaseSettings):
         return getattr(self, self.nexhealth_key_env(env).lower()).get_secret_value()
 
     @property
+    def production_allowed(self) -> bool:
+        """Only a production deployment holds production workspaces and connections; dev, labs
+        and staging are sandbox deployments (careplix_api.environment)."""
+        return self.careplix_env == "production"
+
+    @property
     def nexhealth_envs(self) -> list[str]:
-        """NexHealth envs a practice can be added in: those whose key is configured."""
-        return [e for e in ("sandbox", "production") if self.nexhealth_key(e)]
+        """NexHealth envs a practice can be added in here: production only in a production
+        deployment (and never the sandbox there), each only when its key is configured."""
+        allowed = ("production",) if self.production_allowed else ("sandbox",)
+        return [e for e in allowed if self.nexhealth_key(e)]
 
     @property
     def nexhealth_configured(self) -> bool:

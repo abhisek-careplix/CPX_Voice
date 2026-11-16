@@ -55,6 +55,10 @@ def problems(settings: Settings) -> list[str]:
             found.append("careplix-labs takes the NexHealth sandbox key only (NEXHEALTH_ENV).")
         if settings.stedi_env == "production":
             found.append("careplix-labs runs the clearinghouse in test mode only (STEDI_ENV).")
+        if settings.nexhealth_prod_api_key.get_secret_value():
+            found.append(
+                "careplix-labs must not hold a production NexHealth key (NEXHEALTH_PROD_API_KEY)."
+            )
         if settings.stedi_prod_api_key.get_secret_value():
             found.append(
                 "careplix-labs must not hold a production clearinghouse key (STEDI_PROD_API_KEY)."
@@ -128,6 +132,16 @@ def refuse_in_production(what: str, settings: Settings | None = None) -> None:
     """Raise a 409 when ``what`` (a synthetic-only shortcut) is attempted in production."""
     if is_production(settings):
         raise ApiError(409, "not_in_production", f"{what} isn't available in production.")
+
+
+def refuse_production_here(what: str, settings: Settings | None = None) -> None:
+    """Raise a 409 when ``what`` (production-only) is attempted in a sandbox deployment."""
+    if not (settings or get_settings()).production_allowed:
+        raise ApiError(
+            409,
+            "production_not_allowed",
+            f"{what} can't be added here: this is a sandbox deployment.",
+        )
 
 
 def check_sign_in(settings: Settings, provider: str, email: str) -> None:

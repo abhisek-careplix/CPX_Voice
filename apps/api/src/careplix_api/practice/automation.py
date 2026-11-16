@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
+from careplix_api import environment
 from careplix_api.errors import ApiError
 from careplix_api.models import PayerConnection, Workspace
 from careplix_api.settings import Settings
@@ -91,6 +92,10 @@ def validate(changes: dict[str, Any], settings: Settings) -> dict[str, Any]:
         if key == "clearinghouse_env":
             if value not in ("test", "production"):
                 raise ApiError(422, "invalid_setting", "Clearinghouse mode is test or production.")
+            if value == "production":
+                environment.refuse_production_here("Production clearinghouse mode", settings)
+            else:
+                environment.refuse_in_production("Clearinghouse test mode", settings)
             if value == "production" and not settings.stedi_prod_api_key.get_secret_value():
                 raise ApiError(
                     409,

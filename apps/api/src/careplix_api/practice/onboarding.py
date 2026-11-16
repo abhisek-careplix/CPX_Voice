@@ -23,7 +23,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from careplix_api import tenancy
+from careplix_api import environment, tenancy
 from careplix_api.connect.catalog import PROFILES
 from careplix_api.db import utcnow
 from careplix_api.errors import ApiError
@@ -96,6 +96,10 @@ async def create(
         raise ApiError(422, "invalid_location", "The location id is a number from NexHealth.")
     if env not in ("sandbox", "production"):
         raise ApiError(422, "invalid_env", "Choose sandbox or production.")
+    if env == "production":
+        environment.refuse_production_here("A production NexHealth connection", settings)
+    else:
+        environment.refuse_in_production("A NexHealth sandbox connection", settings)
     if env not in settings.nexhealth_envs:
         raise ApiError(
             409,

@@ -71,6 +71,10 @@ async def options(
     envs = settings.nexhealth_envs
 
     def reason(env: str) -> str | None:
+        if env == "production" and not settings.production_allowed:
+            return "This is a sandbox deployment: production practices live in production."
+        if env == "sandbox" and settings.production_allowed:
+            return "This is a production deployment: sandbox practices live in labs."
         if env not in envs:
             return f"No NexHealth {env} key in this environment."
         if env == "production" and not principal.platform:
@@ -220,7 +224,8 @@ async def _automation_view(
         "effective": automation.effective(workspace, settings).view(),
         "defaults": automation.defaults(settings).view(),
         "chosen": workspace.practice_automation or {},
-        "clearinghouse_production_available": bool(settings.stedi_prod_api_key.get_secret_value()),
+        "clearinghouse_production_available": settings.production_allowed
+        and bool(settings.stedi_prod_api_key.get_secret_value()),
     }
 
 
