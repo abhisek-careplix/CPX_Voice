@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Briefcase, HeartPulse, Building2, UserRound, CalendarPlus, ClipboardCheck, GitCompareArrows, Globe, Home, Inbox, ListChecks, LogOut, Network, OctagonX, Phone, PlugZap, ShieldCheck, Sparkles, Stethoscope } from "lucide-react";
+import { Bot, Briefcase, HeartPulse, Building2, UserRound, CalendarPlus, ClipboardCheck, GitCompareArrows, Globe, Home, Inbox, ListChecks, LogOut, Network, OctagonX, Phone, PlugZap, ShieldCheck, Sparkles, Stethoscope, Users } from "lucide-react";
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, ApiError, type Me, type WorkspaceSummary } from "./api";
@@ -17,6 +17,7 @@ import CareOpportunities from "./pages/CareOpportunities";
 import Calls from "./pages/Calls";
 import Connections from "./pages/Connections";
 import Integrations from "./pages/Integrations";
+import People from "./pages/People";
 import Practice from "./pages/Practice";
 import ResultDetail from "./pages/ResultDetail";
 import Personas from "./pages/Personas";
@@ -159,6 +160,9 @@ function Shell() {
           <NavLink to="/cases" className="nav-link">
             <Briefcase size={16} aria-hidden /> Cases
           </NavLink>
+          <NavLink to="/people" className="nav-link">
+            <Users size={16} aria-hidden /> People
+          </NavLink>
           <NavLink to="/tasks" className="nav-link">
             <ListChecks size={16} aria-hidden /> Tasks
           </NavLink>
@@ -250,6 +254,7 @@ function Shell() {
           <Route path="/agents" element={<Agents />} />
           <Route path="/agents/:id" element={<AgentEditor />} />
           <Route path="/cases" element={<Cases />} />
+          <Route path="/people" element={<People />} />
           <Route path="/tasks" element={<Tasks />} />
           <Route path="/tasks/new" element={<TaskComposer />} />
           <Route path="/calls" element={<Calls />} />

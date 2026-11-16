@@ -1,0 +1,58 @@
+{
+  "name": "get_person_memory",
+  "version": "1.0.0",
+  "description": "Read what the practice or agency knows about the verified person this call is for, for one topic: preferred name, language, preferred channel, when they like to be contacted, availability, preferences and notes from earlier calls. Only after verify_person (and check_proxy when calling for someone else). Returns only what is needed for the topic.",
+  "classification": "read",
+  "execution": "api",
+  "allowed_roles": [
+    "agent_runtime"
+  ],
+  "timeout_ms": 5000,
+  "idempotency": "naturally_idempotent",
+  "limits": {
+    "max_attempts_per_call": 6
+  },
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "topic"
+    ],
+    "properties": {
+      "topic": {
+        "enum": [
+          "general",
+          "appointments",
+          "schedule",
+          "billing",
+          "care_plan",
+          "records"
+        ]
+      }
+    }
+  },
+  "result_schema": {
+    "type": "object",
+    "required": [
+      "state"
+    ],
+    "properties": {
+      "state": {
+        "enum": [
+          "ok",
+          "not_permitted",
+          "step_up_required"
+        ]
+      },
+      "facts": {
+        "type": "object"
+      },
+      "message": {
+        "type": "string"
+      }
+    }
+  },
+  "owner": "person-memory",
+  "release": "D",
+  "enabled_in_demo": true
+}

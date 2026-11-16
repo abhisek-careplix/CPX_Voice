@@ -1,0 +1,68 @@
+{
+  "name": "verify_person",
+  "version": "1.0.0",
+  "description": "Verify who the caller is before sharing or recording anything about them. Ask for the identifiers the practice or agency requires (usually first name, last name and date of birth), then call this. Once verified, call it again with only a ZIP code, the last four digits of their phone number or a member ID when another tool says extra verification is needed. The result only says whether verification passed and at what level; it never reveals whether someone is on file.",
+  "classification": "read",
+  "execution": "api",
+  "allowed_roles": [
+    "agent_runtime"
+  ],
+  "timeout_ms": 5000,
+  "idempotency": "naturally_idempotent",
+  "limits": {
+    "max_attempts_per_call": 4
+  },
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "first_name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 60
+      },
+      "last_name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 60
+      },
+      "date_of_birth": {
+        "type": "string",
+        "format": "date"
+      },
+      "zip": {
+        "type": "string",
+        "pattern": "^[0-9]{5}$"
+      },
+      "phone_last4": {
+        "type": "string",
+        "pattern": "^[0-9]{4}$"
+      },
+      "member_id": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 40
+      }
+    }
+  },
+  "result_schema": {
+    "type": "object",
+    "required": [
+      "verified"
+    ],
+    "properties": {
+      "verified": {
+        "type": "boolean"
+      },
+      "level": {
+        "enum": [
+          "basic",
+          "step_up"
+        ]
+      }
+    }
+  },
+  "owner": "person-memory",
+  "release": "D",
+  "enabled_in_demo": true
+}
