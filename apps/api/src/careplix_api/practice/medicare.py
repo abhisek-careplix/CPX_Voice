@@ -238,7 +238,7 @@ async def refresh(
     purpose, appt = await _purpose(session, conn, patient_ref, appointment_id, reason)
     clearinghouse = await eligibility.clearinghouse(session, conn.workspace_id)
     if clearinghouse is None:
-        raise Refused(409, "no_clearinghouse", "Connect Stedi to check Medicare benefits.")
+        raise Refused(409, "no_clearinghouse", "Connect the clearinghouse to check Medicare.")
     test = is_test(clearinghouse)
     mode = stedi.TEST if test else stedi.PRODUCTION
     coverage, kind, plan_name = await medicare_coverage(session, conn, patient_ref)
@@ -409,7 +409,7 @@ async def refresh(
                 call = await audit(
                     session,
                     clearinghouse,
-                    "stedi.medicare_benefits",
+                    "clearinghouse.medicare_benefits",
                     "manual",
                     ok=outcome == "ok",
                     status="success" if outcome == "ok" else (err.status if err else "error"),

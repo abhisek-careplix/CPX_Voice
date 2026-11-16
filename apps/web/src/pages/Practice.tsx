@@ -76,7 +76,7 @@ const PROGRAM_LABEL: Record<Program, string> = {
 };
 
 /** Programs whose Part A/B benefits CMS answers for: Original and Railroad Medicare. Anyone else
- * can still be checked with Medicare (test mode always sends Stedi's CMS mock member). */
+ * can still be checked with Medicare (test mode always sends the clearinghouse's CMS test member). */
 const CMS_PROGRAMS: Program[] = ["medicare", "railroad_medicare"];
 
 export default function Practice() {
@@ -180,7 +180,7 @@ export default function Practice() {
               {[
                 d?.ehr?.env === "sandbox" && "NexHealth sandbox (writes never reach an EHR)",
                 d?.ehr?.kind === "openemr" && "OpenEMR with a synthetic clinic",
-                d?.clearinghouse?.env === "test" && "Stedi test mode (checks go out as Stedi's mock members, labelled Mock)",
+                d?.clearinghouse?.env === "test" && "Clearinghouse test mode (checks go out as its published test members, labelled Mock)",
               ]
                 .filter(Boolean)
                 .join(" · ")}
@@ -425,7 +425,7 @@ function ConnectionsCard({ d, isAdmin, verifying, onVerify }: { d?: PracticeOver
         {!d?.clearinghouse && (
           <li className="list-row">
             <div className="row-main">
-              <div className="row-title">Stedi</div>
+              <div className="row-title">Clearinghouse</div>
               <div className="row-sub">
                 Not connected · ask your CarePlix team to connect a clearinghouse
               </div>
@@ -445,7 +445,7 @@ function ConnectionRow({ c, isAdmin, verifying, onVerify }: { c: PracticeConnect
     <li className="list-row" style={{ alignItems: "flex-start", paddingTop: 12, paddingBottom: 12 }}>
       <div className="row-main">
         <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
-          <span style={{ fontWeight: 600 }}>{{ nexhealth: "NexHealth", openemr: "OpenEMR", stedi: "Stedi" }[c.kind]}</span>
+          <span style={{ fontWeight: 600 }}>{{ nexhealth: "NexHealth", openemr: "OpenEMR", stedi: "Clearinghouse" }[c.kind]}</span>
           <span className="chip">{c.env}</span>
           {c.verified_at ? (
             <Pill tone="green" icon={ShieldCheck}>
@@ -582,7 +582,7 @@ function NpiCard({ s, onSaved }: { s?: EligibilitySettings; onSaved: () => void 
         ) : null}
         {s?.effective_npi && !test && <MedicareStatus m={s.medicare} />}
         {!s?.effective_npi && (
-          <div className="small muted">{test ? "Not needed in test mode (Stedi's mock provider is sent). Required before live checks." : "Not set: live eligibility and Medicare checks are skipped until you add one."}</div>
+          <div className="small muted">{test ? "Not needed in test mode (the test-mode provider is sent). Required before live checks." : "Not set: live eligibility and Medicare checks are skipped until you add one."}</div>
         )}
 
         {others.length > 0 && (
@@ -635,7 +635,7 @@ function NpiCard({ s, onSaved }: { s?: EligibilitySettings; onSaved: () => void 
 }
 
 /** Medicare (CMS HETS) answers only for an NPI that bills Original Medicare and has been
- * attested once in Stedi (Enrollments → CMS); this says where that stands. */
+ * attested once with the clearinghouse (enrollment for CMS); this says where that stands. */
 function MedicareStatus({ m }: { m: EligibilitySettings["medicare"] }) {
   if (!m) return null;
   if (m.status === "active")
@@ -653,12 +653,12 @@ function MedicareStatus({ m }: { m: EligibilitySettings["medicare"] }) {
           Medicare needs action
         </Pill>
         <div className="small field-error">{m.detail}</div>
-        <div className="small muted">In Stedi: Enrollments → new enrollment for payer CMS with this NPI; an authorised official attests once (about 10 minutes).</div>
+        <div className="small muted">In your clearinghouse enrollment: a new enrollment for payer CMS with this NPI; an authorised official attests once (about 10 minutes).</div>
       </div>
     );
   return (
     <div className="small muted">
-      Medicare: not checked yet with this NPI. CMS only answers for an NPI that bills Original Medicare and has been attested once in Stedi (Enrollments → payer CMS).
+      Medicare: not checked yet with this NPI. CMS only answers for an NPI that bills Original Medicare and has been attested once in your clearinghouse enrollment for payer CMS.
     </div>
   );
 }
@@ -675,7 +675,7 @@ function TestScenarioCard({ s, onSaved }: { s: EligibilitySettings; onSaved: () 
   });
   const groups = Array.from(new Set(s.scenarios.map((o) => o.group ?? "")));
   return (
-    <Card title="Test mode" subtitle="Stedi only answers for its published mock members. Pick which one every check sends.">
+    <Card title="Test mode" subtitle="In test mode the clearinghouse only answers for its published test members. Pick which one every check sends.">
       <label className="field">
         <span className="field-label">Mock member</span>
         <select className="select" disabled={save.isPending} value={s.test_scenario} onChange={(e) => save.mutate(e.target.value)}>
@@ -735,7 +735,7 @@ function PayersCard({ rows, onChanged }: { rows?: PayerMappingRow[]; onChanged: 
           {m.plan_kind && m.plan_kind !== "commercial" && <span className="chip">{PROGRAM_LABEL[m.plan_kind as Program] ?? m.plan_kind.replace("_", " ")}</span>}
         </div>
         <div className="row-sub" style={{ marginTop: 4 }}>
-          {m.stedi_payer_id ? `Stedi ${m.stedi_payer_id}${m.stedi_name ? ` · ${m.stedi_name}` : ""}` : "No Stedi payer yet"}
+          {m.stedi_payer_id ? `Clearinghouse ${m.stedi_payer_id}${m.stedi_name ? ` · ${m.stedi_name}` : ""}` : "No clearinghouse payer yet"}
           {m.enrollment_required ? " · enrollment required" : ""}
           {m.enrollment ? ` · NPI ${m.enrollment.status.replace("_", " ")}` : ""}
           {m.has_pin ? " · PIN set" : ""}
@@ -753,7 +753,7 @@ function PayersCard({ rows, onChanged }: { rows?: PayerMappingRow[]; onChanged: 
         )}
         {(m.state === "ambiguous" || m.state === "not_found" || m.state === "error") && (
           <div className="row" style={{ gap: 6, marginTop: 6 }}>
-            <input className="input" style={{ maxWidth: 160 }} placeholder="Stedi payer ID" value={manual[m.id] ?? ""} onChange={(e) => setManual({ ...manual, [m.id]: e.target.value })} />
+            <input className="input" style={{ maxWidth: 160 }} placeholder="Payer ID" value={manual[m.id] ?? ""} onChange={(e) => setManual({ ...manual, [m.id]: e.target.value })} />
             <button className="btn btn-secondary" disabled={!manual[m.id] || confirm.isPending} onClick={() => confirm.mutate({ id: m.id, payer_id: manual[m.id] })}>
               Use this ID
             </button>
@@ -784,7 +784,7 @@ function PayersCard({ rows, onChanged }: { rows?: PayerMappingRow[]; onChanged: 
     </li>
   );
   return (
-    <Card title="Payers" subtitle="Each insurance plan in your practice system, matched to the payer Stedi sends the check to. Medicare goes to CMS; Medicare Advantage to the plan.">
+    <Card title="Payers" subtitle="Each insurance plan in your practice system, matched to the payer the clearinghouse sends the check to. Medicare goes to CMS; Medicare Advantage to the plan.">
       {rows === undefined ? (
         <ListSkeleton rows={2} icon={false} />
       ) : all.length === 0 ? (

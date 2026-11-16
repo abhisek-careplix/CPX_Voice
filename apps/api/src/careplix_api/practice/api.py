@@ -75,7 +75,7 @@ async def _conn(
     rows.sort(key=lambda c: kinds.index(c.kind) if c.kind in kinds else 99)
     if not rows:
         if kind == CLEARINGHOUSE:
-            message = "Stedi is not connected. Run make connect-stedi, then restart the API."
+            message = "The clearinghouse isn't connected yet. Ask an admin to connect it."
         else:
             message = (
                 "No practice EHR is connected. Run make openemr-setup or make connect-nexhealth, "
@@ -750,7 +750,7 @@ async def put_eligibility_settings(
     if "test_scenario" in fields:
         scenario = body.test_scenario or stedi.AUTO
         if scenario != stedi.AUTO and scenario not in stedi.MOCKS:
-            raise ApiError(422, "unknown_scenario", "Pick one of Stedi's published mock requests.")
+            raise ApiError(422, "unknown_scenario", "Pick one of the published test-mode members.")
         workspace.stedi_test_scenario = scenario
     session.add(
         AuditEvent(

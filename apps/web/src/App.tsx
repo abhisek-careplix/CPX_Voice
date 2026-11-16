@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Briefcase, HeartPulse, Building2, UserRound, CalendarPlus, ClipboardCheck, GitCompareArrows, Globe, Home, Inbox, ListChecks, LogOut, Network, OctagonX, Phone, PlugZap, ShieldCheck, Sparkles, Stethoscope } from "lucide-react";
+import { Bot, Briefcase, HeartPulse, Building2, UserRound, CalendarPlus, ClipboardCheck, GitCompareArrows, Globe, Home, Inbox, ListChecks, LogOut, Network, OctagonX, Phone, PlugZap, Receipt, ShieldCheck, Sparkles, Stethoscope } from "lucide-react";
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, ApiError, type Me, type WorkspaceSummary } from "./api";
@@ -12,6 +12,7 @@ import Backfill from "./pages/Backfill";
 import BrowserAgent from "./pages/BrowserAgent";
 import Hub from "./pages/Hub";
 import CallDetail from "./pages/CallDetail";
+import Claims from "./pages/Claims";
 import Cases from "./pages/Cases";
 import CareOpportunities from "./pages/CareOpportunities";
 import Calls from "./pages/Calls";
@@ -193,6 +194,13 @@ function Shell() {
             <CalendarPlus size={16} aria-hidden /> Backfill
           </NavLink>
         </NavGroup>
+        <NavGroup label="Back office">
+          {[
+            <NavLink key="claims" to="/claims" className="nav-link">
+              <Receipt size={16} aria-hidden /> Claims
+            </NavLink>,
+          ]}
+        </NavGroup>
         <NavGroup label="Settings">
           <NavLink to="/connections" className="nav-link">
             <PlugZap size={16} aria-hidden /> Connections
@@ -261,6 +269,7 @@ function Shell() {
           <Route path="/integrations" element={<Integrations />} />
           <Route path="/practice" element={<Practice />} />
           <Route path="/backfill" element={<Backfill />} />
+          <Route path="/claims" element={<Claims />} />
           <Route path="/hub" element={<Hub />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
