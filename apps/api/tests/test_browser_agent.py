@@ -208,6 +208,10 @@ def test_plan_then_cards_by_risk_end_to_end(bclient, runtime, agent_box):
     assert runtime.acts[1]["text"] == "W123456789"  # the edited value was typed
     oks = [o for outcomes, _ in agent_box["agent"].received[1:] for o in outcomes]
     assert all(ok for ok, _, _ in oks)
+    # The run reports done a moment before its browser session is closed.
+    deadline = time.time() + 3
+    while time.time() < deadline and not runtime.closed:
+        time.sleep(0.05)
     assert runtime.closed == ["s1"]
     assert agent_box["agent"].plan_used == ["Open Claims", "Search the member", "Read the status"]
 
