@@ -1,3 +1,4 @@
+import re
 from functools import cache
 
 from pydantic import SecretStr
@@ -72,6 +73,23 @@ class Settings(BaseSettings):
     iap_allowed_domain: str = "careplix.com"
     iap_default_role: str = "admin"  # role granted on first sign-in to the single lab workspace
     studio_dist: str = ""  # path to the built Studio (apps/web/dist) to serve at /
+
+    # Customer sign-in (OPERATING_PLAN P1). Each method is on only when configured. The OAuth
+    # client ids are public; no client secret is needed because the browser gets an ID token
+    # and the API verifies its signature, audience and issuer.
+    google_client_id: str = ""
+    microsoft_client_id: str = ""  # Entra app registration, multi-tenant, SPA redirect
+    # Email one-time codes: sent through Resend. In dev with no key, the code is returned to the
+    # Studio so the flow can be tested; outside dev the method stays off.
+    resend_api_key: SecretStr = SecretStr("")
+    email_from: str = ""  # e.g. "CarePlix <signin@careplix.com>"
+    email_code_ttl_s: int = 600
+    email_codes_per_hour: int = 5
+    invitation_days: int = 14
+    studio_url: str = ""  # link in invitation emails
+    # CarePlix staff who create customer workspaces and manage shared telephony: anyone with a
+    # verified address at iap_allowed_domain, plus these extra addresses (comma or ; separated).
+    platform_admins: str = ""
     run_background: bool = True  # reconciler, dial runner and integration worker
 
     # Practice EHR via NexHealth (docs/solution/EMR_LAYER_SOLUTION_DESIGN.md). Set by
@@ -192,6 +210,17 @@ class Settings(BaseSettings):
     @property
     def stedi_configured(self) -> bool:
         return bool(getattr(self, self.stedi_key_env.lower()).get_secret_value())
+
+    @property
+    def email_sign_in(self) -> bool:
+        """Email codes are on with a sender configured, or in dev (code shown on screen)."""
+        return bool(self.resend_api_key.get_secret_value() and self.email_from) or self.is_dev
+
+    def is_platform_admin(self, email: str) -> bool:
+        email = email.strip().lower()
+        extra = {e.lower() for e in re.split(r"[,;\s]+", self.platform_admins) if e}
+        domain = self.iap_allowed_domain.strip().lower()
+        return email in extra or bool(domain and email.endswith("@" + domain))
 
     @property
     def approved_destinations(self) -> set[str]:

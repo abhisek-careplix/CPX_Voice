@@ -267,6 +267,16 @@ async def create(
 ) -> Case:
     if type_id not in types.CASE_TYPES:
         raise ApiError(422, "unknown_case_type", "Choose one of the listed case types.")
+    from careplix_api import packs
+    from careplix_api.models import Workspace
+
+    ws = await session.get(Workspace, principal.workspace_id)
+    if not packs.allows_case_type(ws.product_line if ws else None, type_id):
+        raise ApiError(
+            422,
+            "case_type_not_in_line",
+            "This workspace's product line doesn't offer that case type.",
+        )
     if source not in SOURCES:
         raise ApiError(422, "unknown_source", "Unknown case source.")
     # Until the PHI gate, every case is synthetic, and hand-entered people must say so.

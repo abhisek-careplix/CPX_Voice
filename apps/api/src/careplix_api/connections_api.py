@@ -15,8 +15,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from careplix_api import agents_service, calls_service, connections, templates
-from careplix_api.auth import Principal, require
+from careplix_api import agents_service, calls_service, connections, templates, tenancy
+from careplix_api.auth import Principal, require, require_platform
 from careplix_api.db import as_utc, utcnow
 from careplix_api.errors import ApiError
 from careplix_api.models import AuditEvent, CallAttempt, Route, WorkerProbe, Workspace
@@ -26,6 +26,9 @@ from careplix_common.gemini import credentials_from_json
 
 router = APIRouter(prefix="/connections")
 admin = require("admin")
+# Shared CarePlix telephony and model project: trunks, inbound numbers, approved destinations and
+# the approved model affect every customer, so only CarePlix staff change them.
+platform = require_platform
 
 
 def _audit(session: AsyncSession, p: Principal, action: str, target: str, detail: dict) -> None:
@@ -105,7 +108,9 @@ async def overview(
 async def _new_sandbox_code(session: AsyncSession) -> str:
     while True:
         code = f"{secrets.randbelow(10**6):06d}"
-        if not await session.scalar(select(Workspace).where(Workspace.sandbox_code == code)):
+        with tenancy.unscoped():  # codes are unique across every workspace
+            taken = await session.scalar(select(Workspace).where(Workspace.sandbox_code == code))
+        if not taken:
             return code
 
 
@@ -240,7 +245,7 @@ class InboundIn(BaseModel):
 @router.post("/inbound")
 async def connect_inbound(
     body: InboundIn,
-    principal: Principal = Depends(admin),
+    principal: Principal = Depends(platform),
     session: AsyncSession = Session,
     gw=Depends(gateway),
 ):
@@ -362,7 +367,7 @@ class TrunkIn(BaseModel):
 @router.post("/outbound/trunks")
 async def add_trunk(
     body: TrunkIn,
-    principal: Principal = Depends(admin),
+    principal: Principal = Depends(platform),
     session: AsyncSession = Session,
     gw=Depends(gateway),
 ):
@@ -398,7 +403,7 @@ class OutboundIn(BaseModel):
 @router.put("/outbound")
 async def update_outbound(
     body: OutboundIn,
-    principal: Principal = Depends(admin),
+    principal: Principal = Depends(platform),
     session: AsyncSession = Session,
     settings: Settings = Depends(get_settings),
     gw=Depends(gateway),
@@ -489,7 +494,7 @@ class ModelIn(BaseModel):
 
 @router.put("/model")
 async def set_model(
-    body: ModelIn, principal: Principal = Depends(admin), session: AsyncSession = Session
+    body: ModelIn, principal: Principal = Depends(platform), session: AsyncSession = Session
 ):
     ws = await _workspace(session, principal)
     ws.approved_model, ws.gcp_project, ws.vertex_location = (

@@ -514,3 +514,33 @@ def test_claims_are_scoped_to_the_workspace(studio):
     assert [r.workspace_id for r in rows] and service.age_days(rows[0], utcnow().date()) == 21
     assert studio.get("/api/claims/nope").status_code == 404
     assert studio.get(f"/api/claims/{claim_id}").json()["claim_number"].startswith("SYN-CL-")
+
+
+def test_claims_and_their_cases_stay_in_their_workspace(studio):
+    from .test_tenancy import CLINIC_ADMIN, _dev_login, _email_sign_in, _new_customer
+
+    demo_ws = studio.get("/api/me").json()["workspace_id"]
+    ws_b = _new_customer(studio, "practice")
+    studio.cookies.clear()
+    _email_sign_in(studio, CLINIC_ADMIN)
+    assert "claims" in studio.get("/api/me").json()["pack"]["sections"]
+    b_claims = _samples(studio, "info")
+    assert studio.post("/api/claims/follow-up").json()["cases"] == 1
+    claim_id = b_claims["info"]["id"]
+    [case] = _cases(studio)
+    assert case.workspace_id == ws_b
+
+    _dev_login(studio)
+    assert studio.get("/api/me").json()["workspace_id"] == demo_ws
+    assert studio.get("/api/claims").json() == []
+    assert studio.get(f"/api/claims/{claim_id}").status_code == 404
+    assert studio.post(f"/api/claims/{claim_id}/check").status_code == 404
+    assert studio.post("/api/claims/follow-up").json() == {"checked": 0, "cases": 0, "errors": 0}
+    assert case.id not in {c["id"] for c in studio.get("/api/cases").json()}
+
+
+def test_home_health_workspaces_do_not_show_claims():
+    from careplix_api import packs
+
+    assert "claims" in packs.pack("practice")["sections"]
+    assert "claims" not in packs.pack("home_health")["sections"]

@@ -63,6 +63,11 @@ export default function Connections() {
         }
       />
       <div className="content">
+        {!me.platform && (
+          <Banner tone="blue" title="CarePlix manages your phone lines and voice model">
+            Inbound numbers, outbound calling, approved test numbers and the voice model are shared CarePlix infrastructure, so CarePlix staff set them up for your workspace. Until then, try your agents on the sandbox line below.
+          </Banner>
+        )}
         <SetupSteps checks={checks} />
         {!isAdmin && <Banner tone="blue" title="Only administrators can change connections." />}
 

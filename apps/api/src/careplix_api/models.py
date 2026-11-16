@@ -39,6 +39,12 @@ class Workspace(IdMixin, Base):
     # mock member test mode sends (``auto`` picks one that matches the plan).
     billing_npi: Mapped[str | None] = mapped_column(String(10))
     stedi_test_scenario: Mapped[str | None] = mapped_column(String(40))
+    # The product line selects the workspace's pack (careplix_api.packs): practice | home_health.
+    product_line: Mapped[str | None] = mapped_column(String(20))
+    # Whether the deployment's own EHR connections (NexHealth, OpenEMR from env) attach here.
+    # NULL (workspaces from before tenancy) means yes; customer workspaces are created with False
+    # so they never see the lab practice's data.
+    env_integrations: Mapped[bool | None] = mapped_column(Boolean)
 
 
 class WorkerProbe(IdMixin, Base):
@@ -65,6 +71,45 @@ class Membership(IdMixin, Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"))
     role: Mapped[str] = mapped_column(String(20))  # author|operator|publisher|admin|reviewer
+    last_used_at: Mapped[datetime | None] = mapped_column()
+
+
+class UserIdentity(IdMixin, Base):
+    """A verified sign-in method for a user: google, microsoft, email or iap, with its subject."""
+
+    __tablename__ = "user_identities"
+    __table_args__ = (UniqueConstraint("provider", "subject"),)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(20))
+    subject: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    last_seen_at: Mapped[datetime | None] = mapped_column()
+
+
+class EmailCode(IdMixin, Base):
+    """A one-time sign-in code sent by email. Only an HMAC of the code is stored."""
+
+    __tablename__ = "email_codes"
+    email: Mapped[str] = mapped_column(String(200), index=True)
+    code_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column()
+    attempts: Mapped[int] = mapped_column(default=0)
+    used_at: Mapped[datetime | None] = mapped_column()
+
+
+class Invitation(IdMixin, Base):
+    """An invitation to join a workspace. Signing in with the invited email accepts it."""
+
+    __tablename__ = "invitations"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    email: Mapped[str] = mapped_column(String(200), index=True)
+    role: Mapped[str] = mapped_column(String(20))
+    invited_by: Mapped[str | None] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column()
+    accepted_at: Mapped[datetime | None] = mapped_column()
+    revoked_at: Mapped[datetime | None] = mapped_column()
 
 
 class Agent(IdMixin, Base):

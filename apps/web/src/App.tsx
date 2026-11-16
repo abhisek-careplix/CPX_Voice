@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Briefcase, HeartPulse, Building2, UserRound, CalendarPlus, ClipboardCheck, GitCompareArrows, Globe, Home, Inbox, ListChecks, LogOut, Network, OctagonX, Phone, PlugZap, Receipt, ShieldCheck, Sparkles, Stethoscope } from "lucide-react";
+import { Bot, Briefcase, HeartPulse, Building2, UserRound, CalendarPlus, ClipboardCheck, GitCompareArrows, Globe, Home, Inbox, ListChecks, LogOut, Network, OctagonX, Phone, PlugZap, Receipt, ShieldCheck, Sparkles, Stethoscope, Building, Users, ChevronsUpDown } from "lucide-react";
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { api, ApiError, type Me, type WorkspaceSummary } from "./api";
-import logoDark from "./assets/careplix-logo-dark.png";
-import logo from "./assets/careplix-logo.png";
+import { api, ApiError, type Me, type MyWorkspace, type WorkspaceSummary } from "./api";
+import { BrandLockup } from "./Brand";
+import { SignIn } from "./SignIn";
 import AgentEditor from "./pages/AgentEditor";
 import Agents from "./pages/Agents";
 import Approvals from "./pages/Approvals";
@@ -26,6 +26,8 @@ import ShadowMode from "./pages/ShadowMode";
 import TaskComposer from "./pages/TaskComposer";
 import Tasks from "./pages/Tasks";
 import VoiceStudio from "./pages/VoiceStudio";
+import Members from "./pages/Members";
+import Platform from "./pages/Platform";
 import Workspace from "./pages/Workspace";
 
 const MeCtx = createContext<Me | null>(null);
@@ -44,59 +46,6 @@ export default function App() {
   );
 }
 
-function SignIn({ error }: { error?: string }) {
-  const qc = useQueryClient();
-  const mode = useQuery({ queryKey: ["auth-mode"], queryFn: () => api.get<{ mode: "dev" | "sso" }>("/auth/mode") });
-  const sso = mode.data?.mode === "sso";
-  const login = useMutation({
-    // In the cloud, IAP has already authenticated the Google account; this exchanges it for a session.
-    mutationFn: () => api.post<Me>(sso ? "/auth/iap-login" : "/auth/dev-login"),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["me"] }),
-  });
-  const { mutate, isIdle } = login;
-  useEffect(() => {
-    if (sso && isIdle && !error) mutate();
-  }, [sso, isIdle, error, mutate]);
-  return (
-    <main className="signin">
-      <div className="card signin-card">
-        <BrandLockup size="lg" />
-        <div>
-          <h1 className="large-title">Sign in</h1>
-          <p className="muted" style={{ margin: "6px 0 0" }}>
-            Design, test and run voice agents for your revenue cycle team.
-          </p>
-        </div>
-        <button className="btn btn-primary btn-lg" style={{ width: "100%" }} onClick={() => login.mutate()} disabled={login.isPending}>
-          {login.isPending ? <span className="spinner" aria-label="Signing in" /> : sso ? "Continue with CarePlix account" : "Continue as Demo Administrator"}
-        </button>
-        {(login.error || error) && (
-          <p className="field-error" role="alert" style={{ margin: 0 }}>
-            {(login.error as Error)?.message ?? error}
-          </p>
-        )}
-        <p className="small muted" style={{ margin: 0 }}>
-          {sso ? "Signed in through CarePlix single sign-on." : "Demo workspace sign-in."} Synthetic data only. Never enter real patient information.
-        </p>
-      </div>
-    </main>
-  );
-}
-
-/** The CarePlix logo with the product name. The logo has a light-surface and a dark-surface file. */
-function BrandLockup({ size = "md" }: { size?: "md" | "lg" }) {
-  const height = size === "lg" ? 34 : 22;
-  return (
-    <span className="brand-lockup">
-      <img className="brand-logo brand-logo-light" src={logo} alt="CarePlix" style={{ height }} />
-      <img className="brand-logo brand-logo-dark" src={logoDark} alt="" aria-hidden style={{ height }} />
-      <span className="brand-product" style={size === "lg" ? { fontSize: 20, lineHeight: "28px" } : undefined}>
-        Voice
-      </span>
-    </span>
-  );
-}
-
 const initials = (name: string) =>
   name
     .split(" ")
@@ -106,6 +55,7 @@ const initials = (name: string) =>
 
 function Shell() {
   const me = useMe();
+  const show = (section: string) => me.pack.sections.includes(section);
   const { pathname } = useLocation();
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -116,7 +66,13 @@ function Shell() {
     queryFn: () => api.get<WorkspaceSummary>("/workspace/summary"),
     refetchInterval: 4000,
   });
-  const logout = useMutation({ mutationFn: () => api.post("/auth/logout"), onSuccess: () => qc.clear() });
+  const logout = useMutation({
+    mutationFn: () => api.post("/auth/logout"),
+    onSuccess: () => {
+      qc.clear();
+      window.location.assign("/");
+    },
+  });
   const live = summary.data?.active_calls.length ?? 0;
   const review = summary.data?.needs_attention.length ?? 0;
 
@@ -130,10 +86,7 @@ function Shell() {
           <NavLink to="/" className="brand-home" aria-label="CarePlix Voice home">
             <BrandLockup />
           </NavLink>
-          <div className="brand-workspace" title={me.workspace_name}>
-            <Building2 size={14} aria-hidden style={{ flex: "none" }} />
-            <strong>{me.workspace_name}</strong>
-          </div>
+          <WorkspaceSwitcher />
         </div>
         <ul className="nav-group">
           <li>
@@ -143,82 +96,126 @@ function Shell() {
           </li>
         </ul>
         <NavGroup label="Build">
-          <NavLink to="/agents" className="nav-link">
-            <Bot size={16} aria-hidden /> Agents
-          </NavLink>
-          <NavLink to="/studio" className="nav-link">
-            <Sparkles size={16} aria-hidden /> Voice Studio
-          </NavLink>
-          <NavLink to="/personas" className="nav-link">
-            <UserRound size={16} aria-hidden /> Personas
-          </NavLink>
-          <NavLink to="/shadow" className="nav-link">
-            <GitCompareArrows size={16} aria-hidden /> Shadow mode
-          </NavLink>
+          {show("agents") && (
+            <NavLink to="/agents" className="nav-link">
+              <Bot size={16} aria-hidden /> Agents
+            </NavLink>
+          )}
+          {show("studio") && (
+            <NavLink to="/studio" className="nav-link">
+              <Sparkles size={16} aria-hidden /> Voice Studio
+            </NavLink>
+          )}
+          {show("personas") && (
+            <NavLink to="/personas" className="nav-link">
+              <UserRound size={16} aria-hidden /> Personas
+            </NavLink>
+          )}
+          {show("shadow") && (
+            <NavLink to="/shadow" className="nav-link">
+              <GitCompareArrows size={16} aria-hidden /> Shadow mode
+            </NavLink>
+          )}
         </NavGroup>
         <NavGroup label="Operate">
-          <NavLink to="/cases" className="nav-link">
-            <Briefcase size={16} aria-hidden /> Cases
-          </NavLink>
-          <NavLink to="/tasks" className="nav-link">
-            <ListChecks size={16} aria-hidden /> Tasks
-          </NavLink>
-          <NavLink to="/calls" className="nav-link">
-            <Phone size={16} aria-hidden /> Calls
-            {live > 0 && (
-              <span className="count" aria-label={`${live} live`}>
-                <span className="pill tone-green" style={{ padding: "0 7px" }}>
-                  <span className="live-dot" aria-hidden />
-                  {live}
+          {show("cases") && (
+            <NavLink to="/cases" className="nav-link">
+              <Briefcase size={16} aria-hidden /> Cases
+            </NavLink>
+          )}
+          {show("tasks") && (
+            <NavLink to="/tasks" className="nav-link">
+              <ListChecks size={16} aria-hidden /> Tasks
+            </NavLink>
+          )}
+          {show("calls") && (
+            <NavLink to="/calls" className="nav-link">
+              <Phone size={16} aria-hidden /> Calls
+              {live > 0 && (
+                <span className="count" aria-label={`${live} live`}>
+                  <span className="pill tone-green" style={{ padding: "0 7px" }}>
+                    <span className="live-dot" aria-hidden />
+                    {live}
+                  </span>
                 </span>
-              </span>
-            )}
-          </NavLink>
-          <NavLink to="/care" className="nav-link">
-            <HeartPulse size={16} aria-hidden /> Care opportunities
-          </NavLink>
-          <NavLink to="/results" className="nav-link">
-            <ClipboardCheck size={16} aria-hidden /> Results
-            {review > 0 && (
-              <span className="count" aria-label={`${review} to review`}>
-                {review}
-              </span>
-            )}
-          </NavLink>
+              )}
+            </NavLink>
+          )}
+          {show("care") && (
+            <NavLink to="/care" className="nav-link">
+              <HeartPulse size={16} aria-hidden /> Care opportunities
+            </NavLink>
+          )}
+          {show("results") && (
+            <NavLink to="/results" className="nav-link">
+              <ClipboardCheck size={16} aria-hidden /> Results
+              {review > 0 && (
+                <span className="count" aria-label={`${review} to review`}>
+                  {review}
+                </span>
+              )}
+            </NavLink>
+          )}
         </NavGroup>
         <NavGroup label="Front office">
-          <NavLink to="/practice" className="nav-link">
-            <Stethoscope size={16} aria-hidden /> Practice
-          </NavLink>
-          <NavLink to="/backfill" className="nav-link">
-            <CalendarPlus size={16} aria-hidden /> Backfill
-          </NavLink>
+          {show("practice") && (
+            <NavLink to="/practice" className="nav-link">
+              <Stethoscope size={16} aria-hidden /> Practice
+            </NavLink>
+          )}
+          {show("backfill") && (
+            <NavLink to="/backfill" className="nav-link">
+              <CalendarPlus size={16} aria-hidden /> Backfill
+            </NavLink>
+          )}
         </NavGroup>
         <NavGroup label="Back office">
           {[
-            <NavLink key="claims" to="/claims" className="nav-link">
-              <Receipt size={16} aria-hidden /> Claims
-            </NavLink>,
+            show("claims") && (
+              <NavLink key="claims" to="/claims" className="nav-link">
+                <Receipt size={16} aria-hidden /> Claims
+              </NavLink>
+            ),
           ]}
         </NavGroup>
         <NavGroup label="Settings">
-          <NavLink to="/connections" className="nav-link">
-            <PlugZap size={16} aria-hidden /> Connections
+          {show("connections") && (
+            <NavLink to="/connections" className="nav-link">
+              <PlugZap size={16} aria-hidden /> Connections
+            </NavLink>
+          )}
+          {show("integrations") && (
+            <NavLink to="/integrations" className="nav-link">
+              <Building2 size={16} aria-hidden /> Integrations
+            </NavLink>
+          )}
+          {show("hub") && (
+            <NavLink to="/hub" className="nav-link">
+              <Network size={16} aria-hidden /> EHR hub
+            </NavLink>
+          )}
+        </NavGroup>
+        <NavGroup label="Team">
+          <NavLink to="/members" className="nav-link">
+            <Users size={16} aria-hidden /> Members
           </NavLink>
-          <NavLink to="/integrations" className="nav-link">
-            <Building2 size={16} aria-hidden /> Integrations
-          </NavLink>
-          <NavLink to="/hub" className="nav-link">
-            <Network size={16} aria-hidden /> EHR hub
-          </NavLink>
+          {me.platform && (
+            <NavLink to="/platform" className="nav-link">
+              <Building size={16} aria-hidden /> Customers <span className="nav-tag">Staff</span>
+            </NavLink>
+          )}
         </NavGroup>
         <NavGroup label="Labs">
-          <NavLink to="/browser" className="nav-link">
-            <Globe size={16} aria-hidden /> Browser agent <span className="nav-tag">Preview</span>
-          </NavLink>
-          <NavLink to="/approvals" className="nav-link">
-            <Inbox size={16} aria-hidden /> Approvals
-          </NavLink>
+          {show("browser") && (
+            <NavLink to="/browser" className="nav-link">
+              <Globe size={16} aria-hidden /> Browser agent <span className="nav-tag">Preview</span>
+            </NavLink>
+          )}
+          {show("approvals") && (
+            <NavLink to="/approvals" className="nav-link">
+              <Inbox size={16} aria-hidden /> Approvals
+            </NavLink>
+          )}
         </NavGroup>
         <div className="sidebar-foot">
           {me.emergency_stop && (
@@ -248,29 +245,31 @@ function Shell() {
       <main className="main" id="main" tabIndex={-1}>
         <Routes>
           <Route path="/" element={<Workspace />} />
-          <Route path="/studio" element={<VoiceStudio />} />
-          <Route path="/personas" element={<Personas />} />
-          <Route path="/shadow" element={<ShadowMode />} />
-          <Route path="/shadow/:id" element={<ShadowMode />} />
-          <Route path="/browser" element={<BrowserAgent />} />
-          <Route path="/browser/:id" element={<BrowserAgent />} />
-          <Route path="/approvals" element={<Approvals />} />
-          <Route path="/agents" element={<Agents />} />
-          <Route path="/agents/:id" element={<AgentEditor />} />
-          <Route path="/cases" element={<Cases />} />
-          <Route path="/tasks" element={<Tasks />} />
-          <Route path="/tasks/new" element={<TaskComposer />} />
-          <Route path="/calls" element={<Calls />} />
-          <Route path="/calls/:id" element={<CallDetail />} />
-          <Route path="/results" element={<Results />} />
-          <Route path="/care" element={<CareOpportunities />} />
-          <Route path="/results/:id" element={<ResultDetail />} />
-          <Route path="/connections" element={<Connections />} />
-          <Route path="/integrations" element={<Integrations />} />
-          <Route path="/practice" element={<Practice />} />
-          <Route path="/backfill" element={<Backfill />} />
-          <Route path="/claims" element={<Claims />} />
-          <Route path="/hub" element={<Hub />} />
+          <Route path="/studio" element={<Gate show={show("studio")}><VoiceStudio /></Gate>} />
+          <Route path="/personas" element={<Gate show={show("personas")}><Personas /></Gate>} />
+          <Route path="/shadow" element={<Gate show={show("shadow")}><ShadowMode /></Gate>} />
+          <Route path="/shadow/:id" element={<Gate show={show("shadow")}><ShadowMode /></Gate>} />
+          <Route path="/browser" element={<Gate show={show("browser")}><BrowserAgent /></Gate>} />
+          <Route path="/browser/:id" element={<Gate show={show("browser")}><BrowserAgent /></Gate>} />
+          <Route path="/approvals" element={<Gate show={show("approvals")}><Approvals /></Gate>} />
+          <Route path="/agents" element={<Gate show={show("agents")}><Agents /></Gate>} />
+          <Route path="/agents/:id" element={<Gate show={show("agents")}><AgentEditor /></Gate>} />
+          <Route path="/cases" element={<Gate show={show("cases")}><Cases /></Gate>} />
+          <Route path="/tasks" element={<Gate show={show("tasks")}><Tasks /></Gate>} />
+          <Route path="/tasks/new" element={<Gate show={show("tasks")}><TaskComposer /></Gate>} />
+          <Route path="/calls" element={<Gate show={show("calls")}><Calls /></Gate>} />
+          <Route path="/calls/:id" element={<Gate show={show("calls")}><CallDetail /></Gate>} />
+          <Route path="/results" element={<Gate show={show("results")}><Results /></Gate>} />
+          <Route path="/care" element={<Gate show={show("care")}><CareOpportunities /></Gate>} />
+          <Route path="/results/:id" element={<Gate show={show("results")}><ResultDetail /></Gate>} />
+          <Route path="/connections" element={<Gate show={show("connections")}><Connections /></Gate>} />
+          <Route path="/integrations" element={<Gate show={show("integrations")}><Integrations /></Gate>} />
+          <Route path="/practice" element={<Gate show={show("practice")}><Practice /></Gate>} />
+          <Route path="/backfill" element={<Gate show={show("backfill")}><Backfill /></Gate>} />
+          <Route path="/claims" element={<Gate show={show("claims")}><Claims /></Gate>} />
+          <Route path="/hub" element={<Gate show={show("hub")}><Hub /></Gate>} />
+          <Route path="/members" element={<Members />} />
+          <Route path="/platform" element={<Gate show={me.platform}><Platform /></Gate>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
@@ -279,6 +278,8 @@ function Shell() {
 }
 
 function NavGroup({ label, children }: { label: string; children: ReactNode[] }) {
+  children = children.filter(Boolean);
+  if (!children.length) return null;
   return (
     <>
       <div className="nav-section" id={`nav-${label}`}>
@@ -290,5 +291,57 @@ function NavGroup({ label, children }: { label: string; children: ReactNode[] })
         ))}
       </ul>
     </>
+  );
+}
+
+/** A hidden section's address goes home instead of rendering a page the pack doesn't offer. */
+function Gate({ show, children }: { show: boolean; children: ReactNode }) {
+  return show ? <>{children}</> : <Navigate to="/" replace />;
+}
+
+/** The current workspace, and a switcher when the person belongs to more than one. */
+function WorkspaceSwitcher() {
+  const me = useMe();
+  const qc = useQueryClient();
+  const mine = useQuery({ queryKey: ["my-workspaces"], queryFn: () => api.get<MyWorkspace[]>("/auth/workspaces") });
+  const swap = useMutation({
+    mutationFn: (workspace_id: string) => api.post<Me>("/auth/workspace", { workspace_id }),
+    onSuccess: () => {
+      qc.clear();
+      window.location.assign("/");
+    },
+  });
+  const list = mine.data ?? [];
+  const label = (
+    <>
+      <Building2 size={14} aria-hidden style={{ flex: "none" }} />
+      <strong style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{me.workspace_name}</strong>
+    </>
+  );
+  if (list.length < 2) {
+    return (
+      <div className="brand-workspace" title={`${me.workspace_name} · ${me.pack.label}`}>
+        {label}
+      </div>
+    );
+  }
+  return (
+    <label className="brand-workspace" title={me.pack.label} style={{ position: "relative", cursor: "pointer" }}>
+      {label}
+      <ChevronsUpDown size={13} aria-hidden style={{ flex: "none", marginLeft: "auto" }} />
+      <select
+        aria-label="Switch workspace"
+        value={me.workspace_id}
+        disabled={swap.isPending}
+        onChange={(e) => swap.mutate(e.target.value)}
+        style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer" }}
+      >
+        {list.map((w) => (
+          <option key={w.workspace_id} value={w.workspace_id}>
+            {w.name}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
