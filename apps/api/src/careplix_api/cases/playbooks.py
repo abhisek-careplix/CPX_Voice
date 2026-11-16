@@ -9,6 +9,8 @@ in the background (see :class:`PlaybookEngine`), so work starts without anyone p
   that offers it to all of them at once; the first confirmed yes is booked.
 - ``schedule``: a booked appointment comes inside the reminder window of the EHR schedule → an
   ``appointment_reminder`` case.
+- ``auth_required``: an upcoming visit's eligibility check (271) or a payer rule says it needs
+  prior authorization → a ``prior_authorization`` case (:mod:`careplix_api.priorauth.playbook`).
 - ``webhook`` / ``import`` / ``inbound_call``: an EHR event, a worklist row or a call hands the
   engine a case directly (``POST /api/playbooks/{id}/trigger``).
 
@@ -55,6 +57,7 @@ TRIGGERS: dict[str, str] = {
     "care_opportunity": "A clinician approves a care opportunity",
     "backfill_opening": "A cancelled slot opens with patients waiting for one",
     "schedule": "A booked appointment enters the reminder window of the EHR schedule",
+    "auth_required": "An eligibility check (271) or a payer rule says a visit needs prior auth",
     "webhook": "An EHR event or webhook",
     "import": "A worklist import",
     "inbound_call": "An inbound call",
@@ -176,6 +179,44 @@ PLAYBOOKS: dict[str, Playbook] = {
             "are told, everyone else is told it's filled, and the front desk is told.",
             hand_off="Nobody said yes in time, or the booking was refused: the front desk works "
             "the slot from the Backfill page.",
+        ),
+        # Its own steps (prepare_packet … tell_patient) live in careplix_api.priorauth.playbook.
+        Playbook(
+            id="prior_authorization",
+            name="Prior authorization",
+            case_type="prior_authorization",
+            triggers=("auth_required", "webhook", "import"),
+            steps=(
+                Step("prepare_packet", "Build the packet from the EHR: order, notes, documents"),
+                Step(
+                    "submit_auth",
+                    "Submit: the payer's PAS API, else its portal, else a call, else fax",
+                    {"routes": ("pas", "portal", "call", "fax")},
+                ),
+                Step(
+                    "track_auth",
+                    "Track the payer's decision; chase it when it goes stale",
+                    {
+                        "first_check_m": 1,
+                        "check_every_h": 24,
+                        "stale_after_h": 72,
+                        "call_timeout_h": 48,
+                        "follow_up_calls": 2,
+                        "visit_guard_h": 24,
+                    },
+                ),
+                Step("record_auth", "Write the auth number and dates back to the EHR"),
+                Step("await_record", "Wait for the EHR (or staff) to take it"),
+                Step("tell_patient", "Tell the patient if the visit is affected"),
+                Step("inform_staff", "Tell the front desk"),
+                Step("close", "Check the completion contract"),
+            ),
+            due=timedelta(days=10),
+            completion="The payer's decision is recorded with its auth number and dates, the EHR "
+            "has the number (or staff own entering it), the front desk is told, and the patient "
+            "is told when the visit is affected.",
+            hand_off="The packet is incomplete, the payer asks for more or denies it, or no route "
+            "reaches the payer: the front desk owns the next step, with the payer's reason.",
         ),
     ]
 }
@@ -596,6 +637,7 @@ async def inform_staff(ctx: RunContext, step: Step) -> Outcome:
 async def close(ctx: RunContext, step: Step) -> Outcome:
     case = ctx.case
     follow_up = step.params.get("yes_next_step") if ctx.data.get("answer") == "yes" else None
+    follow_up = follow_up or ctx.data.get("follow_up")  # a step left work for a person
     if follow_up:
         contract.set_next_action(
             case,
@@ -687,8 +729,13 @@ async def resume(session: AsyncSession, case: Case, actor: str) -> PlaybookRun:
     if run.state not in ("blocked", "handed_off", "failed"):
         raise ApiError(409, "playbook_running", "The playbook is still working this case.")
     playbook = PLAYBOOKS[run.playbook_id]
+    resume_at = (run.data or {}).get("resume_at")
     if run.state == "blocked":
         run.step = 0  # check the facts again
+    elif resume_at:
+        # The step that handed off says where to pick up (prior auth: check with the payer again).
+        run.step = playbook.index(resume_at)
+        run.data = {**(run.data or {}), "resume_at": None, "resumed_at": utcnow().isoformat()}
     else:
         # A hand-off resumes by contacting again, as a new round with no winner yet.
         run.step = playbook.index("contact")
@@ -1017,6 +1064,8 @@ class PlaybookEngine:
         self.db, self.settings = db, settings
         self.services = {"gateway": gateway, "runner": runner}
         self.transport_getter = transport_getter
+        # Playbooks whose steps live in their own package register them on import.
+        from careplix_api.priorauth import playbook as _prior_auth  # noqa: F401
 
     async def default_owner(self, session: AsyncSession, case: Case) -> str | None:
         """Who owns a hand-off when nobody does yet: the case's creator, else an administrator."""

@@ -49,6 +49,7 @@ EVIDENCE_KINDS = (
     "approval",
     "browser_run",
     "note",
+    "fhir",  # a payer's FHIR answer (Da Vinci PAS $submit / $inquire)
 )
 DEFAULT_HANDOFF_DUE = timedelta(days=1)
 

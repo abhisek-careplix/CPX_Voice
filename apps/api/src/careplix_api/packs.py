@@ -33,7 +33,7 @@ PACKS: dict[str, dict[str, Any]] = {
     "practice": {
         "label": "CarePlix Practice",
         "audience": "Ambulatory clinics",
-        "sections": (*SHARED_SECTIONS, "care", "practice", "backfill", "claims"),
+        "sections": (*SHARED_SECTIONS, "care", "practice", "backfill", "claims", "prior_auth"),
         "case_types": (
             "prior_authorization",
             "claim_status",

@@ -447,6 +447,7 @@ def test_old_rows_and_case_types_still_work(client):
         "care_outreach",
         "appointment_reminder",
         "slot_backfill",
+        "prior_authorization",
     }
     assert {t["kind"] for p in playbooks for t in p["triggers"]} >= {
         "care_opportunity",

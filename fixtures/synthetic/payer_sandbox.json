@@ -12,5 +12,13 @@
     "SYN-CASE-0008": null,
     "SYN-CASE-0009": {"action": "CT", "reason": "Contact payer for status", "ref": "SYN-PA-90433"},
     "SYN-CASE-0010": {"action": "A6", "reason": "Approved with modified units", "ref": "SYN-PA-74002", "valid_from": "2026-10-27", "valid_to": "2027-01-25"}
+  },
+  "submit_description": "How the sandbox decides a new request sent to $submit, by CPT code. $submit always answers pended (A4); the first $inquire after it answers with this outcome. Approvals run valid_days from the day of the inquiry.",
+  "submit_outcomes": {
+    "default": {"action": "A1", "valid_days": 90},
+    "95810": {"action": "A4", "reason": "Pended for medical review"},
+    "97161": {"action": "A3", "reason": "Coverage criteria not met"},
+    "93306": {"action": "A4", "reason": "Additional documentation required: recent cardiology notes"},
+    "73721": {"action": "CT", "reason": "Contact payer for status"}
   }
 }

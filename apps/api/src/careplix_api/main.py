@@ -44,6 +44,7 @@ from careplix_api.practice import api as practice_api
 from careplix_api.practice import webhooks as practice_webhooks
 from careplix_api.practice.connections import ensure_practice_connections
 from careplix_api.practice.worker import PracticeWorker
+from careplix_api.priorauth import api as prior_auth_api
 from careplix_api.settings import Settings, get_settings
 from careplix_api.shadow import api as shadow_api
 from careplix_api.shadow import service as shadow_service
@@ -214,6 +215,7 @@ def create_app(
     app.include_router(personas_api.router, prefix="/api")
     app.include_router(cases_api.router, prefix="/api")
     app.include_router(claims_api.router, prefix="/api")
+    app.include_router(prior_auth_api.router, prefix="/api")
     app.include_router(internal_api.router)
     if settings.is_dev:
         # Local webhook testing; in the cloud the public ingress is its own service (no IAP).

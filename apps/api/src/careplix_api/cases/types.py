@@ -42,11 +42,11 @@ def _f(key: str, label: str, path: str, kind: str = "text", *, required: bool = 
 
 CASE_TYPES: dict[str, dict[str, Any]] = {
     "prior_authorization": {
-        "name": "Prior auth status",
+        "name": "Prior authorization",
         "program": "Prior auth and claims",
         "prefix": "CASE",
-        "summary": "Chase a submitted prior authorization with the payer: status, reference, "
-        "what's missing.",
+        "summary": "Get a prior authorization decided: build the packet, submit it to the payer "
+        "(electronic first, then a call), chase it to a decision and record the auth number.",
         "counterparty": {
             "role": "payer",
             "label": "Payer",
@@ -65,7 +65,8 @@ CASE_TYPES: dict[str, dict[str, Any]] = {
         "objective": None,  # the prior-auth template carries its own objective
         "contract": {
             "informed": ["staff"],
-            "sor": "The payer's reference number for the call or electronic response",
+            "sor": "The payer's authorization number, and the EHR's copy of it when the case "
+            "came from the schedule (write intent)",
             "clinical": False,
         },
         "fields": [
@@ -89,6 +90,21 @@ CASE_TYPES: dict[str, dict[str, Any]] = {
                 "code",
                 required=False,
             ),
+            # What a new request needs (the prior-auth playbook's packet checks these).
+            _f(
+                "icd_codes", "Diagnosis codes (ICD-10)", "service.icd_codes", "code", required=False
+            ),
+            _f(
+                "ordering_provider",
+                "Ordering provider",
+                "service.ordering_provider",
+                required=False,
+            ),
+            _f("service_date", "Date of service", "service.date", "date", required=False),
+            # The decision, as the payer gave it.
+            _f("auth_status", "Auth status", "auth.status", required=False, share=False),
+            _f("auth_valid_from", "Auth valid from", "auth.valid_from", "date", required=False),
+            _f("auth_valid_to", "Auth valid to", "auth.valid_to", "date", required=False),
         ],
     },
     "claim_status": {
@@ -436,6 +452,9 @@ def sample_values(type_id: str, rng: random.Random, n: int) -> dict[str, Any]:
             "units": 1,
             "submitted_on": (date.today() - timedelta(days=rng.randint(5, 20))).isoformat(),
             "urgency": "standard",
+            "icd_codes": rng.choice(["M54.50", "G47.33", "I10", "M25.561"]),
+            "ordering_provider": rng.choice(_CLINICIANS),
+            "service_date": soon.isoformat(),
         }
     elif type_id == "claim_status":
         base |= {
