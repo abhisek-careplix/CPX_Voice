@@ -66,9 +66,18 @@ def _add_missing_columns(conn) -> None:
                 )
 
 
+# Cloud SQL drops idle connections (maintenance, proxy restarts). Without a check, the next query
+# on a dropped pooled connection fails once before the pool reconnects.
+POOL_RECYCLE_S = 1800
+
+
 class Database:
     def __init__(self, url: str):
-        self.engine: AsyncEngine = create_async_engine(url)
+        # pre_ping tests each pooled connection on checkout and silently replaces a dead one;
+        # recycle retires connections before server or proxy idle limits close them.
+        self.engine: AsyncEngine = create_async_engine(
+            url, pool_pre_ping=True, pool_recycle=POOL_RECYCLE_S
+        )
         if url.startswith("sqlite"):
 
             @event.listens_for(self.engine.sync_engine, "connect")
