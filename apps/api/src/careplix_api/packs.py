@@ -37,6 +37,7 @@ PACKS: dict[str, dict[str, Any]] = {
         "case_types": (
             "prior_authorization",
             "claim_status",
+            "claim_denial",
             "eligibility_check",
             "appointment_reminder",
             "care_outreach",
