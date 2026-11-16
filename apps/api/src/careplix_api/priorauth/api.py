@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from careplix_api import packs
+from careplix_api import environment, packs
 from careplix_api.auth import Principal, require
 from careplix_api.cases import contract, playbooks, service, types
 from careplix_api.cases.models import PlaybookRun
@@ -233,8 +233,11 @@ async def add_rule(
 
 @router.post("/prior-auth-rules/samples")
 async def add_sample_rules(
-    principal: Principal = Depends(require("admin")), session: AsyncSession = Session
+    principal: Principal = Depends(require("admin")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
 ):
+    environment.refuse_in_production("Synthetic sample payer rules", settings)
     have = {
         (r.cpt_code, r.payer) for r in await rules.for_workspace(session, principal.workspace_id)
     }

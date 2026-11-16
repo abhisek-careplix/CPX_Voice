@@ -40,6 +40,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from careplix_api import environment
 from careplix_api.cases import attempts, contract, playbooks, policy, types
 from careplix_api.cases.models import ContactAttempt
 from careplix_api.cases.playbooks import POLL, Outcome, RunContext, Step, _hand_off, _next, _wait
@@ -273,7 +274,11 @@ async def _start_attempt(ctx: RunContext, route: str, purpose: str) -> bool:
 
 
 async def submit_auth(ctx: RunContext, step: Step) -> Outcome:
-    if not policy.agent_may("playbook.prior_auth.submit", ctx.case.workspace_id):
+    # Production (real patients, real payers): a person submits until the owner decides the
+    # agent may (G4). Labs submits on its own to the synthetic payer sandbox.
+    if environment.is_production(ctx.settings) or not policy.agent_may(
+        "playbook.prior_auth.submit", ctx.case.workspace_id
+    ):
         ctx.put(resume_at="track_auth", next_check_at=utcnow().isoformat())
         return _hand_off(
             "Policy: a person submits prior authorizations.",
