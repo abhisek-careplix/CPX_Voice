@@ -23,6 +23,7 @@ TOKEN = "twilio-test-auth-token"
 HOOKS = "https://hooks.careplix.test"
 SENDER = "+13125550100"
 OTHER = "+12025550199"  # never approved
+SECOND = "+12025550143"  # a second approved test phone
 NIGHT = datetime(2026, 11, 16, 3, 0, tzinfo=UTC)  # 21:00 the evening before in Chicago
 MORNING = datetime(2026, 11, 16, 16, 0, tzinfo=UTC)  # 10:00 in Chicago
 
@@ -47,6 +48,8 @@ def texting(tmp_path):
         twilio_auth_token=TOKEN,
         sms_from_number=SENDER,
         webhook_public_url=HOOKS,
+        approved_test_destinations=f"{APPROVED},{SECOND}",
+        playbook_contact_hours=False,
         workspace_timezone="America/Chicago",
         contact_hours="08:00-20:00",
         run_background=False,
@@ -585,3 +588,65 @@ def test_the_sending_number_is_careplix_staff_only_but_quiet_hours_are_the_custo
     )
     assert ok.status_code == 200 and ok.json()["contact_start"] == "09:00"
     assert "texts" in client.get("/api/me").json()["pack"]["sections"]
+
+
+# --- the text channel in case playbooks (workstream B's attempts) -------------------------------
+
+
+def test_a_playbook_texts_many_people_and_the_first_yes_by_text_wins(texting):
+    from careplix_api.cases import attempts
+    from careplix_api.channels import case_channel
+
+    c = texting
+    provider = c.app.state.sms_provider
+    attempts.register(case_channel.TextChannel(provider))
+    try:
+        # Open all day, so the offers go now rather than at 08:00.
+        c.put("/api/channels/settings", json={"contact_start": "00:00", "contact_end": "23:59"})
+        _opt_in(c, APPROVED)
+        _opt_in(c, SECOND)
+        made = c.post(
+            "/api/playbooks/slot_backfill/trigger",
+            json={
+                "fields": {
+                    "practice_name": "Riverside Family Medicine (synthetic)",
+                    "practice_phone": "+12025550160",
+                    "clinician_name": "Dr. Rowan Synthetic",
+                    "slot_at": "2026-11-20 09:00",
+                    "minutes": 30,
+                },
+                "contacts": [
+                    {"label": "A. S.", "address": APPROVED},
+                    {"label": "B. S.", "address": SECOND},
+                    {"label": "C. S.", "address": OTHER},  # not approved: refused, not texted
+                ],
+            },
+        )
+        assert made.status_code == 200, made.text
+        case = made.json()
+        texts = [a for a in case["attempts"] if a["channel"] == "text"]
+        by_label = {a["person"]: a for a in texts}
+        assert by_label["A. S."]["state"] == by_label["B. S."]["state"] == "sent"
+        assert by_label["C. S."]["state"] == "failed"
+        assert "approved" in by_label["C. S."]["detail"]
+        assert {to for to, *_ in provider.sent} == {APPROVED, SECOND}
+        body = provider.sent[0][1]
+        assert body.startswith("Riverside Family Medicine (synthetic): An earlier appointment")
+        assert "Reply YES" in body and "A. S." not in body
+
+        assert _inbound(c, "YES", frm=SECOND).status_code == 200
+        _run(c, lambda s, st: service.route_replies(s, st))
+        done = c.get(f"/api/cases/{case['id']}").json()
+        states = {a["person"]: a["state"] for a in done["attempts"] if a["channel"] == "text"}
+        assert states["B. S."] == "confirmed" and states["A. S."] == "superseded"
+        assert done["winner_attempt_id"] == by_label["B. S."]["id"]
+        # The others still waiting are told it's filled, by text.
+        notice = provider.sent[-1]
+        assert notice[0] == APPROVED and "filled" in notice[1]
+        # A late yes from the other person is too late, and never a second winner.
+        _inbound(c, "Yes", frm=APPROVED)
+        _run(c, lambda s, st: service.route_replies(s, st))
+        late = c.get(f"/api/cases/{case['id']}").json()
+        assert late["winner_attempt_id"] == by_label["B. S."]["id"]
+    finally:
+        attempts.unregister("text")

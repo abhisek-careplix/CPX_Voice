@@ -26,6 +26,7 @@ SHARED_SECTIONS = (
     "hub",
     "browser",
     "approvals",
+    "inbox",
     "texts",  # text messages and call hand-offs: every lead workflow in both lines needs them
 )
 
@@ -40,6 +41,7 @@ PACKS: dict[str, dict[str, Any]] = {
             "eligibility_check",
             "appointment_reminder",
             "care_outreach",
+            "slot_backfill",
             "call_back",
         ),
     },

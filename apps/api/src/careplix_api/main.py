@@ -28,7 +28,9 @@ from careplix_api.browser.service import BrowserRunner
 from careplix_api.calls_service import CallRunner
 from careplix_api.cases import api as cases_api
 from careplix_api.cases import service as cases_service
+from careplix_api.cases.playbooks import PlaybookEngine
 from careplix_api.channels import api as channels_api
+from careplix_api.channels import case_channel
 from careplix_api.channels import service as channels_service
 from careplix_api.channels import webhooks as channels_webhooks
 from careplix_api.claims import api as claims_api
@@ -75,6 +77,7 @@ def create_app(
     browser_agent_factory=None,
 ) -> FastAPI:
     settings = settings or get_settings()
+    case_channel.install()  # text attempts for playbooks (workstream B's channel hook)
     safe_logging.configure(settings.log_level)
     tenancy.install()  # every signed-in request is limited to its own workspace
 
@@ -117,6 +120,13 @@ def create_app(
         app.state.practice_worker = PracticeWorker(
             app.state.db, settings, lambda: app.state.integration_transport
         )
+        app.state.playbooks = PlaybookEngine(
+            app.state.db,
+            settings,
+            app.state.gateway,
+            app.state.runner,
+            lambda: app.state.integration_transport,
+        )
         # One service runs the background loops; others (e.g. the worker-facing internal API) don't.
         loops = (
             [
@@ -154,6 +164,8 @@ def create_app(
             if settings.run_background
             else []
         )
+        if settings.run_background and settings.playbooks_enabled:
+            loops.append(asyncio.create_task(app.state.playbooks.run_forever()))
         yield
         for loop in loops:
             loop.cancel()

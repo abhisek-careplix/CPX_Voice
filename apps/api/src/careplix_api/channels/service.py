@@ -85,6 +85,7 @@ class InboundReply:
     case_id: str | None
     received_at: datetime
     text: str
+    settings: Settings | None = None  # the running service's settings, for follow-up sends
 
 
 ReplyHandler = Callable[[AsyncSession, InboundReply], Awaitable[bool]]
@@ -199,9 +200,12 @@ async def send(
     actor: str = "system",
     provider: Provider | None = None,
     now: datetime | None = None,
+    commit: bool = True,
 ) -> SendResult:
     """Send (or hold, or refuse) one text. Commits: the row exists before Twilio is called, so a
-    retry with the same ``idempotency_key`` returns the first result instead of texting twice."""
+    retry with the same ``idempotency_key`` returns the first result instead of texting twice.
+    ``commit=False`` flushes instead, for callers that own the transaction (case attempts)."""
+    save = session.commit if commit else session.flush
     if channel not in CHANNELS:
         raise ApiError(422, "channel_unavailable", f"The {channel} channel isn't available yet.")
     now = now or utcnow()
@@ -246,7 +250,7 @@ async def send(
         msg.status, msg.status_reason = "blocked", reason
         _note(msg, "blocked", now, reason=reason)
         session.add(msg)
-        await session.commit()
+        await save()
         log.info("text blocked", extra={"reason": reason, "purpose": msg.purpose})
         return _result(msg)
     session.add(msg)
@@ -255,9 +259,9 @@ async def send(
         msg.status, msg.status_reason = "held", "quiet_hours"
         msg.send_after = quiet_hours.next_open(now, tz, start, end)
         _note(msg, "held", now, reason="quiet_hours")
-        await session.commit()
+        await save()
         return _result(msg)
-    await _deliver(session, settings, msg, number, body.strip(), provider, now)
+    await _deliver(session, settings, msg, number, body.strip(), provider, now, save)
     return _result(msg)
 
 
@@ -273,13 +277,15 @@ async def _deliver(
     body: str,
     provider: Provider | None,
     now: datetime,
+    save=None,
 ) -> None:
+    save = save or session.commit
     if await _needs_footer(session, msg, now):
         body = content.with_opt_out(body)
     msg.status, msg.status_reason, msg.send_after = "sending", None, None
     msg.attempts = (msg.attempts or 0) + 1
     msg.segments = content.segments(body)
-    await session.commit()  # claimed before the provider call
+    await save()  # claimed before the provider call
     provider = provider or TwilioSms(settings)
     try:
         sent = await provider.send(
@@ -299,13 +305,13 @@ async def _deliver(
             msg.status_reason = "not_textable" if err.code in NOT_A_MOBILE else "provider_error"
         msg.error_code = err.code[:10]
         _note(msg, msg.status, now, error_code=msg.error_code)
-        await session.commit()
+        await save()
         log.warning("text not sent", extra={"error_code": err.code, "purpose": msg.purpose})
         return
     msg.provider_sid = sent.sid[:40]
     msg.sent_at = now
     apply_status(msg, sent.status, None, now, force=True)
-    await session.commit()
+    await save()
 
 
 def apply_status(
@@ -526,6 +532,7 @@ async def route_replies(
             case_id=offer.case_id,
             received_at=received,
             text=box.open(msg.body).get("body", ""),
+            settings=settings,
         )
         msg.routed_to = "unhandled"
         for name, handler in list(_HANDLERS):

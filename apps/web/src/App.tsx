@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, Briefcase, MessageSquareText, HeartPulse, Building2, UserRound, CalendarPlus, ClipboardCheck, GitCompareArrows, Globe, Home, Inbox, ListChecks, LogOut, Network, OctagonX, Phone, PlugZap, Receipt, ShieldCheck, Sparkles, Stethoscope, Building, Users, ChevronsUpDown } from "lucide-react";
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { api, ApiError, type Me, type MyWorkspace, type WorkspaceSummary } from "./api";
+import { api, ApiError, type Inbox as InboxData, type Me, type MyWorkspace, type WorkspaceSummary } from "./api";
 import { BrandLockup } from "./Brand";
 import { SignIn } from "./SignIn";
 import AgentEditor from "./pages/AgentEditor";
@@ -11,6 +11,7 @@ import Approvals from "./pages/Approvals";
 import Backfill from "./pages/Backfill";
 import BrowserAgent from "./pages/BrowserAgent";
 import Hub from "./pages/Hub";
+import ReviewInbox from "./pages/Inbox";
 import CallDetail from "./pages/CallDetail";
 import Claims from "./pages/Claims";
 import Cases from "./pages/Cases";
@@ -74,6 +75,8 @@ function Shell() {
       window.location.assign("/");
     },
   });
+  const inbox = useQuery({ queryKey: ["inbox"], queryFn: () => api.get<InboxData>("/inbox"), refetchInterval: 8000, enabled: show("inbox") });
+  const waiting = inbox.data?.total ?? 0;
   const live = summary.data?.active_calls.length ?? 0;
   const review = summary.data?.needs_attention.length ?? 0;
 
@@ -119,6 +122,16 @@ function Shell() {
           )}
         </NavGroup>
         <NavGroup label="Operate">
+          {show("inbox") && (
+            <NavLink to="/inbox" className="nav-link">
+              <Inbox size={16} aria-hidden /> Review inbox
+              {waiting > 0 && (
+                <span className="count" aria-label={`${waiting} waiting`}>
+                  {waiting}
+                </span>
+              )}
+            </NavLink>
+          )}
           {show("cases") && (
             <NavLink to="/cases" className="nav-link">
               <Briefcase size={16} aria-hidden /> Cases
@@ -258,6 +271,7 @@ function Shell() {
           <Route path="/browser" element={<Gate show={show("browser")}><BrowserAgent /></Gate>} />
           <Route path="/browser/:id" element={<Gate show={show("browser")}><BrowserAgent /></Gate>} />
           <Route path="/approvals" element={<Gate show={show("approvals")}><Approvals /></Gate>} />
+          <Route path="/inbox" element={<Gate show={show("inbox")}><ReviewInbox /></Gate>} />
           <Route path="/agents" element={<Gate show={show("agents")}><Agents /></Gate>} />
           <Route path="/agents/:id" element={<Gate show={show("agents")}><AgentEditor /></Gate>} />
           <Route path="/cases" element={<Gate show={show("cases")}><Cases /></Gate>} />

@@ -100,5 +100,9 @@ async def sms_status(
         msg.provider_sid = sid[:40]
     status = params.get("MessageStatus") or params.get("SmsStatus") or ""
     if service.apply_status(msg, status, params.get("ErrorCode"), utcnow()):
+        if msg.case_id:
+            from careplix_api.channels import case_channel  # the case's "people informed" links
+
+            await case_channel.mark_delivery(session, msg.id, msg.status)
         await session.commit()
     return twiml()

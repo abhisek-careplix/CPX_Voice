@@ -854,8 +854,10 @@ class OutcomeIn(BaseModel):
 async def record_outcome(
     task_id: str,
     body: OutcomeIn,
+    request: Request,
     principal: Principal = Depends(require("review")),
     session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
 ):
     task = await _task(session, principal, task_id)
     if task.state in ("Running",):
@@ -865,7 +867,7 @@ async def record_outcome(
     task.state, task.outcome_reason, task.outcome_by = body.outcome, body.reason, principal.user_id
     task.next_action = body.next_action
     task.updated_at = utcnow()
-    await cases_service.on_outcome(session, task)
+    await cases_service.on_outcome(session, task, settings)
     session.add(
         AuditEvent(
             workspace_id=task.workspace_id,
@@ -876,4 +878,7 @@ async def record_outcome(
         )
     )
     await session.commit()
+    engine = getattr(request.app.state, "playbooks", None)
+    if engine is not None and task.case_id:
+        await engine.advance(task.case_id)  # a playbook waiting on this call moves on now
     return await _task_view(session, task)

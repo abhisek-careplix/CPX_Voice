@@ -12,6 +12,9 @@ is the contract between the case and the agent that works it:
   their own objective; the general calling agent (``errand``) gets the type's ``objective``.
 - ``checks``: systems asked before and after the call (API first: the payer's API, then the phone).
 - ``packs``: guardrail packs every call on this type runs under, whatever the agent's config says.
+- ``contract``: what the completion contract (§2 of the operating plan) asks of this type: who must
+  be told (``informed``), what acknowledges the system-of-record update (``sor``), and whether a
+  clinician signs off (``clinical``). See :mod:`careplix_api.cases.contract`.
 
 The types are server-owned, like guardrail packs, so a case can never widen what an agent may do.
 """
@@ -60,6 +63,11 @@ CASE_TYPES: dict[str, dict[str, Any]] = {
         ],
         "packs": [],
         "objective": None,  # the prior-auth template carries its own objective
+        "contract": {
+            "informed": ["staff"],
+            "sor": "The payer's reference number for the call or electronic response",
+            "clinical": False,
+        },
         "fields": [
             _f("patient_name", "Patient", "patient.display_name"),
             _f("date_of_birth", "Date of birth", "patient.date_of_birth", "date"),
@@ -103,6 +111,11 @@ CASE_TYPES: dict[str, dict[str, Any]] = {
         "objective": "Find out the status of claim {claim_number} for {patient_name} (date of "
         "service {date_of_service}, billed {billed_amount}): whether it is paid, pending or "
         "denied, the amount paid or the denial reason, and a reference number for this call.",
+        "contract": {
+            "informed": ["staff"],
+            "sor": "The payer's reference number for the call or electronic response",
+            "clinical": False,
+        },
         "fields": [
             _f("patient_name", "Patient", "patient.display_name"),
             _f("date_of_birth", "Date of birth", "patient.date_of_birth", "date"),
@@ -138,6 +151,11 @@ CASE_TYPES: dict[str, dict[str, Any]] = {
         "the benefits for {service_description} (CPT {cpt_code}): copay or coinsurance, how much "
         "of the deductible is met, and whether prior authorization is needed. Get a reference "
         "number for this call.",
+        "contract": {
+            "informed": ["staff"],
+            "sor": "The payer's reference number for the call or electronic response",
+            "clinical": False,
+        },
         "fields": [
             _f("patient_name", "Patient", "patient.display_name"),
             _f("date_of_birth", "Date of birth", "patient.date_of_birth", "date"),
@@ -172,6 +190,11 @@ CASE_TYPES: dict[str, dict[str, Any]] = {
         "{clinician_name} at {practice_name}, {location}, on {appointment_at}. Confirm they will "
         "attend, or record that they want to reschedule or cancel so the front desk can follow up. "
         "Share the preparation notes only once you are speaking with {patient_name}.",
+        "contract": {
+            "informed": ["patient", "staff"],
+            "sor": "The EHR's confirmation of the appointment (write intent)",
+            "clinical": False,
+        },
         "fields": [
             _f("patient_name", "Patient", "patient.display_name"),
             _f("patient_phone", "Patient phone", "patient.phone", "phone", share=False),
@@ -207,6 +230,11 @@ CASE_TYPES: dict[str, dict[str, Any]] = {
         "Explain what it involves using only the program description, answer only what it covers, "
         "and ask whether they would like to enrol or have the care team call them. Record their "
         "answer.",
+        "contract": {
+            "informed": ["patient", "staff"],
+            "sor": "The care opportunity's recorded outcome",
+            "clinical": True,
+        },
         "fields": [
             _f("patient_name", "Patient", "patient.display_name"),
             _f("patient_phone", "Patient phone", "patient.phone", "phone", share=False),
@@ -239,12 +267,54 @@ CASE_TYPES: dict[str, dict[str, Any]] = {
         "packs": list(PATIENT_CALL_PACKS),
         "objective": "Call {caller_name} back for {practice_name} about: {summary}. Find out "
         "what they still need and take a message for the front desk.",
+        "contract": {
+            "informed": ["patient", "staff"],
+            "sor": "A person's note that the caller was called back",
+            "clinical": False,
+        },
         "fields": [
             _f("caller_name", "Caller", "caller.name", required=False),
             _f("caller_phone", "Call-back number", "caller.phone", "phone", share=False),
             _f("practice_name", "Practice", "practice.name"),
             _f("summary", "What they need (agent's summary)", "handoff.summary"),
             _f("promise", "Promised", "handoff.promise", required=False),
+        ],
+    },
+    "slot_backfill": {
+        "name": "Fill a cancelled slot",
+        "program": "Front desk",
+        "prefix": "BKF",
+        "summary": "Offer a cancelled appointment time to the patients waiting for one, all at "
+        "once; the first confirmed yes gets it and the others are told it's filled.",
+        "counterparty": {
+            "role": "patient",
+            "label": "Waiting patients",
+            # Nobody in particular: the contacts are the case's attempts, not one name or number.
+            "name": "slot.waiting_patients",
+            "phone": "slot.contact_phone",
+        },
+        "on_behalf_of": "practice.name",
+        "subject": "slot.starts_at",
+        "headline": ("slot.starts_at", "slot.clinician"),
+        "agents": ["errand"],
+        "checks": [],
+        "packs": list(PATIENT_CALL_PACKS),
+        "objective": "Offer the patient an earlier appointment with {clinician_name} at "
+        "{practice_name}, {location}, on {slot_at} ({minutes} minutes). Once you are speaking with "
+        "the patient, ask whether they want it. Record yes or no; a yes is only final once the "
+        "practice confirms the booking.",
+        "contract": {
+            "informed": ["patient", "staff"],
+            "sor": "The EHR's booking of the slot (write intent)",
+            "clinical": False,
+        },
+        "fields": [
+            _f("practice_name", "Practice", "practice.name"),
+            _f("practice_phone", "Practice call-back number", "practice.phone", "phone"),
+            _f("clinician_name", "Clinician", "slot.clinician"),
+            _f("slot_at", "Open time", "slot.starts_at", "datetime"),
+            _f("minutes", "Length (minutes)", "slot.minutes", "number"),
+            _f("location", "Location", "slot.location", required=False),
         ],
     },
 }
@@ -325,6 +395,7 @@ def view() -> list[dict[str, Any]]:
             "checks": list(t["checks"]),
             "packs": list(t["packs"]),
             "objective": t["objective"],
+            "contract": dict(t["contract"]),
             "fields": [
                 {k: f[k] for k in ("key", "label", "kind", "required", "share")}
                 for f in t["fields"]
@@ -435,6 +506,13 @@ def sample_values(type_id: str, rng: random.Random, n: int) -> dict[str, Any]:
             "program_name": program,
             "program_description": description,
             "approved_by": rng.choice(_CLINICIANS),
+        }
+    elif type_id == "slot_backfill":
+        base |= {
+            "clinician_name": rng.choice(_CLINICIANS),
+            "slot_at": f"{soon.isoformat()} {rng.choice(['09:00', '11:30', '15:45'])}",
+            "minutes": rng.choice([15, 30]),
+            "location": address,
         }
     return base
 
