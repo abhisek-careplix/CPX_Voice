@@ -36,19 +36,83 @@ export const api = {
   get: <T>(path: string) => request<T>("GET", path),
   post: <T>(path: string, body?: unknown, headers?: Record<string, string>) => request<T>("POST", path, body ?? {}, headers),
   put: <T>(path: string, body: unknown) => request<T>("PUT", path, body),
+  patch: <T>(path: string, body: unknown) => request<T>("PATCH", path, body),
   del: <T>(path: string) => request<T>("DELETE", path),
 };
 
 // ---------- Types (mirror apps/api views) ----------
 
+export type ProductLine = "practice" | "home_health";
+
+export interface Pack {
+  line: ProductLine;
+  label: string;
+  audience: string;
+  sections: string[];
+  case_types: string[];
+}
+
 export interface Me {
   user_id: string;
   display_name: string;
+  email: string | null;
   role: string;
   workspace_id: string;
   workspace_name: string;
   permissions: string[];
   emergency_stop: boolean;
+  platform: boolean;
+  product_line: ProductLine;
+  pack: Pack;
+}
+
+export interface AuthMode {
+  mode: "dev" | "sso" | "app";
+  methods: { dev: boolean; iap: boolean; google: boolean; microsoft: boolean; email: boolean };
+  google_client_id: string | null;
+  microsoft_client_id: string | null;
+}
+
+export type Role = "admin" | "publisher" | "author" | "operator" | "reviewer";
+
+export interface MyWorkspace {
+  workspace_id: string;
+  name: string;
+  product_line: ProductLine;
+  role: Role;
+  current: boolean;
+}
+
+export interface Member {
+  user_id: string;
+  display_name: string;
+  email: string;
+  role: Role;
+  last_used_at: string | null;
+  you: boolean;
+}
+
+export interface PendingInvitation {
+  id: string;
+  email: string;
+  role: Role;
+  expires_at: string;
+  expired: boolean;
+}
+
+export interface MemberList {
+  members: Member[];
+  invitations: PendingInvitation[];
+}
+
+export interface PlatformWorkspace {
+  workspace_id: string;
+  name: string;
+  product_line: ProductLine;
+  members: number;
+  lab: boolean;
+  created_at: string;
+  member_of: boolean;
 }
 
 export type CheckStatus = "ready" | "blocked" | "unverified";

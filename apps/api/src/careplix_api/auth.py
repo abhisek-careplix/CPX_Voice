@@ -45,6 +45,8 @@ class Principal:
     workspace_id: str
     role: str
     display_name: str
+    # CarePlix staff: customer workspaces and shared telephony (settings.is_platform_admin)
+    platform: bool = False
 
     def can(self, permission: str) -> bool:
         return self.role in PERMISSIONS[permission]
@@ -81,17 +83,31 @@ async def current_principal(
         if claims:
             # Role and workspace come from the current membership, not the token, so revoked or
             # changed access takes effect immediately (SEC02).
-            from careplix_api.models import Membership
+            from careplix_api import tenancy
+            from careplix_api.models import Membership, User
 
             async with request.app.state.db.sessions() as session:
-                membership = await session.scalar(
-                    select(Membership).where(
-                        Membership.user_id == claims["sub"],
-                        Membership.workspace_id == claims["ws"],
+                row = (
+                    await session.execute(
+                        select(Membership.role, User.email)
+                        .join(User, User.id == Membership.user_id)
+                        .where(
+                            Membership.user_id == claims["sub"],
+                            Membership.workspace_id == claims["ws"],
+                        )
                     )
+                ).first()
+            if row is not None:
+                # Every query for the rest of this request is limited to this workspace.
+                tenancy.set_tenant(claims["ws"])
+                return Principal(
+                    claims["sub"],
+                    claims["ws"],
+                    row.role,
+                    claims["name"],
+                    platform=settings.is_platform_admin(row.email)
+                    or (settings.is_dev and row.email.endswith("@careplix.local")),
                 )
-            if membership is not None:
-                return Principal(claims["sub"], claims["ws"], membership.role, claims["name"])
     raise ApiError(401, "unauthenticated", "Sign in to continue.")
 
 
@@ -102,6 +118,13 @@ def require(permission: str):
         return principal
 
     return dependency
+
+
+def require_platform(principal: Principal = Depends(current_principal)) -> Principal:
+    """CarePlix staff only: customer workspaces and the shared telephony and model project."""
+    if not principal.platform:
+        raise ApiError(403, "forbidden", "Only CarePlix staff can change this.")
+    return principal
 
 
 # --- Worker credentials --------------------------------------------------------------------------
@@ -147,7 +170,7 @@ class AttemptGrant:
     workspace_id: str
 
 
-def require_attempt_token(
+async def require_attempt_token(
     attempt_id: str, request: Request, settings: Settings = Depends(get_settings)
 ) -> AttemptGrant:
     try:
@@ -158,6 +181,9 @@ def require_attempt_token(
         raise ApiError(401, "unauthenticated", "Invalid or expired attempt token.") from exc
     if claims["sub"] != attempt_id:
         raise ApiError(403, "forbidden", "Token is not valid for this attempt.")
+    from careplix_api import tenancy
+
+    tenancy.set_tenant(claims["ws"])  # async dependency: the tenant holds for the whole request
     return AttemptGrant(claims["sub"], claims["ws"])
 
 
