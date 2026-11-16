@@ -30,6 +30,7 @@ from careplix_api.models import (
     ToolExecution,
     TranscriptSegment,
 )
+from careplix_api.people import tools as people_tools
 from careplix_api.practice import insurance, medicare_tool, receptionist
 from careplix_api.practice.receptionist import ToolEnv
 
@@ -295,4 +296,5 @@ _HANDLERS = {
     **receptionist.HANDLERS,
     **insurance.HANDLERS,
     **medicare_tool.HANDLERS,
+    **people_tools.HANDLERS,
 }

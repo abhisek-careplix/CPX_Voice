@@ -181,9 +181,21 @@ class Settings(BaseSettings):
 
     check_timeout_s: float = 5.0
 
+    # Data retention (careplix_api.retention). 0 keeps call transcripts; the period is a policy
+    # decision recorded in docs/solution/G4_PHI_GATE.md.
+    transcript_retention_days: int = 0
+    retention_interval_s: float = 86400.0
+
     @property
     def is_dev(self) -> bool:
         return self.careplix_env == "dev"
+
+    @property
+    def production_allowed(self) -> bool:
+        """Only a production deployment may have production workspaces or connections (production
+        NexHealth key, clearinghouse production mode). dev, labs and staging are sandbox
+        deployments: offer and accept sandbox only (careplix_api.environment)."""
+        return self.careplix_env == "production"
 
     @property
     def livekit_configured(self) -> bool:
