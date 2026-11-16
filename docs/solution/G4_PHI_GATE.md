@@ -1,11 +1,14 @@
 # G4 PHI gate: production for real clinics
 
-**Status (16 Nov 2026):** the production environment is defined and guarded in code, and has not
-been created or deployed. careplix-labs stays synthetic-only. Nobody deploys production until the
-owner says so, and not before every **Blocking** row below is done.
+**Status (16 Nov 2026):** careplix-labs is, and stays, sandbox and demo only: synthetic data,
+sandbox and test keys, no real patients. Real clinics will run later in a separate Google Cloud
+project that does not exist yet. This document is the checklist and the owner's commands for that
+project; nothing here is run until the owner decides, and not before every **Blocking** row below
+is done.
 
-Production is a separate Google Cloud project (`careplix-prod`, named once in
-`infra/gcp/deploy-prod.sh`) with its own Cloud SQL, Secret Manager, service accounts, data key,
+Production will be its own project (its id goes in `PROJECT=` at the top of
+`infra/gcp/deploy-prod.sh`, the one place it is named; the script refuses to run while it is empty)
+with its own Cloud SQL, Secret Manager, service accounts, data key,
 LiveKit project and settings file (`.env.production`). It runs the same services as labs (Studio,
 internal API, voice worker, browser runtime, webhook ingress) and nothing synthetic: no payer
 sandbox, no OpenEMR or EHR emulation, no shared trial line, no demo data, no clearinghouse test mode.
@@ -27,8 +30,15 @@ PHI; keep it that way.
 
 ## 2. What the code enforces (done in this change)
 
-`CAREPLIX_ENV` names the environment: `dev`, `labs`, `staging` or `production`. Anything else is
+`CAREPLIX_ENV` names the deployment: `dev`, `labs`, `staging` or `production`. Anything else is
 refused at startup, so a typo can't skip the production rules (`careplix_api/environment.py`).
+
+**Sandbox deployments** (`dev`, `labs`, `staging`) can never have a production workspace or
+connection: `Settings.production_allowed` is false there, and `environment.refuse_production_here`
+refuses a production NexHealth connection or clearinghouse production mode (409
+`production_not_allowed`). Synthetic shortcuts (payer sandbox, OpenEMR and EHR emulation, Stedi
+test mode, the trial line, demo data) stay available. Only a `production` deployment may hold
+production workspaces and connections.
 
 **Production refuses to start** with: demo seeding, a payer sandbox URL (cleared explicitly; the
 default points at the local sandbox), OpenEMR, the NexHealth sandbox, clearinghouse test mode or
@@ -70,7 +80,9 @@ build, and only after the owner types the project id.
 uses (the internal API has its own identity; no service-account keys); Cloud SQL with high
 availability, daily backups kept 30 days, point-in-time recovery (7 days), encrypted connections
 only and deletion protection; a production data key generated in the project, never copied from
-labs; the production clearinghouse key under its own secret name (`cpx-stedi-prod-api-key`);
+labs; the production NexHealth and clearinghouse keys under their own names (`NEXHEALTH_PROD_API_KEY`
+from `cpx-nexhealth-prod-api-key`, `STEDI_PROD_API_KEY` from `cpx-stedi-prod-api-key`; the sandbox
+`NEXHEALTH_API_KEY` is refused);
 Data Access audit logs for all services; Cloud Logging retention 400 days; Studio behind IAP unless
 `STUDIO_PUBLIC=true` opens it to clinic staff with app sign-in.
 
@@ -86,7 +98,7 @@ Owner is the CarePlix owner unless named. Dates are proposed; change them in thi
 | Retention policy | Written periods for transcripts, call events, findings, practice mirror, eligibility and claim records, audit log (HIPAA documentation: 6 years); then set `TRANSCRIPT_RETENTION_DAYS` and extend `retention.py` to the other tables | Owner | 27 Nov 2026 | Yes |
 | Backups and restore test | Restore the production Cloud SQL backup to a scratch instance, open it with the Studio, record time to restore; repeat quarterly | Owner | Before first real patient | Yes |
 | Incident runbook | Who is paged, how to stop calls (workspace emergency stop), revoke keys (Secret Manager versions), notify the clinic within the BAA's window, and breach assessment steps | Owner | 27 Nov 2026 | Yes |
-| Access review | List of everyone with IAM roles on `careplix-prod`, IAP access and Studio memberships (Platform → workspaces); reviewed and signed monthly; owner/editor roles held by named people only | Owner | Before first real patient, then monthly | Yes |
+| Access review | List of everyone with IAM roles on the production project, IAP access and Studio memberships (Platform → workspaces); reviewed and signed monthly; owner/editor roles held by named people only | Owner | Before first real patient, then monthly | Yes |
 | Logging without PHI review | After the first pilot week, sample production logs (Logs Explorer, all services) and confirm no names, DOBs, member IDs or transcript text; widen `safe_logging` if anything shows | Owner + engineering | First pilot week | No (follow-up) |
 | Database migrations and row-level security | `db.py` still uses `create_all`; Alembic migrations and Postgres RLS (ADR13) before schema changes reach production data | Engineering | Before the second production schema change | No |
 | Gemini settings review | Confirm the Vertex AI endpoints and region used are under the Google BAA and that data caching/retention is off (BUILD_PLAN G2) | Owner | 27 Nov 2026 | Yes |
@@ -97,24 +109,27 @@ Owner is the CarePlix owner unless named. Dates are proposed; change them in thi
 
 ## 4. Owner instructions (from your Mac)
 
-Nothing below runs until you decide to start production. Every command is safe to re-run.
+Not now: careplix-labs stays sandbox and demo only. These are for the day the owner starts the
+separate production project. Every command is safe to re-run.
 
-**1. Create the project and billing (once, in the console or with these commands).** If the id
-`careplix-prod` is taken, pick another and change `PROJECT=` at the top of
-`infra/gcp/deploy-prod.sh` in a small PR first.
+**1. Choose the project id and name it in the script (a reviewed PR).** Set `PROJECT=` at the top
+of `infra/gcp/deploy-prod.sh` to the new id (for example `careplix-prod`, if it is free). Until
+that PR merges the script refuses every command. Below, `<PROJECT_ID>` is that id.
+
+**2. Create the project and link billing:**
 
 ```bash
-gcloud projects create careplix-prod --name "CarePlix Voice production"
+gcloud projects create <PROJECT_ID> --name "CarePlix Voice production"
 ```
 
 ```bash
-gcloud billing projects link careplix-prod --billing-account <BILLING_ACCOUNT_ID>
+gcloud billing projects link <PROJECT_ID> --billing-account <BILLING_ACCOUNT_ID>
 ```
 
 Confirm the Google Cloud BAA covers the new project (it covers the account's projects when accepted
 at the organization or billing level; check Admin Console → Legal and compliance).
 
-**2. Make the production settings file** (never commit it; keep it on your Mac only):
+**3. Make the production settings file** (never commit it; keep it on your Mac only):
 
 ```bash
 cd ~/Desktop/CarePlix_Voice && cp infra/gcp/env.production.example .env.production && chmod 600 .env.production
@@ -127,14 +142,14 @@ production clearinghouse key, and the sign-in settings. Then check it (read-only
 cd ~/Desktop/CarePlix_Voice && ./infra/gcp/deploy-prod.sh preflight
 ```
 
-**3. Set up the project** (APIs, registry, service accounts, Cloud SQL, secrets, audit logs).
+**4. Set up the project** (APIs, registry, service accounts, Cloud SQL, secrets, audit logs).
 Cloud SQL creation takes about 10 minutes:
 
 ```bash
 cd ~/Desktop/CarePlix_Voice && git switch main && git pull && ./infra/gcp/deploy-prod.sh setup
 ```
 
-**4. Build and deploy** (builds only merged code; deploy asks you to type `careplix-prod`):
+**5. Build and deploy** (builds only merged code; deploy asks you to type the project id):
 
 ```bash
 cd ~/Desktop/CarePlix_Voice && git switch main && git pull && ./infra/gcp/deploy-prod.sh build && ./infra/gcp/deploy-prod.sh deploy
@@ -142,7 +157,7 @@ cd ~/Desktop/CarePlix_Voice && git switch main && git pull && ./infra/gcp/deploy
 
 The build ends with `built <short sha>`; deploy prints `deploying <short sha>` and must match.
 
-**5. Verify:**
+**6. Verify:**
 
 ```bash
 cd ~/Desktop/CarePlix_Voice && ./infra/gcp/deploy-prod.sh status
@@ -154,7 +169,7 @@ that Practice shows no demo workspace, no sample claims and no emulation option 
 Production worker logs:
 
 ```bash
-gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="careplix-worker"' --project careplix-prod --freshness=1h --limit 100 --format='value(timestamp,severity,textPayload,jsonPayload.message)'
+gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="careplix-worker"' --project <PROJECT_ID> --freshness=1h --limit 100 --format='value(timestamp,severity,textPayload,jsonPayload.message)'
 ```
 
 A service that refuses its settings fails to start; its log says `CAREPLIX_ENV=production refuses:`

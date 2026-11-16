@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleCheck, CircleHelp, ExternalLink, FlaskConical, Minus, Network, UserCheck } from "lucide-react";
+import { CircleCheck, CircleHelp, ExternalLink, FlaskConical, ListChecks, Minus, Network, Plus, UserCheck } from "lucide-react";
 import { useState } from "react";
 import { api, ApiError, type HubCatalog, type HubConnection, type HubProfile, type HubSupport } from "../api";
 import { useCan } from "../App";
 import { Banner, Card, Pill, Sheet, Toolbar, useToast } from "../ui";
+import { AddPracticeSheet, AutomationCard, PracticeSetupSheet } from "./PracticeSetup";
 
 const SHORT: Record<string, string> = {
   "schedule.read": "Sync",
@@ -34,10 +35,12 @@ function Cell({ s }: { s: HubSupport }) {
   return <Minus size={16} color="var(--label-3)" aria-label="Not supported" />;
 }
 
-function status(p: HubProfile, conns: HubConnection[]): { tone: "green" | "purple" | "blue" | "gray"; label: string } {
+function status(p: HubProfile, conns: HubConnection[]): { tone: "green" | "orange" | "purple" | "blue" | "gray"; label: string } {
   if (conns.some((c) => c.emulating === p.id)) return { tone: "purple", label: "Emulated" };
   const own = conns.filter((c) => !c.emulating && c.profile === p.id);
-  if (own.some((c) => c.env === "production")) return { tone: "green", label: "Live" };
+  const prod = own.filter((c) => c.env === "production");
+  if (prod.some((c) => c.golive?.passed_at)) return { tone: "green", label: "Live" };
+  if (prod.length) return { tone: "orange", label: "Going live" };
   if (own.some((c) => c.kind === "openemr")) return { tone: "green", label: "Live (test clinic)" };
   if (own.length) return { tone: "blue", label: "Sandbox" };
   return { tone: "gray", label: p.path === "nexhealth" ? "Needs a practice" : "Not connected" };
@@ -48,6 +51,8 @@ export default function Hub() {
   const qc = useQueryClient();
   const toast = useToast();
   const [open, setOpen] = useState<HubProfile | null>(null);
+  const [adding, setAdding] = useState<HubProfile | null | false>(false);
+  const [setupId, setSetupId] = useState<string | null>(null);
   const catalog = useQuery({ queryKey: ["hub-catalog"], queryFn: () => api.get<HubCatalog>("/practices/catalog") });
   const emulate = useMutation({
     mutationFn: ({ profile, practice }: { profile: string | null; practice: string }) =>
@@ -76,9 +81,19 @@ export default function Hub() {
         {catalog.error && <Banner tone="red" title={(catalog.error as ApiError).message} />}
 
         {d && (
-          <Card title="Connected practices" subtitle="How each practice connection maps onto the catalog.">
+          <Card
+            title="Connected practices"
+            subtitle="How each practice connection maps onto the catalog. Select one for its setup and go-live checklist."
+            actions={
+              isAdmin ? (
+                <button className="btn btn-secondary" onClick={() => setAdding(null)}>
+                  <Plus size={15} aria-hidden /> Add practice
+                </button>
+              ) : undefined
+            }
+          >
             <ul className="list">
-              {d.connections.length === 0 && <li className="list-row muted">No practice EHR is connected yet.</li>}
+              {d.connections.length === 0 && <li className="list-row muted">No practice EHR is connected yet.{isAdmin ? " Add the clinic's practice to start." : ""}</li>}
               {d.connections.map((c) => (
                 <li className="list-row" key={c.connection_id} style={{ flexWrap: "wrap", gap: 8 }}>
                   <div className="row-main">
@@ -88,6 +103,11 @@ export default function Hub() {
                       {c.env ? ` · ${c.env}` : ""} · behaves as {c.profile_name ?? "unknown EHR (no sync yet)"}
                     </div>
                   </div>
+                  {c.enabled === false && <Pill tone="red">Setup incomplete</Pill>}
+                  {c.golive?.required && (c.golive.passed_at ? <Pill tone="green">Live</Pill> : <Pill tone="orange">Go-live pending</Pill>)}
+                  <button className="btn btn-plain" onClick={() => setSetupId(c.connection_id)} aria-label={`Setup and go-live for ${c.name}`}>
+                    <ListChecks size={15} aria-hidden /> Setup
+                  </button>
                   {c.emulating && (
                     <Pill tone="purple" icon={FlaskConical}>
                       Emulating {c.profile_name}
@@ -135,6 +155,8 @@ export default function Hub() {
             {emulate.error && <div className="card-pad field-error">{(emulate.error as ApiError).message}</div>}
           </Card>
         )}
+
+        {d && <AutomationCard isAdmin={isAdmin} />}
 
         {d && (
           <Card title={`Supported EHRs (${d.profiles.length})`} subtitle="What CarePlix can automate on each EHR. Select a row for details.">
@@ -211,14 +233,27 @@ export default function Hub() {
           subtitle={`${CATEGORY[open.category]} · ${open.path === "direct" ? "Direct connector" : "via NexHealth"} · ${open.deployment}`}
           onClose={() => setOpen(null)}
           footer={
-            openemr && isAdmin && open.path === "nexhealth" ? (
-              <button
-                className="btn btn-primary"
-                disabled={emulate.isPending || openemr.emulating === open.id}
-                onClick={() => emulate.mutate({ profile: open.id, practice: openemr.connection_id })}
-              >
-                <FlaskConical size={15} aria-hidden /> {openemr.emulating === open.id ? "Emulating now" : "Emulate on the OpenEMR clinic"}
-              </button>
+            isAdmin && open.path === "nexhealth" ? (
+              <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setAdding(open);
+                    setOpen(null);
+                  }}
+                >
+                  <Plus size={15} aria-hidden /> Add a {open.name} practice
+                </button>
+                {openemr && (
+                  <button
+                    className="btn btn-secondary"
+                    disabled={emulate.isPending || openemr.emulating === open.id}
+                    onClick={() => emulate.mutate({ profile: open.id, practice: openemr.connection_id })}
+                  >
+                    <FlaskConical size={15} aria-hidden /> {openemr.emulating === open.id ? "Emulating now" : "Emulate on the OpenEMR clinic"}
+                  </button>
+                )}
+              </div>
             ) : undefined
           }
         >
@@ -249,6 +284,17 @@ export default function Hub() {
           </div>
         </Sheet>
       )}
+      {adding !== false && (
+        <AddPracticeSheet
+          profile={adding}
+          onClose={() => setAdding(false)}
+          onAdded={(id) => {
+            setAdding(false);
+            setSetupId(id);
+          }}
+        />
+      )}
+      {setupId && <PracticeSetupSheet id={setupId} isAdmin={isAdmin} onClose={() => setSetupId(null)} />}
     </>
   );
 }

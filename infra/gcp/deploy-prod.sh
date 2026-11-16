@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Deploy CarePlix Voice to PRODUCTION: real clinics, real PHI. Separate from careplix-labs in every
-# way: its own Google Cloud project, Cloud SQL, Secret Manager, service accounts, data key, LiveKit
+# Deploy CarePlix Voice to PRODUCTION: real clinics, real PHI. NOT IN USE YET: careplix-labs stays
+# sandbox and demo only, and this script refuses to run until PROJECT below names the production
+# project the owner has created. Separate from careplix-labs in every way: its own Google Cloud project, Cloud SQL, Secret Manager, service accounts, data key, LiveKit
 # project and settings file. No payer sandbox, no OpenEMR, no trial line, no demo data.
 #
 #   ./infra/gcp/deploy-prod.sh preflight  # read-only: check .env.production against the rules
@@ -15,7 +16,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-PROJECT=careplix-prod  # the production project id: the one place it is named
+PROJECT=""  # the production project id, once the owner creates it: the one place it is named
 LABS_PROJECT=careplix-labs
 REGION=us-central1
 REPO=careplix-voice
@@ -41,10 +42,11 @@ preflight() {
   [ -f "$ENV_FILE" ] || die "No $ENV_FILE. Create it from infra/gcp/env.production.example (docs/solution/G4_PHI_GATE.md)."
   case "$(env_value CAREPLIX_ENV)" in "" | production) ;; *) problems+=("CAREPLIX_ENV must be production or unset") ;; esac
   [ "$(env_value NEXHEALTH_ENV)" = production ] || problems+=("NEXHEALTH_ENV must be production")
-  [ -n "$(env_value NEXHEALTH_API_KEY)" ] || problems+=("NEXHEALTH_API_KEY (the production key) is empty")
+  [ -n "$(env_value NEXHEALTH_PROD_API_KEY)" ] || problems+=("NEXHEALTH_PROD_API_KEY is empty")
   case "$(env_value STEDI_ENV)" in "" | production) ;; *) problems+=("STEDI_ENV must be production or unset") ;; esac
   [ -n "$(env_value STEDI_PROD_API_KEY)" ] || problems+=("STEDI_PROD_API_KEY is empty")
-  for key in STEDI_TEST_API_KEY STEDI_API_KEY OPENEMR_BASE_URL SANDBOX_NUMBER SANDBOX_OUTBOUND_TRUNK_ID \
+  # NEXHEALTH_API_KEY is the sandbox key: a production connection reads NEXHEALTH_PROD_API_KEY only.
+  for key in NEXHEALTH_API_KEY STEDI_TEST_API_KEY STEDI_API_KEY OPENEMR_BASE_URL SANDBOX_NUMBER SANDBOX_OUTBOUND_TRUNK_ID \
     PAYER_SANDBOX_URL PLATFORM_ADMINS; do
     [ -z "$(env_value "$key")" ] || problems+=("$key must be empty (synthetic-only or labs-only)")
   done
@@ -140,8 +142,8 @@ setup() {
     python3 -c 'import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode(), end="")' | put_secret cpx-data-key
   env_value LIVEKIT_API_KEY | tr -d '\n' | put_secret cpx-livekit-api-key
   env_value LIVEKIT_API_SECRET | tr -d '\n' | put_secret cpx-livekit-api-secret
-  env_value NEXHEALTH_API_KEY | tr -d '\n' | put_secret cpx-nexhealth-api-key
-  # Its own name: a production key can never be mounted where a test key is expected, or back.
+  env_value NEXHEALTH_PROD_API_KEY | tr -d '\n' | put_secret cpx-nexhealth-prod-api-key
+  # Their own names: a production key can never be mounted where a sandbox or test key is expected.
   env_value STEDI_PROD_API_KEY | tr -d '\n' | put_secret cpx-stedi-prod-api-key
   for opt in "ANTHROPIC_API_KEY cpx-anthropic-api-key" "RESEND_API_KEY cpx-resend-api-key"; do
     set -- $opt
@@ -152,10 +154,10 @@ setup() {
   done
 
   grant_secret "$SA_STUDIO" cpx-database-url cpx-session-secret cpx-worker-token cpx-livekit-api-key \
-    cpx-livekit-api-secret cpx-nexhealth-api-key cpx-stedi-prod-api-key cpx-data-key cpx-browser-token
+    cpx-livekit-api-secret cpx-nexhealth-prod-api-key cpx-stedi-prod-api-key cpx-data-key cpx-browser-token
   # The worker-facing API: claims, the receptionist's EHR tools, eligibility. No browser, no email.
   grant_secret "$SA_INTERNAL" cpx-database-url cpx-session-secret cpx-worker-token cpx-livekit-api-key \
-    cpx-livekit-api-secret cpx-nexhealth-api-key cpx-stedi-prod-api-key cpx-data-key
+    cpx-livekit-api-secret cpx-nexhealth-prod-api-key cpx-stedi-prod-api-key cpx-data-key
   grant_secret "$SA_WORKER" cpx-worker-token cpx-livekit-api-key cpx-livekit-api-secret
   grant_secret "$SA_WEBHOOKS" cpx-database-url cpx-data-key
   grant_secret "$SA_BROWSER" cpx-browser-token
@@ -224,7 +226,7 @@ confirm() {
 url_of() { $G run services describe "$1" --region "$REGION" --format 'value(status.url)' 2>/dev/null || true; }
 
 REQUIRED_SECRETS="cpx-database-url cpx-session-secret cpx-worker-token cpx-livekit-api-key cpx-livekit-api-secret
-  cpx-nexhealth-api-key cpx-stedi-prod-api-key cpx-data-key cpx-browser-token"
+  cpx-nexhealth-prod-api-key cpx-stedi-prod-api-key cpx-data-key cpx-browser-token"
 
 deploy() {
   local number livekit_url conn common_env secrets practice_env practice_secrets studio_secrets
@@ -269,7 +271,7 @@ deploy() {
 
   # 3. Studio + API + background loops. Production NexHealth and clearinghouse keys only.
   practice_env="NEXHEALTH_ENV=production,NEXHEALTH_SUBDOMAIN=$(env_value NEXHEALTH_SUBDOMAIN),NEXHEALTH_INSTITUTION_ID=$(env_value NEXHEALTH_INSTITUTION_ID),NEXHEALTH_LOCATION_ID=$(env_value NEXHEALTH_LOCATION_ID),STEDI_ENV=production,PRACTICE_NPI=$(env_value PRACTICE_NPI),WEBHOOK_PUBLIC_URL=$webhooks_url"
-  practice_secrets="NEXHEALTH_API_KEY=cpx-nexhealth-api-key:latest,STEDI_PROD_API_KEY=cpx-stedi-prod-api-key:latest,DATA_ENCRYPTION_KEY=cpx-data-key:latest"
+  practice_secrets="NEXHEALTH_PROD_API_KEY=cpx-nexhealth-prod-api-key:latest,STEDI_PROD_API_KEY=cpx-stedi-prod-api-key:latest,DATA_ENCRYPTION_KEY=cpx-data-key:latest"
   studio_secrets="BROWSER_SERVICE_TOKEN=cpx-browser-token:latest"
   if $G secrets describe cpx-anthropic-api-key >/dev/null 2>&1; then
     studio_secrets="$studio_secrets,ANTHROPIC_API_KEY=cpx-anthropic-api-key:latest"
@@ -339,6 +341,11 @@ status() {
     printf '%-18s %-12s %s\n' "$s" "${image:+${image##*:}}" "${env:-not deployed}"
   done
 }
+
+# Nothing runs until a production project is named (and it is never the labs project).
+if [ -n "${1:-}" ] && [ -z "$PROJECT" ]; then
+  die "No production project yet. Set PROJECT= at the top of infra/gcp/deploy-prod.sh (in a reviewed PR) once the owner has created it; nothing was run."
+fi
 
 case "${1:-}" in
   preflight) preflight ;;

@@ -44,6 +44,7 @@ from careplix_api.opportunities import api as care_api
 from careplix_api.people import api as people_api
 from careplix_api.personas import api as personas_api
 from careplix_api.practice import api as practice_api
+from careplix_api.practice import setup_api as practice_setup_api
 from careplix_api.practice import webhooks as practice_webhooks
 from careplix_api.practice.connections import ensure_practice_connections
 from careplix_api.practice.worker import PracticeWorker
@@ -211,6 +212,7 @@ def create_app(
     app.include_router(studio_api.router, prefix="/api")
     app.include_router(connections_api.router, prefix="/api")
     app.include_router(integrations_api.router, prefix="/api")
+    app.include_router(practice_setup_api.router, prefix="/api")
     app.include_router(practice_api.router, prefix="/api")
     app.include_router(browser_api.router, prefix="/api")
     app.include_router(scenarios_api.router, prefix="/api")

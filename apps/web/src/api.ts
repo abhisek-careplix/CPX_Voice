@@ -1036,6 +1036,71 @@ export interface HubConnection {
   verified_at: string | null;
   writes_confirmable: boolean | null;
   support: Record<string, HubSupport>;
+  enabled?: boolean;
+  golive?: { required: boolean; passed_at: string | null };
+}
+
+// --- Onboarding a clinic (Add practice, go-live, automation) -------------------------------------
+
+export interface SetupStep {
+  key: "created" | "verified" | "webhooks" | "first_sync";
+  ok: boolean | null;
+  detail: string;
+  at: string;
+}
+
+export interface GoLiveItem {
+  key: string;
+  label: string;
+  ok: boolean | null;
+  detail: string;
+}
+
+export interface GoLiveTest {
+  patient_id: string;
+  step: "book" | "confirm" | "cancel" | "done" | "failed";
+  started_at: string;
+  finished_at?: string;
+  error?: string;
+  notes?: string[];
+  slot?: string;
+}
+
+export interface PracticeSetup {
+  connection: HubConnection & {
+    subdomain: string | null;
+    location_id: string | null;
+    expected_profile: string | null;
+    source: "studio" | "env";
+    enabled: boolean;
+    last_error: string | null;
+    location: { id: string; name: string } | null;
+    sync: { emr: string | null; read_status: string | null; write_status: string | null }[];
+  };
+  onboarding: { connection_id: string; enabled: boolean; started_at: string | null; steps: SetupStep[]; done: boolean };
+  golive: { required: boolean; passed: boolean; passed_at: string | null; automations_allowed: boolean; items: GoLiveItem[]; test: GoLiveTest | null };
+  sync_interval_s: { own: number | null; effective: number };
+}
+
+export interface SetupOptions {
+  profiles: HubProfile[];
+  envs: { env: "sandbox" | "production"; available: boolean; reason: string | null }[];
+  webhooks_ready: boolean;
+}
+
+export interface AutomationValues {
+  receptionist_cancel_mode: "approval" | "auto";
+  backfill_enabled: boolean;
+  eligibility_autopilot: boolean;
+  sync_interval_s: number;
+  clearinghouse_env: "test" | "production";
+}
+
+export interface AutomationSettings {
+  effective: AutomationValues;
+  defaults: AutomationValues;
+  chosen: Partial<AutomationValues>;
+  clearinghouse_production_available: boolean;
 }
 
 export interface HubCatalog {

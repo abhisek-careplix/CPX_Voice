@@ -14,10 +14,12 @@ practice mirror and the live EHR (NexHealth or OpenEMR):
   EHR takes new patients from the API (per the CarePlix Connect catalog).
 - Every EHR change is a write intent (EMR design §2.4). A patient-requested booking or reschedule
   is L2 and runs at once; a plain cancellation is L3 and, by default, waits for one click in the
-  Practice write queue (``receptionist_cancel_mode``). The slot is re-checked with the EHR right
-  before booking. Where the EHR takes time changes, a reschedule moves the visit in place;
-  elsewhere it books the new time and releases the old visit only after that is accepted.
+  Practice write queue (the workspace's ``receptionist_cancel_mode``). The slot is re-checked
+  with the EHR right before booking. Where the EHR takes time changes, a reschedule moves the
+  visit in place; elsewhere it books the new time and releases the old visit only after that
+  is accepted.
 - A browser test can write only to a synthetic practice (OpenEMR local, NexHealth sandbox).
+- A real clinic gets no times and no writes until it passes its go-live checklist.
 - Messages for the front desk are sealed; the call log keeps ids and states only.
 """
 
@@ -46,10 +48,11 @@ from careplix_api.models import (
     FrontDeskMessage,
     PayerConnection,
     ToolExecution,
+    Workspace,
     WriteIntent,
 )
 from careplix_api.phi import PhiBox
-from careplix_api.practice import intents, records
+from careplix_api.practice import automation, golive, intents, records
 from careplix_api.practice.connections import EHR_KINDS, audit, location_id
 from careplix_api.settings import Settings
 
@@ -182,6 +185,8 @@ async def _count(session: AsyncSession, attempt: CallAttempt, tools: tuple[str, 
 async def _guard_write(
     session: AsyncSession, attempt: CallAttempt, conn: PayerConnection, env: ToolEnv
 ) -> None:
+    if not golive.automations_allowed(conn):
+        raise Rejected("practice_not_live", golive.BLOCKED_MESSAGE)
     if attempt.sandbox and not conn.synthetic:
         raise Rejected(
             "test_call_no_writes",
@@ -431,6 +436,10 @@ async def find_slots(session, attempt, _version, args, _evidence, env: ToolEnv):
         day = date.fromisoformat(args["earliest_date"])
         start = max(start, datetime(day.year, day.month, day.day, tzinfo=tz).astimezone(UTC))
     end = start + timedelta(days=env.settings.receptionist_search_days)
+    if not golive.automations_allowed(conn):
+        # A real clinic that hasn't passed go-live: offering times we won't book helps no one.
+        _save(attempt, state)
+        return {"slots": [], "message": golive.BLOCKED_MESSAGE}
     if not connector_for(conn, env.settings, env.transport).schedule_online():
         # NexHealth: check sync status before offering times. While the EHR's sync is down the
         # schedule may be stale and a booking would wait for the office to come back.
@@ -821,8 +830,9 @@ async def cancel_appointment(session, attempt, _version, args, _evidence, env: T
     await _guard_write(session, attempt, conn, env)
     appt = await _patient_appointment(session, conn, patient, args["appointment_id"])
     # Where the EHR can't take a cancel, run it now: the hub turns it into a front-desk task.
+    workspace = await session.get(Workspace, conn.workspace_id)
     run = (
-        env.settings.receptionist_cancel_mode == "auto"
+        automation.effective(workspace, env.settings).receptionist_cancel_mode == "auto"
         or _support(conn, env, "appointment_cancel") == "no"
     )
     reason = f"Receptionist: patient cancelled ({args['reason'].replace('_', ' ')})"
