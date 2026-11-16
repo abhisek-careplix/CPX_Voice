@@ -1,0 +1,2 @@
+# A throwaway Fernet key a test used before it generated one per run (never a real secret).
+f71ed13dc080ca87b2db50b81e537b7d636f86e3:apps/api/tests/test_environment.py:generic-api-key:32

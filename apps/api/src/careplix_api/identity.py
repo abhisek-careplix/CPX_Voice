@@ -31,7 +31,7 @@ import jwt
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from careplix_api import tenancy
+from careplix_api import environment, tenancy
 from careplix_api.auth import Principal
 from careplix_api.db import as_utc, utcnow
 from careplix_api.errors import ApiError
@@ -304,7 +304,7 @@ async def establish(
         memberships = list(
             await session.scalars(select(Membership).where(Membership.user_id == user.id))
         )
-        if not memberships and platform:
+        if not memberships and platform and environment.auto_provision_staff(settings):
             lab = await session.scalar(select(Workspace).order_by(Workspace.created_at).limit(1))
             if lab is not None:
                 m = Membership(user_id=user.id, workspace_id=lab.id, role=settings.iap_default_role)
