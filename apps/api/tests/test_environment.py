@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
+from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -29,7 +30,7 @@ from careplix_api.models import (
 
 from .conftest import FakeGateway, make_settings
 
-FERNET_KEY = "x6Yx2fQ7m7b3n5hKcY0Dk8Y2c4nE9u1sL0aQ2wR3t5o="
+FERNET_KEY = Fernet.generate_key().decode()  # a fresh key per run, never a literal
 
 
 def production(tmp_path, **overrides):
