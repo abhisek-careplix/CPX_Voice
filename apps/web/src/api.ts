@@ -471,7 +471,7 @@ export interface Playbook {
   hand_off: string;
 }
 
-export type InboxKind = "result_review" | "ehr_write" | "browser_plan" | "browser_step" | "clinician_signoff" | "hand_off" | "escalation";
+export type InboxKind = "result_review" | "ehr_write" | "browser_plan" | "browser_step" | "clinician_signoff" | "hand_off" | "auth_packet" | "escalation";
 
 export interface InboxItem {
   kind: InboxKind;

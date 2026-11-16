@@ -12,6 +12,7 @@ const KIND_TONE: Record<InboxKind, "blue" | "orange" | "green" | "gray" | "red" 
   browser_step: "purple",
   clinician_signoff: "green",
   hand_off: "orange",
+  auth_packet: "orange",
   escalation: "red",
 };
 
