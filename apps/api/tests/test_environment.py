@@ -136,6 +136,23 @@ def test_refuse_in_production_helper(tmp_path):
     assert err.value.status == 409 and err.value.code == "not_in_production"
 
 
+@pytest.mark.parametrize(("env", "allowed"), [("dev", False), ("labs", False), ("staging", False)])
+def test_sandbox_deployments_never_allow_production_workspaces_or_connections(
+    tmp_path, env, allowed
+):
+    settings = make_settings(tmp_path, careplix_env=env)
+    assert settings.production_allowed is allowed
+    with pytest.raises(ApiError) as err:
+        environment.refuse_production_here("A production NexHealth connection", settings)
+    assert err.value.status == 409 and err.value.code == "production_not_allowed"
+
+
+def test_a_production_deployment_allows_production(tmp_path):
+    settings = production(tmp_path)
+    assert settings.production_allowed
+    environment.refuse_production_here("A production NexHealth connection", settings)
+
+
 # --- runtime: the ORM hook ----------------------------------------------------------------------
 
 

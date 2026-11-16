@@ -15,7 +15,9 @@ from careplix_api.settings import Settings
 
 SCRIPT = pathlib.Path(__file__).parents[3] / "infra" / "gcp" / "deploy-prod.sh"
 EXAMPLE = SCRIPT.parent / "env.production.example"
-TEXT = SCRIPT.read_text()
+SCRIPT_TEXT = SCRIPT.read_text()
+# The script ships with no production project; tests run it as if the owner had named one.
+TEXT = SCRIPT_TEXT.replace('PROJECT=""', "PROJECT=careplix-prod", 1)
 
 GOOD_ENV = [
     "LIVEKIT_URL=wss://prod.livekit.test",
@@ -105,11 +107,21 @@ def run(root, command, *, env_lines=None, **extra):
 
 
 def test_the_project_is_named_once_and_is_not_labs():
+    assert re.search(r'^PROJECT=""  #', SCRIPT_TEXT, re.M)  # no production project yet
     assert re.search(r"^PROJECT=careplix-prod\b", TEXT, re.M)
     assert len(re.findall(r"^PROJECT=", TEXT, re.M)) == 1
     assert 'G="gcloud --project $PROJECT --quiet"' in TEXT
     code = [line for line in TEXT.splitlines() if not line.lstrip().startswith("#")]
     assert [line for line in code if "careplix-labs" in line] == ["LABS_PROJECT=careplix-labs"]
+
+
+@pytest.mark.parametrize("command", ["preflight", "setup", "build", "deploy", "status"])
+def test_nothing_runs_until_a_production_project_is_named(repo, command):
+    root, _ = repo
+    (root / "infra" / "gcp" / "deploy-prod.sh").write_text(SCRIPT_TEXT)
+    result, calls = run(root, command, CONFIRM_PROJECT="careplix-prod")
+    assert result.returncode == 1 and "No production project yet" in result.stderr
+    assert calls == ""
 
 
 def test_preflight_passes_a_production_env(repo):

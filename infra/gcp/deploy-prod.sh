@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Deploy CarePlix Voice to PRODUCTION: real clinics, real PHI. Separate from careplix-labs in every
-# way: its own Google Cloud project, Cloud SQL, Secret Manager, service accounts, data key, LiveKit
+# Deploy CarePlix Voice to PRODUCTION: real clinics, real PHI. NOT IN USE YET: careplix-labs stays
+# sandbox and demo only, and this script refuses to run until PROJECT below names the production
+# project the owner has created. Separate from careplix-labs in every way: its own Google Cloud project, Cloud SQL, Secret Manager, service accounts, data key, LiveKit
 # project and settings file. No payer sandbox, no OpenEMR, no trial line, no demo data.
 #
 #   ./infra/gcp/deploy-prod.sh preflight  # read-only: check .env.production against the rules
@@ -15,7 +16,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-PROJECT=careplix-prod  # the production project id: the one place it is named
+PROJECT=""  # the production project id, once the owner creates it: the one place it is named
 LABS_PROJECT=careplix-labs
 REGION=us-central1
 REPO=careplix-voice
@@ -339,6 +340,11 @@ status() {
     printf '%-18s %-12s %s\n' "$s" "${image:+${image##*:}}" "${env:-not deployed}"
   done
 }
+
+# Nothing runs until a production project is named (and it is never the labs project).
+if [ -n "${1:-}" ] && [ -z "$PROJECT" ]; then
+  die "No production project yet. Set PROJECT= at the top of infra/gcp/deploy-prod.sh (in a reviewed PR) once the owner has created it; nothing was run."
+fi
 
 case "${1:-}" in
   preflight) preflight ;;
