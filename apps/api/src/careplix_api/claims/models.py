@@ -82,6 +82,9 @@ class Claim(IdMixin, Base):
     paid_total: Mapped[str | None] = mapped_column(String(16))
     patient_responsibility: Mapped[str | None] = mapped_column(String(16))
     era_at: Mapped[datetime | None] = mapped_column()
+    # Unsolicited 275 attachments sent with this claim:
+    # [{attachment_id, label, content_type, report_type, uploaded_at}]
+    attachments: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
@@ -223,6 +226,32 @@ class EraPosting(IdMixin, Base):
     intent_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     note: Mapped[str | None] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+
+
+class Appeal(IdMixin, Base):
+    """An appeal of a denied claim: a letter drafted from the claim, the 835 and the evidence, for
+    staff to approve; its deadline; its attachments. Sending by fax or payer portal has no vendor
+    yet (``claims.appeals.SENDERS``), so an approved appeal is marked ready to send by hand."""
+
+    __tablename__ = "claim_appeals"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    claim_id: Mapped[str] = mapped_column(ForeignKey("claims.id"), index=True)
+    work_id: Mapped[str | None] = mapped_column(String(36))
+    level: Mapped[str] = mapped_column(String(24))  # first_level | redetermination | …
+    # draft | approved | ready_to_send | sent | decided | withdrawn
+    state: Mapped[str] = mapped_column(String(14), default="draft")
+    due_on: Mapped[str] = mapped_column(String(10))
+    letter: Mapped[str | None] = mapped_column(Text)  # sealed: names the patient
+    evidence: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)  # labels, no PHI
+    # [{attachment_id, label, content_type, report_type, uploaded_at}]
+    attachments: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    send_channel: Mapped[str | None] = mapped_column(String(12))  # fax | portal | mail | none
+    send_note: Mapped[str | None] = mapped_column(String(200))
+    approved_by: Mapped[str | None] = mapped_column(String(36))
+    approved_at: Mapped[datetime | None] = mapped_column()
+    sent_at: Mapped[datetime | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
 
 class ClaimStatusCheck(IdMixin, Base):

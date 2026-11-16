@@ -146,6 +146,16 @@ def build(
     }
     if diagnoses[1:]:
         encounter["additionalDiagnosisCodes"] = diagnoses[1:MAX_DIAGNOSES]
+    attached = [a for a in getattr(claim, "attachments", None) or [] if a.get("attachment_id")]
+    if attached:
+        encounter["attachments"] = [
+            {
+                "attachmentId": a["attachment_id"],
+                "reportTypeCode": a.get("report_type") or "PROGRESS_REPORT",
+                "transmissionCode": "ELECTRONICALLY_ONLY",
+            }
+            for a in attached[:10]
+        ]
     if claim.frequency == "replacement" and original_payer_claim_number:
         encounter["resubmission"] = {
             "code": "REPLACEMENT_OF_PRIOR_CLAIM",

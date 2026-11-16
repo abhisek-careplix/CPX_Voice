@@ -1225,3 +1225,151 @@ def test_write_off_route_waits_for_staff(billing_studio, ch):
     assert work["route"] == "write_off" and work["category"] == "non_covered"
     # Synthetic sample: no EHR patient, so nothing is written; staff do it by hand.
     assert work["intent_ids"] == [] and "by hand" in work["resolution"]
+
+
+# --- appeals (RC8) -------------------------------------------------------------------------------
+
+import base64  # noqa: E402
+
+from careplix_api.claims import appeals  # noqa: E402
+
+PDF = base64.b64encode(b"%PDF-1.4 synthetic visit note").decode()
+
+
+def _necessity_denial(c, ch):
+    claim = _denied(
+        c,
+        ch,
+        claimAdjustments=[
+            {
+                "claimAdjustmentGroupCode": "CO",
+                "adjustmentReasonCode1": "50",
+                "adjustmentAmount1": "235.00",
+            }
+        ],
+    )
+    [work] = c.get("/api/claims/work?kind=denial").json()
+    return claim, work
+
+
+def test_appeal_route_drafts_a_letter_for_staff(billing_studio, ch):
+    claim, work = _necessity_denial(billing_studio, ch)
+    assert work["category"] == "medical_necessity" and work["route"] == "appeal"
+    assert work["appeal_id"] and work["due_on"] == "2027-05-13"  # 180 days from 2026-11-14
+    [listed] = billing_studio.get("/api/claims/appeals").json()
+    assert listed["state"] == "draft" and listed["level"] == "first_level"
+    assert listed["claim_number"] == claim["claim_number"] and not listed["overdue"]
+    assert {e["key"] for e in listed["evidence"]} == {"claim", "remittance", "notes"}
+    full = billing_studio.get(f"/api/claims/appeals/{work['appeal_id']}").json()
+    letter = full["letter"]
+    assert "medically necessary" in letter and "CO-50" in letter
+    assert f"PAY-{claim['claim_number']}" in letter and "Synthetic" in letter  # the patient
+    assert "Stedi" not in letter
+
+
+def test_appeal_approval_without_a_sender_is_ready_to_send_by_hand(billing_studio, ch):
+    _, work = _necessity_denial(billing_studio, ch)
+    aid = work["appeal_id"]
+    edited = billing_studio.put(
+        f"/api/claims/appeals/{aid}/letter", json={"text": "Edited letter for the payer. " * 3}
+    )
+    assert edited.json()["letter"].startswith("Edited letter")
+    out = billing_studio.post(f"/api/claims/appeals/{aid}/approve", json={"channel": "fax"}).json()
+    assert out["state"] == "ready_to_send" and "No fax service" in out["send_note"]
+    assert (
+        billing_studio.put(f"/api/claims/appeals/{aid}/letter", json={"text": "x" * 30}).status_code
+        == 409
+    )
+    sent = billing_studio.post(f"/api/claims/appeals/{aid}/sent", json={"note": "Faxed"}).json()
+    assert sent["state"] == "sent" and sent["sent_at"]
+    out = billing_studio.post(
+        f"/api/claims/appeals/{aid}/decided", json={"outcome": "overturned"}
+    ).json()
+    assert out["state"] == "decided"
+    assert billing_studio.get("/api/claims/work?kind=denial").json() == []
+
+
+async def test_a_registered_sender_sends_the_approved_letter(tmp_path):
+    from careplix_api.claims.models import Appeal
+
+    sent = []
+
+    async def fake_fax(appeal, text, settings):
+        sent.append(text)
+        return "Fax queued"
+
+    appeals.SENDERS["fax"] = fake_fax
+    try:
+        settings = make_settings(tmp_path)
+        from careplix_api.phi import PhiBox
+
+        row = Appeal(
+            workspace_id="ws",
+            claim_id="c",
+            level="first_level",
+            state="draft",
+            due_on="2027-01-01",
+            letter=PhiBox(settings).seal({"text": "Dear payer"}),
+        )
+        out = await appeals.approve(settings, row, "u1", "fax")
+        assert out.state == "sent" and out.send_note == "Fax queued" and sent == ["Dear payer"]
+    finally:
+        appeals.SENDERS.pop("fax")
+
+
+def test_timely_filing_appeal_cites_the_acceptance(billing_studio, ch):
+    _denied(
+        billing_studio,
+        ch,
+        claimAdjustments=[
+            {
+                "claimAdjustmentGroupCode": "CO",
+                "adjustmentReasonCode1": "29",
+                "adjustmentAmount1": "235.00",
+            }
+        ],
+    )
+    [work] = billing_studio.get("/api/claims/work?kind=denial").json()
+    full = billing_studio.get(f"/api/claims/appeals/{work['appeal_id']}").json()
+    accepted = date.today().isoformat()
+    assert f"accepted it on {accepted}" in full["letter"]
+    assert any(e["key"] == "acceptance" and e["have"] for e in full["evidence"])
+
+
+def test_appeal_records_go_as_275_attachments_with_the_corrected_claim(billing_studio, ch):
+    _, work = _necessity_denial(billing_studio, ch)
+    r = billing_studio.post(
+        f"/api/claims/appeals/{work['appeal_id']}/attachments",
+        json={"label": "Visit note", "content_type": "application/pdf", "data_base64": PDF},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["attachment_id"] == "att_1" and ch.uploads == [b"%PDF-1.4 synthetic visit note"]
+    listed = billing_studio.get("/api/claims/appeals").json()[0]
+    assert next(e for e in listed["evidence"] if e["key"] == "notes")["have"] is True
+    fixed = billing_studio.post(f"/api/claims/work/{work['id']}/correct").json()
+    _submit(billing_studio, fixed["id"])
+    _, body = ch.submitted[-1]
+    assert body["encounter"]["attachments"] == [
+        {
+            "attachmentId": "att_1",
+            "reportTypeCode": "PROGRESS_REPORT",
+            "transmissionCode": "ELECTRONICALLY_ONLY",
+        }
+    ]
+    # A claim that already went out takes no new attachment of its own.
+    denied_claim = work["claim_id"]
+    bad = billing_studio.post(
+        f"/api/claims/{denied_claim}/attachments",
+        json={"label": "Note", "content_type": "application/pdf", "data_base64": PDF},
+    )
+    assert bad.status_code == 409
+
+
+def test_overdue_appeals_are_flagged():
+    from careplix_api.claims.models import Appeal
+
+    row = Appeal(level="first_level", state="draft", due_on="2026-11-01")
+    v = appeals.view(row, date(2026, 11, 16))
+    assert v["days_left"] == -15 and v["overdue"] is True
+    row.state = "sent"
+    assert appeals.view(row, date(2026, 11, 16))["overdue"] is False

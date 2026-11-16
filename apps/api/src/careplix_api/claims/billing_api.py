@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from careplix_api.auth import Principal, require
 from careplix_api.claims import (
     acks,
+    appeals,
     billing,
     charges,
     denials,
@@ -27,6 +28,7 @@ from careplix_api.claims import (
     x837,
 )
 from careplix_api.claims.models import (
+    Appeal,
     Claim,
     ClaimCharge,
     ClaimTransaction,
@@ -93,6 +95,30 @@ class WorkDone(BaseModel):
 
 class RouteIn(BaseModel):
     route: Literal["fix_resubmit", "appeal", "payer_call", "write_off"]
+
+
+class AttachmentIn(BaseModel):
+    label: str = Field(min_length=1, max_length=80)
+    content_type: Literal["application/pdf", "image/tiff", "image/jpeg", "image/png"]
+    report_type: Literal["PROGRESS_REPORT", "OPERATIVE_NOTE"] = "PROGRESS_REPORT"
+    data_base64: str = Field(min_length=4, max_length=8_400_000)
+
+
+class LetterIn(BaseModel):
+    text: str = Field(min_length=20, max_length=20_000)
+
+
+class ApproveAppealIn(BaseModel):
+    channel: Literal["fax", "portal", "mail"] = "fax"
+
+
+class NoteIn(BaseModel):
+    note: str | None = Field(default=None, max_length=200)
+
+
+class DecidedIn(BaseModel):
+    outcome: Literal["overturned", "upheld"]
+    note: str | None = Field(default=None, max_length=200)
 
 
 class ClaimEdit(BaseModel):
@@ -580,3 +606,148 @@ async def mark_posted(
     row.state, row.note = "posted", f"Posted by hand ({principal.user_id})."[:200]
     await session.commit()
     return era.view(row)
+
+
+# --- appeals and attachments (RC8) ----------------------------------------------------------------
+
+
+@router.post("/claims/{claim_id}/attachments")
+async def attach_to_claim(
+    claim_id: str,
+    body: AttachmentIn,
+    request: Request,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """Records for a claim before it goes out (a 275 the claim then references)."""
+    claim = await service.get(session, principal.workspace_id, claim_id)
+    entry = await appeals.attach(
+        session, settings, claim, transport=_transport(request), **body.model_dump()
+    )
+    await session.commit()
+    return entry
+
+
+@router.get("/claims/appeals")
+async def list_appeals(principal: Principal = Depends(viewer), session: AsyncSession = Session):
+    """Appeals by deadline, the closest first."""
+    rows = await session.execute(
+        select(Appeal, Claim)
+        .join(Claim, Claim.id == Appeal.claim_id)
+        .where(Appeal.workspace_id == principal.workspace_id)
+        .order_by(Appeal.due_on)
+    )
+    today = utcnow().date()
+    return [
+        {
+            **appeals.view(a, today),
+            "claim_number": c.claim_number,
+            "payer_name": c.payer_name,
+        }
+        for a, c in rows.all()
+    ]
+
+
+async def _appeal(session: AsyncSession, principal: Principal, appeal_id: str) -> Appeal:
+    row = await session.get(Appeal, appeal_id)
+    if row is None or row.workspace_id != principal.workspace_id:
+        raise ApiError(404, "not_found", "No appeal matches that.")
+    return row
+
+
+@router.get("/claims/appeals/{appeal_id}")
+async def get_appeal(
+    appeal_id: str,
+    principal: Principal = Depends(require("review")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """The appeal with its letter (reviewers only: the letter names the patient)."""
+    row = await _appeal(session, principal, appeal_id)
+    return {**appeals.view(row), "letter": appeals.letter(settings, row)}
+
+
+@router.put("/claims/appeals/{appeal_id}/letter")
+async def edit_letter(
+    appeal_id: str,
+    body: LetterIn,
+    principal: Principal = Depends(require("review")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    row = appeals.edit(settings, await _appeal(session, principal, appeal_id), body.text)
+    await session.commit()
+    return {**appeals.view(row), "letter": body.text}
+
+
+@router.post("/claims/appeals/{appeal_id}/approve")
+async def approve_appeal(
+    appeal_id: str,
+    body: ApproveAppealIn,
+    principal: Principal = Depends(require("review")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    row = await appeals.approve(
+        settings, await _appeal(session, principal, appeal_id), principal.user_id, body.channel
+    )
+    await session.commit()
+    return appeals.view(row)
+
+
+@router.post("/claims/appeals/{appeal_id}/sent")
+async def appeal_sent(
+    appeal_id: str,
+    body: NoteIn,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+):
+    row = appeals.mark_sent(await _appeal(session, principal, appeal_id), body.note)
+    await session.commit()
+    return appeals.view(row)
+
+
+@router.post("/claims/appeals/{appeal_id}/decided")
+async def appeal_decided(
+    appeal_id: str,
+    body: DecidedIn,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+):
+    """The payer's decision. Overturned: the payment arrives on a new remittance. Upheld: the
+    denial stays open for the next step (a second-level appeal or a write-off)."""
+    row = await _appeal(session, principal, appeal_id)
+    if row.state != "sent":
+        raise ApiError(409, "invalid_state", "Only a sent appeal gets a decision.")
+    row.state = "decided"
+    row.send_note = f"{body.outcome.capitalize()}. {body.note or ''}".strip()[:200]
+    work = await session.get(ClaimWork, row.work_id) if row.work_id else None
+    if work is not None and body.outcome == "overturned" and work.state == "open":
+        work.state, work.resolved_at, work.resolved_by = "done", utcnow(), principal.user_id
+        work.resolution = "Appeal overturned the denial."
+    await session.commit()
+    return appeals.view(row)
+
+
+@router.post("/claims/appeals/{appeal_id}/attachments")
+async def attach_to_appeal(
+    appeal_id: str,
+    body: AttachmentIn,
+    request: Request,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    row = await _appeal(session, principal, appeal_id)
+    claim = await service.get(session, principal.workspace_id, row.claim_id)
+    entry = await appeals.attach(
+        session,
+        settings,
+        claim,
+        appeal=row,
+        transport=_transport(request),
+        **body.model_dump(),
+    )
+    await session.commit()
+    return entry

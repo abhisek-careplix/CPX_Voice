@@ -250,10 +250,14 @@ async def act(
     work: ClaimWork,
     posting: EraPosting | None = None,
 ) -> None:
-    """What the route starts on its own: the payer call case or the write-off proposal. A
-    corrected claim is made when a person asks for it (:func:`corrected_claim`)."""
+    """What the route starts on its own: the payer call case, the appeal draft or the write-off
+    proposal. A corrected claim is made when a person asks for it (:func:`corrected_claim`)."""
     if work.route == CALL and not work.case_id:
         await open_call(session, settings, claim, work)
+    elif work.route == APPEAL and not work.appeal_id:
+        from careplix_api.claims import appeals  # local: appeals imports this module
+
+        await appeals.draft(session, settings, claim, work)
     elif work.route == WRITE_OFF and not work.intent_ids:
         await propose_write_off(session, settings, claim, work)
 
@@ -371,6 +375,12 @@ async def corrected_claim(session: AsyncSession, claim: Claim, work: ClaimWork |
         # The test payer pays the corrected claim (its member prefix would deny it again).
         test_outcome="paid" if claim.test_outcome else None,
     )
+    if work is not None and work.appeal_id:
+        # Records attached to the appeal travel with the corrected claim (unsolicited 275).
+        from careplix_api.claims.models import Appeal
+
+        appeal = await session.get(Appeal, work.appeal_id)
+        new.attachments = list(appeal.attachments or []) if appeal else None
     session.add(new)
     await session.flush()
     if work is not None:
