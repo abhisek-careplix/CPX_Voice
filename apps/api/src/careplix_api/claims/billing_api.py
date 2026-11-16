@@ -15,7 +15,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from careplix_api.auth import Principal, require
-from careplix_api.claims import acks, billing, charges, era, inbound, service, submit, x837
+from careplix_api.claims import (
+    acks,
+    billing,
+    charges,
+    denials,
+    era,
+    inbound,
+    service,
+    submit,
+    x837,
+)
 from careplix_api.claims.models import (
     Claim,
     ClaimCharge,
@@ -79,6 +89,10 @@ class ReportIn(BaseModel):
 class WorkDone(BaseModel):
     resolution: str | None = Field(default=None, max_length=200)
     dismiss: bool = False
+
+
+class RouteIn(BaseModel):
+    route: Literal["fix_resubmit", "appeal", "payer_call", "write_off"]
 
 
 class ClaimEdit(BaseModel):
@@ -433,6 +447,67 @@ async def work_done(
         row.resolution = body.resolution or ("Dismissed." if body.dismiss else "Done.")
     await session.commit()
     return acks.work_view(row)
+
+
+async def _work(session: AsyncSession, principal: Principal, work_id: str) -> ClaimWork:
+    row = await session.get(ClaimWork, work_id)
+    if row is None or row.workspace_id != principal.workspace_id:
+        raise ApiError(404, "not_found", "No work item matches that.")
+    return row
+
+
+@router.post("/claims/work/{work_id}/route")
+async def reroute(
+    work_id: str,
+    body: RouteIn,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """Send a denial down another route (a person's call); the new route starts its work."""
+    row = await _work(session, principal, work_id)
+    if row.kind != "denial" or row.state != "open":
+        raise ApiError(409, "invalid_state", "Only open denials can be rerouted.")
+    row.route = body.route
+    row.due_on = (
+        denials.deadline(
+            (await session.get(Claim, row.claim_id)).plan_kind, body.route, None, utcnow().date()
+        )
+        if not row.due_on
+        else row.due_on
+    )
+    claim = await service.get(session, principal.workspace_id, row.claim_id)
+    await denials.act(session, settings, claim, row)
+    await session.commit()
+    return acks.work_view(row)
+
+
+@router.post("/claims/work/{work_id}/correct")
+async def correct(
+    work_id: str,
+    principal: Principal = Depends(require("start_task")),
+    session: AsyncSession = Session,
+):
+    """Draft the corrected claim for a denial: edit it, then scrub and submit as usual."""
+    row = await _work(session, principal, work_id)
+    claim = await service.get(session, principal.workspace_id, row.claim_id)
+    if row.kind != "denial":
+        raise ApiError(409, "invalid_state", "A rejection is fixed on the claim itself.")
+    existing = await session.scalar(
+        select(Claim).where(
+            Claim.workspace_id == principal.workspace_id,
+            Claim.replaces_claim_id == claim.id,
+            Claim.stage != "void",
+        )
+    )
+    if existing is not None:
+        return service.view(existing, utcnow().date())
+    try:
+        new = await denials.corrected_claim(session, claim, row)
+    except ValueError as err:
+        raise ApiError(409, "no_payer_claim_number", str(err)) from None
+    await session.commit()
+    return service.view(new, utcnow().date())
 
 
 # --- remittances: posting proposals (RC7) -----------------------------------------------------

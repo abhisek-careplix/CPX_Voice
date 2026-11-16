@@ -27,7 +27,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from careplix_api.claims import acks
-from careplix_api.claims.models import Claim, ClaimTransaction, EraPosting
+from careplix_api.claims.models import Claim, ClaimTransaction, ClaimWork, EraPosting
 from careplix_api.db import utcnow
 from careplix_api.integrations import claim_reports
 from careplix_api.integrations.clearinghouse import DENIED, PAID, STATUS_LABEL
@@ -321,8 +321,22 @@ async def after_posting(
     payment: dict[str, Any],
     now: datetime,
 ) -> None:
-    """Hook for what follows a remittance (denial routing)."""
-    return None
+    """A remittance that denied money opens a routed denial (:mod:`.denials`)."""
+    from careplix_api.claims import denials  # local: denials imports era helpers
+
+    await denials.route_posting(session, settings, claim, posting, now)
+    if claim.replaces_claim_id and posting.outcome in ("paid", "partially_paid"):
+        # The corrected claim was paid: its original's denials are done.
+        for work in await session.scalars(
+            select(ClaimWork).where(
+                ClaimWork.workspace_id == claim.workspace_id,
+                ClaimWork.claim_id == claim.replaces_claim_id,
+                ClaimWork.kind == "denial",
+                ClaimWork.state == "open",
+            )
+        ):
+            work.state, work.resolved_at, work.resolved_by = "done", now, "system:era"
+            work.resolution = f"Corrected claim {claim.claim_number} paid {posting.paid}."
 
 
 async def refresh_state(session: AsyncSession, posting: EraPosting) -> EraPosting:

@@ -309,6 +309,8 @@ def _claim(workspace_id: str, charges: list[ClaimCharge]) -> Claim:
         claim_number=pcn,
         payer_id=first.payer_id,
         payer_name=first.payer_name or first.payer_id or "",
+        # Synthetic payers get a fictional 202-555 number (only approved numbers are dialled).
+        payer_phone=f"+1202555{170 + int(pcn[-2:], 36) % 30:04d}" if first.synthetic else None,
         plan_kind=first.plan_kind,
         provider_name=first.provider_name or "",
         provider_npi=first.provider_npi or "",

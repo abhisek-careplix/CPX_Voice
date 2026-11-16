@@ -823,7 +823,9 @@ from careplix_api.claims import era  # noqa: E402
 from careplix_api.integrations import claim_reports  # noqa: E402
 
 
-def era_835(pcn, outcome="paid", *, charge="206.25", lines=(("L1", "142.00"), ("L2", "64.25"))):
+def era_835(
+    pcn, outcome="paid", *, charge="206.25", lines=(("L1", "142.00"), ("L2", "64.25")), remarks=()
+):
     """An 835 report in the clearinghouse's JSON shape, the way its test payer pays: in full,
     60 % with CO-45 and PR-2 at 20 % each, or denied with CO-31."""
     total = Decimal(charge)
@@ -891,9 +893,10 @@ def era_835(pcn, outcome="paid", *, charge="206.25", lines=(("L1", "142.00"), ("
                                     "payerClaimControlNumber": f"PAY-{pcn}",
                                 },
                                 "claimAdjustments": adj,
-                                "outpatientAdjudication": {"claimPaymentRemarkCode1": "N130"}
-                                if outcome == "denied"
-                                else {},
+                                "outpatientAdjudication": {
+                                    f"claimPaymentRemarkCode{n}": r
+                                    for n, r in enumerate(remarks, 1)
+                                },
                                 "serviceLines": service_lines,
                             }
                         ]
@@ -918,7 +921,7 @@ def test_835_summary_shapes_paid_partial_denied():
         ("PR", "2", "41.25"),
     ]
     assert partial["patient_responsibility"] == "41.25"
-    [denied] = claim_reports.summarize_835(era_835("CPX1", "denied"))
+    [denied] = claim_reports.summarize_835(era_835("CPX1", "denied", remarks=["N130"]))
     assert denied["outcome"] == "denied" and denied["remarks"] == ["N130"]
 
 
@@ -1089,3 +1092,136 @@ def test_ehr_claims_post_through_write_intents(tmp_path, ch):
         assert pay["payment"]["charge_splits"] == {"501": -85.2}
         assert adj["adjustment"]["amount"] == 28.4
         assert all(i.state == "accepted" for i in _rows(c, WriteIntent))
+
+
+# --- denials (RC8) -------------------------------------------------------------------------------
+
+from careplix_api.claims import denials  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    ("codes", "remarks", "category", "route"),
+    [
+        (["31"], [], "eligibility", "fix_resubmit"),
+        (["27"], [], "eligibility", "fix_resubmit"),
+        (["22"], [], "coordination", "fix_resubmit"),
+        (["4"], [], "coding", "fix_resubmit"),
+        (["16"], ["M127"], "missing_information", "fix_resubmit"),
+        (["197"], [], "authorization", "appeal"),
+        (["50"], [], "medical_necessity", "appeal"),
+        (["29"], [], "timely_filing", "appeal"),
+        (["97"], [], "bundling", "appeal"),
+        (["18"], [], "duplicate", "payer_call"),
+        (["96"], ["N130"], "non_covered", "write_off"),
+        (["B7"], [], "provider", "payer_call"),
+        (["999"], [], "other", "payer_call"),
+        (["16"], ["N54"], "authorization", "appeal"),  # the remark is more specific
+    ],
+)
+def test_denial_classification(codes, remarks, category, route):
+    assert denials.classify(codes, remarks) == category
+    assert denials.CATEGORIES[category][0] == route
+
+
+def test_contractual_and_patient_share_are_not_denials():
+    rows = denials.denial_rows(
+        {
+            "adjustments": [
+                {"group": "CO", "code": "45", "amount": "41.25"},
+                {"group": "PR", "code": "2", "amount": "41.25"},
+                {"group": "CO", "code": "253", "amount": "1.10"},
+                {"group": "CO", "code": "97", "amount": "64.25"},
+            ]
+        }
+    )
+    assert [(r["group"], r["code"]) for r in rows] == [("CO", "97")]
+
+
+def test_appeal_deadlines():
+    today = date(2026, 11, 16)
+    assert denials.deadline("medicare", "appeal", "2026-11-14", today) == "2027-03-14"
+    assert denials.deadline("commercial", "appeal", None, today) == "2027-05-15"
+    assert denials.deadline("commercial", "fix_resubmit", "2026-11-14", today) == "2027-02-12"
+
+
+def _denied(c, ch, visit="office_denied", **era_kw):
+    [claim] = _drafts(c, visit)
+    claim = _submit(c, claim["id"])
+    _ingest(c, f"tx_ack_{claim['id'][:6]}", ack_277(claim["claim_number"]), ch)
+    lines = tuple((line["line_id"], line["charge"]) for line in claim["lines"])
+    report = era_835(claim["claim_number"], "denied", charge=claim["billed_amount"], lines=lines)
+    for k, v in era_kw.items():
+        report["transactions"][0]["detailInfo"][0]["paymentInfo"][0][k] = v
+    _ingest(c, f"tx_era_{claim['id'][:6]}", report, ch, kind="835")
+    return claim
+
+
+def test_test_payer_denial_routes_to_a_corrected_claim_that_gets_paid(billing_studio, ch):
+    claim = _denied(billing_studio, ch)
+    [work] = billing_studio.get("/api/claims/work?kind=denial").json()
+    assert work["category"] == "eligibility" and work["route"] == "fix_resubmit"
+    assert work["amount"] == "235.00" and work["due_on"] == "2027-02-12"
+    assert {r["code"] for r in work["reasons"]} == {"31", "N130"} or work["reasons"][0][
+        "code"
+    ] == "31"
+
+    fixed = billing_studio.post(f"/api/claims/work/{work['id']}/correct").json()
+    assert fixed["frequency"] == "replacement" and fixed["replaces_claim_id"] == claim["id"]
+    assert fixed["claim_number"] != claim["claim_number"] and fixed["test_outcome"] == "paid"
+    # Asking twice returns the same draft.
+    assert billing_studio.post(f"/api/claims/work/{work['id']}/correct").json()["id"] == fixed["id"]
+    out = _submit(billing_studio, fixed["id"])
+    _, body = ch.submitted[-1]
+    assert body["encounter"]["resubmission"] == {
+        "code": "REPLACEMENT_OF_PRIOR_CLAIM",
+        "originalReferenceNumber": f"PAY-{claim['claim_number']}",
+    }
+    assert body["insured"]["memberId"].startswith("STEDI_PAID_")
+    report = era_835(out["claim_number"], charge="235.00", lines=(("L1", "235.00"),))
+    _ingest(billing_studio, "tx_era_fix", report, ch, kind="835")
+    assert billing_studio.get("/api/claims/work?kind=denial").json() == []
+    [done] = billing_studio.get("/api/claims/work?kind=denial&state=done").json()
+    assert done["resolution"].startswith(f"Corrected claim {out['claim_number']} paid")
+
+
+def test_payer_call_route_opens_one_denial_case(billing_studio, ch):
+    from careplix_api.models import Case
+
+    _denied(
+        billing_studio,
+        ch,
+        claimAdjustments=[
+            {
+                "claimAdjustmentGroupCode": "CO",
+                "adjustmentReasonCode1": "18",
+                "adjustmentAmount1": "235.00",
+            }
+        ],
+        outpatientAdjudication={},
+    )
+    [work] = billing_studio.get("/api/claims/work?kind=denial").json()
+    assert work["category"] == "duplicate" and work["route"] == "payer_call", work
+    assert work["case_id"], work["resolution"]
+    [case] = _rows(billing_studio, Case, Case.source == "claim_denial")
+    assert case.id == work["case_id"] and case.data["denial"]["reason_codes"] == "CO-18"
+    # Rerouting to a payer call again never opens a second case.
+    billing_studio.post(f"/api/claims/work/{work['id']}/route", json={"route": "payer_call"})
+    assert len(_rows(billing_studio, Case, Case.source == "claim_denial")) == 1
+
+
+def test_write_off_route_waits_for_staff(billing_studio, ch):
+    _denied(
+        billing_studio,
+        ch,
+        claimAdjustments=[
+            {
+                "claimAdjustmentGroupCode": "CO",
+                "adjustmentReasonCode1": "96",
+                "adjustmentAmount1": "235.00",
+            }
+        ],
+    )
+    [work] = billing_studio.get("/api/claims/work?kind=denial").json()
+    assert work["route"] == "write_off" and work["category"] == "non_covered"
+    # Synthetic sample: no EHR patient, so nothing is written; staff do it by hand.
+    assert work["intent_ids"] == [] and "by hand" in work["resolution"]
