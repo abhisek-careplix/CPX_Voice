@@ -12,6 +12,10 @@
   an email code, and are not added to a customer workspace automatically.
 - ``staging``: no extra rules.
 
+dev, labs and staging are sandbox deployments: no workspace or connection there may be production
+(``Settings.production_allowed`` is false; ``refuse_production_here`` raises). Only a production
+deployment, in its own Google Cloud project (``infra/gcp/deploy-prod.sh``, not created yet), may.
+
 Any other value is refused: a typo such as ``prod`` must not quietly skip the production rules.
 
 Startup (``install``) refuses a misconfigured process before it serves anything. At runtime in
@@ -70,6 +74,10 @@ def problems(settings: Settings) -> list[str]:
             found.append("NEXHEALTH_ENV must be production: the sandbox holds synthetic patients.")
         if settings.stedi_env != "production":
             found.append("STEDI_ENV must be production: test mode answers for mock members only.")
+        if settings.nexhealth_api_key.get_secret_value():
+            found.append(
+                "NEXHEALTH_API_KEY is the sandbox key; production uses NEXHEALTH_PROD_API_KEY."
+            )
         if (
             settings.stedi_test_api_key.get_secret_value()
             or settings.stedi_api_key.get_secret_value()
@@ -122,6 +130,17 @@ def current() -> str:
 
 def is_production(settings: Settings | None = None) -> bool:
     return (settings.careplix_env if settings is not None else current()) == PRODUCTION
+
+
+def refuse_production_here(what: str, settings: Settings) -> None:
+    """Raise a 409 when ``what`` (a production key, connection or mode) is chosen in a sandbox
+    deployment. Workspaces and connections there can never be production."""
+    if not settings.production_allowed:
+        raise ApiError(
+            409,
+            "production_not_allowed",
+            f"{what} needs the production environment; this one is sandbox only.",
+        )
 
 
 def refuse_in_production(what: str, settings: Settings | None = None) -> None:

@@ -70,6 +70,7 @@ def test_production_settings_pass(tmp_path):
         ({"openemr_base_url": "https://10.0.0.5"}, "OPENEMR_BASE_URL"),
         ({"nexhealth_env": "sandbox"}, "NEXHEALTH_ENV"),
         ({"stedi_env": "test"}, "STEDI_ENV"),
+        ({"nexhealth_api_key": "nh-sandbox"}, "NEXHEALTH_API_KEY"),
         ({"stedi_test_api_key": "test-key"}, "test keys"),
         ({"stedi_api_key": "old-test-key"}, "test keys"),
         ({"sandbox_number": "+13127558589"}, "SANDBOX_NUMBER"),
@@ -134,6 +135,23 @@ def test_refuse_in_production_helper(tmp_path):
     with pytest.raises(ApiError) as err:
         environment.refuse_in_production("The payer sandbox", production(tmp_path))
     assert err.value.status == 409 and err.value.code == "not_in_production"
+
+
+@pytest.mark.parametrize(("env", "allowed"), [("dev", False), ("labs", False), ("staging", False)])
+def test_sandbox_deployments_never_allow_production_workspaces_or_connections(
+    tmp_path, env, allowed
+):
+    settings = make_settings(tmp_path, careplix_env=env)
+    assert settings.production_allowed is allowed
+    with pytest.raises(ApiError) as err:
+        environment.refuse_production_here("A production NexHealth connection", settings)
+    assert err.value.status == 409 and err.value.code == "production_not_allowed"
+
+
+def test_a_production_deployment_allows_production(tmp_path):
+    settings = production(tmp_path)
+    assert settings.production_allowed
+    environment.refuse_production_here("A production NexHealth connection", settings)
 
 
 # --- runtime: the ORM hook ----------------------------------------------------------------------
