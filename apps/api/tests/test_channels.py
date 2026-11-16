@@ -570,3 +570,18 @@ def test_a_transfer_nobody_answers_becomes_a_call_back_promise(texting):
     assert "call them back" in out["message"]
     assert _rows(c, CallHandoff)[0].detail == "staff_no_answer"
     assert call.report("no-such-handoff", "connected").status_code == 404
+
+
+def test_the_sending_number_is_careplix_staff_only_but_quiet_hours_are_the_customers(client):
+    from .test_tenancy import CLINIC_ADMIN, _email_sign_in, _new_customer
+
+    _new_customer(client, "practice")
+    _email_sign_in(client, CLINIC_ADMIN)
+    assert client.get("/api/me").json()["platform"] is False
+    refused = client.put("/api/channels/settings", json={"sms_from": "+13125550111"})
+    assert refused.status_code == 403
+    ok = client.put(
+        "/api/channels/settings", json={"contact_start": "09:00", "contact_end": "18:00"}
+    )
+    assert ok.status_code == 200 and ok.json()["contact_start"] == "09:00"
+    assert "texts" in client.get("/api/me").json()["pack"]["sections"]
