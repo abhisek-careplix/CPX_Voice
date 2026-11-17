@@ -104,6 +104,9 @@ TEMPLATES: dict[str, str] = {
     "about the next one.",
     "callback_promise": "{brand}: Sorry we missed you on the phone. {staff} will call you back "
     "{promise}.",
+    # One-way notices sent through a channel's notify (which puts the brand in front).
+    "refill_received": "We have your refill request. Your care team will review it, and we'll "
+    "text you when it's decided.",
 }
 
 

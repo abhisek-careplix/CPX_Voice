@@ -270,7 +270,7 @@ async def next_action(
 @router.post("/cases/{case_id}/clinician-signoff")
 async def clinician_signoff(
     case_id: str,
-    principal: Principal = Depends(require("review")),
+    principal: Principal = Depends(require("clinical_signoff")),
     session: AsyncSession = Session,
     settings: Settings = Depends(get_settings),
 ):

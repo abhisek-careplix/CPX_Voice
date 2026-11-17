@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:careplix:voice:clinical_check_outcome",
+  "title": "Clinical check call outcome",
+  "description": "Output schema for template clinical-check (refill details, discharge follow-up, pre-visit questions, approved-instruction delivery). The answers themselves are recorded on the case by record_check_answers; the agent never interprets them.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["attempt_id", "outcome"],
+  "properties": {
+    "attempt_id": {"type": "string"},
+    "outcome": {"enum": ["completed", "partly_completed", "not_reached", "declined"]},
+    "identity_confirmed": {"enum": ["yes", "no", null]},
+    "red_flag_read": {"enum": ["yes", "no", null]},
+    "result_summary": {"type": ["string", "null"], "maxLength": 400},
+    "blocker": {"type": ["string", "null"], "maxLength": 300}
+  }
+}

@@ -13,6 +13,7 @@ const KIND_TONE: Record<InboxKind, "blue" | "orange" | "green" | "gray" | "red" 
   hand_off: "orange",
   auth_packet: "orange",
   escalation: "red",
+  red_flag: "red",
 };
 
 const APPROVER: Record<InboxItem["approver"], string> = {

@@ -25,7 +25,11 @@ const CASE_AREA: Record<string, string> = {
   claim_status: "Back Office",
   claim_denial: "Back Office",
   eligibility_check: "Back Office",
+  patient_intake: "Front Office",
   care_outreach: "Clinical",
+  refill_request: "Clinical",
+  discharge_followup: "Clinical",
+  previsit_prep: "Clinical",
 };
 const TYPE_TITLE: Record<string, string> = {
   appointment_reminder: "Reminders",

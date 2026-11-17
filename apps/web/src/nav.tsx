@@ -6,6 +6,7 @@
 import {
   Banknote,
   BadgeCheck,
+  BookCheck,
   Bot,
   Briefcase,
   Building,
@@ -13,10 +14,13 @@ import {
   CalendarClock,
   CalendarPlus,
   ClipboardCheck,
+  ClipboardList,
   FileWarning,
   GitCompareArrows,
   Globe,
   HeartPulse,
+  Hospital as HospitalIcon,
+  IdCard,
   Inbox,
   LayoutGrid,
   ListChecks,
@@ -24,6 +28,7 @@ import {
   MessagesSquare,
   Network,
   Phone,
+  Pill,
   PlugZap,
   Receipt,
   ScrollText,
@@ -74,6 +79,7 @@ export const NAV: NavItem[] = [
   { group: "Front Office", path: "/practice?tab=inbox", label: "Front-desk messages", icon: MessagesSquare, section: "practice" },
   { group: "Front Office", path: "/backfill", label: "Waitlist & backfill", icon: CalendarPlus, section: "backfill" },
   { group: "Front Office", path: "/cases?type=appointment_reminder", label: "Reminders", icon: CalendarClock, section: "cases", caseType: "appointment_reminder" },
+  { group: "Front Office", path: "/intake", label: "Intake & registration", icon: IdCard, section: "intake", caseType: "patient_intake" },
 
   // Back Office: coverage, authorizations and getting paid.
   { group: "Back Office", path: "/back-office", label: "Overview", icon: LayoutGrid, overview: true },
@@ -90,6 +96,10 @@ export const NAV: NavItem[] = [
   { group: "Clinical", path: "/clinical", label: "Overview", icon: LayoutGrid, overview: true },
   { group: "Clinical", path: "/care", label: "Care opportunities", icon: HeartPulse, section: "care" },
   { group: "Clinical", path: "/inbox?kind=clinician_signoff", label: "Clinician review", icon: Stethoscope, section: "inbox" },
+  { group: "Clinical", path: "/clinical/refills", label: "Refills", icon: Pill, section: "clinical", caseType: "refill_request" },
+  { group: "Clinical", path: "/clinical/discharge", label: "Discharge follow-up", icon: HospitalIcon, section: "clinical", caseType: "discharge_followup" },
+  { group: "Clinical", path: "/clinical/previsit", label: "Pre-visit", icon: ClipboardList, section: "clinical", caseType: "previsit_prep" },
+  { group: "Clinical", path: "/clinical/instructions", label: "Approved instructions", icon: BookCheck, section: "clinical" },
   { group: "Clinical", path: "/cases?type=care_outreach", label: "Care outreach", icon: Users, section: "cases", caseType: "care_outreach" },
 
   // Agents & Studio: build, test and supervise the agents.

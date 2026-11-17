@@ -24,7 +24,9 @@ from careplix_api.opportunities import rules
 from careplix_api.opportunities.models import CareOpportunity, ClinicalFact
 from careplix_api.phi import PhiBox, initials
 
-KINDS = ("patient", "condition", "service", "discharge", "screening")
+# medication (value = name, code = dose) and record (an outside record received: value = source,
+# code = what it is) feed refill protocol facts and the chart-prep brief (careplix_api.clinical).
+KINDS = ("patient", "condition", "service", "discharge", "screening", "medication", "record")
 OPEN = ("proposed", "approved", "contacted")
 SETTLED = ("declined", "enrolled", "not_interested", "done")
 QUIET_DAYS = 180
@@ -61,6 +63,18 @@ def _row_payload(row: dict[str, str]) -> dict[str, Any]:
         }
     if kind == "discharge":
         return {"date": row.get("date", ""), "facility": row.get("value", "")[:120]}
+    if kind == "medication":
+        return {
+            "name": row.get("value", "")[:120],
+            "dose": row.get("code", "")[:80],
+            "date": row.get("date", ""),
+        }
+    if kind == "record":
+        return {
+            "source": row.get("value", "")[:120],
+            "summary": row.get("code", "")[:120],
+            "date": row.get("date", ""),
+        }
     return {"code": row.get("code", "").upper().strip(), "date": row.get("date", "")}
 
 
@@ -137,10 +151,24 @@ def sample_csv(today: date) -> str:
         ("SYN-P001", "condition", "N18.3", ago(400), "", "", "", "", ""),
         ("SYN-P001", "service", "83036", ago(260), "", "", "", "", ""),
         ("SYN-P001", "service", "G0439", ago(400), "", "", "", "", ""),
+        ("SYN-P001", "medication", "500 mg twice daily", ago(900), "Metformin", "", "", "", ""),
+        ("SYN-P001", "medication", "10 mg once daily", ago(1400), "Lisinopril", "", "", "", ""),
         ("SYN-P002", "patient", "", "", "", "James Synthetic", born(78), "M", "medicare_advantage"),
         ("SYN-P002", "condition", "I50.22", ago(700), "", "", "", "", ""),
         ("SYN-P002", "discharge", "", ago(1), "Lakeside General", "", "", "", ""),
         ("SYN-P002", "service", "99490", ago(200), "", "", "", "", ""),
+        ("SYN-P002", "medication", "40 mg daily", ago(600), "Furosemide", "", "", "", ""),
+        (
+            "SYN-P002",
+            "record",
+            "Cardiology consult note",
+            ago(20),
+            "Lakeside Heart",
+            "",
+            "",
+            "",
+            "",
+        ),
         ("SYN-P003", "patient", "", "", "", "Ana Synthetic", born(67), "F", "medicare"),
         ("SYN-P003", "condition", "F33.1", ago(300), "", "", "", "", ""),
         ("SYN-P003", "screening", "phq9", ago(30), "14", "", "", "", ""),

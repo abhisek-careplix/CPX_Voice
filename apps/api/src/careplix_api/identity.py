@@ -48,7 +48,7 @@ from careplix_api.settings import Settings
 
 log = logging.getLogger("careplix.identity")
 
-ROLES = ("admin", "publisher", "author", "operator", "reviewer")
+ROLES = ("admin", "publisher", "author", "operator", "reviewer", "clinician")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MS_KEYS_URL = "https://login.microsoftonline.com/common/discovery/v2.0/keys"
 MS_PERSONAL_TENANT = "9188040d-6c67-4c5b-b112-36a304b66dad"
@@ -331,5 +331,10 @@ async def establish(
         )
         await session.commit()
         return Principal(
-            user.id, chosen.workspace_id, chosen.role, user.display_name, platform=platform
+            user.id,
+            chosen.workspace_id,
+            chosen.role,
+            user.display_name,
+            platform=platform,
+            clinician=bool(chosen.clinician),
         )

@@ -38,10 +38,12 @@ from careplix_api.channels import webhooks as channels_webhooks
 from careplix_api.claims import api as claims_api
 from careplix_api.claims import billing_api as claims_billing_api
 from careplix_api.claims import follow_up as claims_follow_up
+from careplix_api.clinical import api as clinical_api
 from careplix_api.db import from_settings as db_from_settings
 from careplix_api.errors import ApiError
 from careplix_api.evals import api as evals_api
 from careplix_api.evals import service as evals_service
+from careplix_api.forms import api as forms_api
 from careplix_api.integrations.service import IntegrationWorker
 from careplix_api.judge import service as judge_service
 from careplix_api.livekit_gateway import LiveKitGateway
@@ -49,6 +51,7 @@ from careplix_api.opportunities import api as care_api
 from careplix_api.people import api as people_api
 from careplix_api.personas import api as personas_api
 from careplix_api.practice import api as practice_api
+from careplix_api.practice import intake as practice_intake
 from careplix_api.practice import setup_api as practice_setup_api
 from careplix_api.practice import webhooks as practice_webhooks
 from careplix_api.practice.connections import ensure_practice_connections
@@ -239,6 +242,10 @@ def create_app(
     app.include_router(claims_billing_api.router, prefix="/api")  # before /claims/{id}
     app.include_router(claims_api.router, prefix="/api")
     app.include_router(prior_auth_api.router, prefix="/api")
+    app.include_router(clinical_api.router, prefix="/api")
+    app.include_router(practice_intake.router, prefix="/api")
+    # Secure form links (questionnaire, registration): token-only, no Studio sign-in.
+    app.include_router(forms_api.router, prefix="/api")
     app.include_router(internal_api.router)
     app.include_router(channels_api.internal_router)
     if settings.is_dev:

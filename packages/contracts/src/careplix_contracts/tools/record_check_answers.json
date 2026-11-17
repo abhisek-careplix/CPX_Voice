@@ -1,0 +1,47 @@
+{
+  "name": "record_check_answers",
+  "version": "1.0.0",
+  "description": "Record the patient's answers to the scripted questions in the call brief, using each question's key. Call it as you go (one or more answers at a time). Record exactly what the patient said in 'detail'; never add your own interpretation. If the result includes 'say', read those words to the patient exactly, word for word, and add nothing.",
+  "classification": "write",
+  "execution": "api",
+  "allowed_roles": ["agent_runtime"],
+  "timeout_ms": 3000,
+  "idempotency": "keyed",
+  "limits": {"max_answers_per_call": 40},
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["answers"],
+    "properties": {
+      "answers": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 12,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["question", "answer"],
+          "properties": {
+            "question": {"type": "string", "pattern": "^[a-z][a-z0-9_]{1,39}$"},
+            "answer": {"enum": ["yes", "no", "unsure", "declined", "text"]},
+            "detail": {"type": "string", "maxLength": 300}
+          }
+        }
+      }
+    }
+  },
+  "result_schema": {
+    "type": "object",
+    "required": ["state"],
+    "properties": {
+      "state": {"enum": ["recorded"]},
+      "remaining": {"type": "array", "items": {"type": "string"}},
+      "red_flag": {"type": "boolean"},
+      "say": {"type": "string"},
+      "message": {"type": "string"}
+    }
+  },
+  "owner": "clinical",
+  "release": "D",
+  "enabled_in_demo": true
+}

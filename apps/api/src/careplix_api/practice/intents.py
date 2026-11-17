@@ -182,6 +182,17 @@ class LedgerPost(WriteKind):
         return {}
 
 
+class RegistrationWrite(WriteKind):
+    """Intake writes (patient update, coverage create) need NexHealth's v3.1 beta, which isn't
+    enabled: the catalog says ``no`` for them on every profile, so they never leave the hub and
+    become a staff task (``manual``). The send below is never reached until the beta is on."""
+
+    async def send(self, client, intent, payload):
+        raise NexHealthError(
+            "not_supported", "Registration writes need NexHealth v3.1 (beta).", http_status=501
+        )
+
+
 def create_patient_body(payload: dict[str, Any]) -> dict[str, Any]:
     bio = {"date_of_birth": payload["date_of_birth"], "phone_number": payload["phone_number"]}
     if payload.get("gender"):
@@ -212,6 +223,9 @@ KINDS: dict[str, WriteKind] = {
     "appointment_reschedule": PatchAppointment(
         "L2", "appointment", None, update_field="start_time"
     ),
+    # Intake and registration (careplix_api.practice.intake): demographics and coverage.
+    "patient_update": RegistrationWrite("L2", "patient", None),
+    "coverage_create": RegistrationWrite("L2", "patient", None),
     # Financial writes (ERA posting): L3, always a person's approval.
     "payment_post": LedgerPost("L3", "patient", None),
     "adjustment_post": LedgerPost(

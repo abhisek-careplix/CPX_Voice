@@ -64,7 +64,9 @@ TRIGGERS: dict[str, str] = {
 }
 LEASE = timedelta(minutes=2)
 POLL = timedelta(minutes=1)
-REMINDER_WINDOW = timedelta(hours=72)
+# Reminders start 7 days out; the cadence (careplix_api.practice.reminders) reminds again at
+# 72 and 24 hours unless the patient has confirmed, cancelled or asked to reschedule.
+REMINDER_WINDOW = timedelta(days=7)
 REMINDER_LEAD = timedelta(hours=2)
 MAX_STEPS_PER_PASS = 20
 
@@ -1025,6 +1027,7 @@ async def trigger_reminders(session: AsyncSession, settings: Settings) -> int:
             source_ref=ref,
             extra={
                 "timezone": tz,
+                "appointment_starts_at": as_utc(appt.starts_at).isoformat(),
                 "ehr": {
                     "connection_id": appt.connection_id,
                     "appointment_id": appt.source_id,
@@ -1034,7 +1037,7 @@ async def trigger_reminders(session: AsyncSession, settings: Settings) -> int:
         )
         if case is None:
             continue
-        case.due_at = min(utcnow() + PLAYBOOKS["appointment_reminder"].due, as_utc(appt.starts_at))
+        case.due_at = as_utc(appt.starts_at) - REMINDER_LEAD
         await start(session, case, "appointment_reminder")
         made += 1
     return made
@@ -1065,6 +1068,9 @@ class PlaybookEngine:
         self.services = {"gateway": gateway, "runner": runner}
         self.transport_getter = transport_getter
         # Playbooks whose steps live in their own package register them on import.
+        from careplix_api.clinical import playbook as _clinical  # noqa: F401
+        from careplix_api.practice import intake as _intake  # noqa: F401
+        from careplix_api.practice import reminders as _reminders  # noqa: F401
         from careplix_api.priorauth import playbook as _prior_auth  # noqa: F401
 
     async def default_owner(self, session: AsyncSession, case: Case) -> str | None:

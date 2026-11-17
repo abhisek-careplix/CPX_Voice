@@ -73,7 +73,10 @@ class Membership(IdMixin, Base):
     __table_args__ = (UniqueConstraint("user_id", "workspace_id"),)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
     workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"))
-    role: Mapped[str] = mapped_column(String(20))  # author|operator|publisher|admin|reviewer
+    # author|operator|publisher|admin|reviewer|clinician
+    role: Mapped[str] = mapped_column(String(20))
+    # Signs clinical work whatever the role (a physician who is also the workspace admin).
+    clinician: Mapped[bool | None] = mapped_column(default=False)
     last_used_at: Mapped[datetime | None] = mapped_column()
 
 

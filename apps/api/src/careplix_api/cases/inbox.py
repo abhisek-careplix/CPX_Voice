@@ -10,6 +10,12 @@ Kinds, each with its approver from :mod:`careplix_api.cases.policy`:
 - ``auth_packet``: a prior auth whose packet is missing items (orders, notes, codes): the staff
   task that completes it (``/prior-auth``).
 - ``escalation``: a case past its due date, for its owner.
+- ``red_flag``: a patient's red-flag answer (discharge check, pre-visit questionnaire), for a
+  clinician at once. The clinician acknowledges it with what they did, on the case's page.
+
+Clinical cases worked by a playbook (refill, discharge follow-up, pre-visit) reach the clinician
+only once they are ready (protocol facts read, answers in, brief built). A refill decision is
+taken on its page, where the clinician picks the approved wording the patient will hear.
 
 The old pages (Results, Approvals, Practice) keep working; each item links to its page.
 """
@@ -39,7 +45,14 @@ KINDS = (
     "hand_off",
     "auth_packet",
     "escalation",
+    "red_flag",
 )
+# Clinical case types whose sign-off waits for the playbook to prepare them, and their pages.
+STAGED_PAGES = {
+    "refill_request": "/clinical/refills",
+    "discharge_followup": "/clinical/discharge",
+    "previsit_prep": "/clinical/previsit",
+}
 KIND_LABELS = {
     "result_review": "Call result",
     "ehr_write": "EHR write",
@@ -49,6 +62,7 @@ KIND_LABELS = {
     "hand_off": "Handed off",
     "auth_packet": "Prior auth packet",
     "escalation": "Overdue case",
+    "red_flag": "Red flag",
 }
 
 
@@ -178,19 +192,39 @@ async def _cases(session: AsyncSession, principal: Principal) -> list[dict[str, 
             Case.workspace_id == principal.workspace_id, Case.status.in_(contract.OWED)
         )
     ):
-        t = types.get(cases.type_id(case))
-        if t["contract"]["clinical"] and not case.clinician_by:
+        tid = cases.type_id(case)
+        t = types.get(tid)
+        clinical = (case.data or {}).get("clinical") or {}
+        page = STAGED_PAGES.get(tid)
+        href = f"{page}?case={case.id}" if page else f"/cases?case={case.id}"
+        if clinical.get("red_flags") and not clinical.get("red_flag_ack"):
+            labels = ", ".join(f["label"].lower() for f in clinical["red_flags"])
+            out.append(
+                _item(
+                    principal,
+                    "red_flag",
+                    case.id,
+                    f"Red flag: {t['name'].lower()}",
+                    f"Patient answered yes or unsure: {labels}"[:200],
+                    case.updated_at,
+                    href,
+                    case=case,
+                )
+            )
+        ready = page is None or bool(clinical.get("ready"))
+        if t["contract"]["clinical"] and not case.clinician_by and ready:
+            decides = bool(t["contract"].get("decides"))
             out.append(
                 _item(
                     principal,
                     "clinician_signoff",
                     case.id,
-                    f"Sign off: {t['name'].lower()}",
+                    f"{'Decide' if decides else 'Sign off'}: {t['name'].lower()}",
                     t["program"],
-                    case.created_at,
-                    f"/cases?case={case.id}",
+                    case.updated_at if page else case.created_at,
+                    href,
                     case=case,
-                    decide=["approve"],
+                    decide=[] if decides else ["approve"],
                 )
             )
         gap = await _packet_gap(session, case) if case.escalated_at is None else None
@@ -310,8 +344,15 @@ async def decide(
 
 
 async def sign_off(session: AsyncSession, principal: Principal, case: Case) -> None:
-    if not types.get(cases.type_id(case))["contract"]["clinical"]:
+    spec = types.get(cases.type_id(case))["contract"]
+    if not spec["clinical"]:
         raise ApiError(422, "not_clinical", "Only clinical cases need a clinician's sign-off.")
+    if spec.get("decides"):
+        raise ApiError(
+            422,
+            "decide_on_page",
+            "Decide this on its page, choosing the approved words the patient will hear.",
+        )
     if not policy.can_decide(principal, "clinician"):
         raise ApiError(403, "forbidden", "A clinician signs this off.")
     case.clinician_by, case.clinician_at, case.updated_at = principal.user_id, utcnow(), utcnow()

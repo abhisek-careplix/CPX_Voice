@@ -1,0 +1,33 @@
+{
+  "name": "request_refill",
+  "version": "1.0.0",
+  "description": "Send a verified patient's refill request to the care team: the medicine name, the dose as the patient says it, and their pharmacy. Use only after find_patient verified the caller. Ask only for these three things; do not ask about symptoms. Never say whether a refill will be approved or advise on the medicine; say exactly what the result's message says.",
+  "classification": "write",
+  "execution": "api",
+  "allowed_roles": ["agent_runtime"],
+  "timeout_ms": 3000,
+  "idempotency": "keyed",
+  "limits": {"max_requests_per_call": 3},
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["medication", "pharmacy"],
+    "properties": {
+      "medication": {"type": "string", "minLength": 2, "maxLength": 120},
+      "dose": {"type": "string", "maxLength": 80},
+      "pharmacy": {"type": "string", "minLength": 2, "maxLength": 120}
+    }
+  },
+  "result_schema": {
+    "type": "object",
+    "required": ["state"],
+    "properties": {
+      "state": {"enum": ["requested"]},
+      "reference": {"type": "string"},
+      "message": {"type": "string"}
+    }
+  },
+  "owner": "clinical",
+  "release": "D",
+  "enabled_in_demo": true
+}

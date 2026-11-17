@@ -33,6 +33,9 @@ import TextMessages from "./pages/TextMessages";
 import Tasks from "./pages/Tasks";
 import VoiceStudio from "./pages/VoiceStudio";
 import Members from "./pages/Members";
+import { Discharges, Instructions, Previsit, Refills } from "./pages/Clinical";
+import Intake from "./pages/Intake";
+import PublicForm from "./pages/PublicForm";
 import Platform from "./pages/Platform";
 import Workspace from "./pages/Workspace";
 
@@ -41,6 +44,17 @@ export const useMe = () => useContext(MeCtx)!;
 export const useCan = (permission: string) => useMe().permissions.includes(permission);
 
 export default function App() {
+  // A patient's secure form link opens without a Studio session.
+  if (window.location.pathname.startsWith("/f/"))
+    return (
+      <Routes>
+        <Route path="/f/:token" element={<PublicForm />} />
+      </Routes>
+    );
+  return <Studio />;
+}
+
+function Studio() {
   const me = useQuery({ queryKey: ["me"], queryFn: () => api.get<Me>("/me"), retry: false });
   if (me.isPending) return null;
   if (me.error instanceof ApiError && me.error.status === 401) return <SignIn />;
@@ -174,6 +188,11 @@ function Shell() {
           <Route path="/texts" element={<Gate show={show("texts")}><TextMessages /></Gate>} />
           <Route path="/claims" element={<Gate show={show("claims")}><Claims /></Gate>} />
           <Route path="/prior-auth" element={<Gate show={show("prior_auth")}><PriorAuth /></Gate>} />
+          <Route path="/clinical/refills" element={<Gate show={show("clinical")}><Refills /></Gate>} />
+          <Route path="/clinical/discharge" element={<Gate show={show("clinical")}><Discharges /></Gate>} />
+          <Route path="/clinical/previsit" element={<Gate show={show("clinical")}><Previsit /></Gate>} />
+          <Route path="/clinical/instructions" element={<Gate show={show("clinical")}><Instructions /></Gate>} />
+          <Route path="/intake" element={<Gate show={show("intake")}><Intake /></Gate>} />
           <Route path="/hub" element={<Gate show={show("hub")}><Hub /></Gate>} />
           <Route path="/members" element={<Members />} />
           <Route path="/platform" element={<Gate show={me.platform}><Platform /></Gate>} />

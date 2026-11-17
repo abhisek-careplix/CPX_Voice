@@ -252,11 +252,16 @@ def test_the_ehr_schedule_starts_reminders_and_a_yes_confirms_the_visit(tmp_path
     with c:
         c.post("/api/auth/dev-login")
         _worker(c)
-        assert _engine(c)["created"]["schedule"] == 2  # appointments 500 (2 days) and 502 (20 h)
+        # Reminders start 7 days out: appointments 500 (2 days), 502 (20 h) and 503 (5 days).
+        assert _engine(c)["created"]["schedule"] == 3
         rows = {r["case_ref"]: r for r in c.get("/api/cases?case_type=appointment_reminder").json()}
         by_status = {r["status"] for r in rows.values()}
         assert by_status == {"in_progress", "blocked"}  # patient 2 has no phone on file
-        live = next(r for r in rows.values() if r["status"] == "in_progress")
+        live = next(
+            r
+            for r in rows.values()
+            if r["status"] == "in_progress" and _case(c, r["id"])["source_ref"].endswith(":500")
+        )
         [attempt] = _case(c, live["id"])["attempts"]
         c.post(f"/api/attempts/{attempt['id']}/reply", json={"answer": "yes"}).raise_for_status()
         waiting = _case(c, live["id"])
@@ -448,6 +453,10 @@ def test_old_rows_and_case_types_still_work(client):
         "appointment_reminder",
         "slot_backfill",
         "prior_authorization",
+        "refill_request",
+        "discharge_followup",
+        "previsit_prep",
+        "patient_intake",
     }
     assert {t["kind"] for p in playbooks for t in p["triggers"]} >= {
         "care_opportunity",

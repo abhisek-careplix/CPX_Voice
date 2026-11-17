@@ -35,7 +35,7 @@ async def get_session(request: Request):
 Session = Depends(get_session)
 admin = require("admin")
 viewer = require("view")
-Role = Literal["admin", "publisher", "author", "operator", "reviewer"]
+Role = Literal["admin", "publisher", "author", "operator", "reviewer", "clinician"]
 Line = Literal["practice", "home_health"]
 
 
@@ -51,7 +51,6 @@ def set_session_cookie(response: Response, settings: Settings, principal: Princi
 
 
 def me_payload(p: Principal) -> dict[str, Any]:
-    from careplix_api.auth import PERMISSIONS
 
     return {
         "user_id": p.user_id,
@@ -59,7 +58,8 @@ def me_payload(p: Principal) -> dict[str, Any]:
         "role": p.role,
         "workspace_id": p.workspace_id,
         "platform": p.platform,
-        "permissions": sorted(k for k, roles in PERMISSIONS.items() if p.role in roles),
+        "permissions": p.permissions(),
+        "clinician": p.can("clinical_signoff"),
     }
 
 
@@ -219,6 +219,7 @@ async def switch_workspace(
         membership.role,
         principal.display_name,
         platform=principal.platform,
+        clinician=bool(membership.clinician),
     )
     set_session_cookie(response, settings, switched)
     return me_payload(switched)
@@ -256,6 +257,7 @@ async def members(principal: Principal = Depends(viewer), session: AsyncSession 
                 "display_name": u.display_name,
                 "email": u.email,
                 "role": m.role,
+                "clinician": m.role == "clinician" or bool(m.clinician),
                 "last_used_at": as_utc(m.last_used_at),
                 "you": u.id == principal.user_id,
             }
@@ -403,6 +405,28 @@ async def change_role(
         raise ApiError(409, "last_admin", "A workspace needs at least one admin.")
     before, m.role = m.role, body.role
     _audit(session, principal, "member.role_changed", user_id, before=before, after=body.role)
+    await session.commit()
+    return {"ok": True}
+
+
+class ClinicianIn(BaseModel):
+    clinician: bool
+
+
+@router.put("/workspace/members/{user_id}/clinician")
+async def set_clinician(
+    user_id: str,
+    body: ClinicianIn,
+    principal: Principal = Depends(admin),
+    session: AsyncSession = Session,
+):
+    """Mark a member as a clinician who signs clinical work, whatever their role (a physician who
+    is also the workspace admin). The clinician role always signs; this flag adds it to others."""
+    m = await _membership(session, principal, user_id)
+    before, m.clinician = bool(m.clinician), body.clinician
+    _audit(
+        session, principal, "member.clinician_changed", user_id, before=before, after=m.clinician
+    )
     await session.commit()
     return {"ok": True}
 

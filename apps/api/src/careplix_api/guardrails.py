@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-PATIENT_FACING = ("inbound-enquiry", "front-desk-receptionist")
+PATIENT_FACING = ("inbound-enquiry", "front-desk-receptionist", "clinical-check")
 
 PACKS: dict[str, dict[str, Any]] = {
     "clinical-scope": {
