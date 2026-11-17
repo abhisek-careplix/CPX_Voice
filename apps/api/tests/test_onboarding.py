@@ -439,3 +439,31 @@ def test_labs_refuses_a_production_nexhealth_key(tmp_path):
     labs = make_settings(tmp_path, careplix_env="labs", nexhealth_prod_api_key="p")
     assert any("NEXHEALTH_PROD_API_KEY" in p for p in environment.problems(labs))
     assert not labs.production_allowed
+
+
+def test_demo_workspaces_share_the_sandbox_location_but_a_clinic_is_one_workspaces(
+    tmp_path, monkeypatch
+):
+    c, _ = _app(tmp_path)
+    with c:
+        c.post("/api/auth/dev-login").raise_for_status()
+        assert c.post("/api/practices/setup", json=SANDBOX).status_code == 200
+        _new_customer(c, "practice")
+        c.cookies.clear()
+        _email_sign_in(c, CLINIC_ADMIN)
+        # A trial workspace adds NexHealth's sandbox practice too (synthetic patients).
+        r = c.post("/api/practices/setup", json=SANDBOX)
+        assert r.status_code == 200 and _steps(r.json())["verified"] is True
+        again = c.post("/api/practices/setup", json=SANDBOX)  # but not twice in one workspace
+        assert again.status_code == 409 and "here" in again.json()["error"]["message"]
+    monkeypatch.setattr(Settings, "production_allowed", property(lambda self: True))
+    (tmp_path / "prod").mkdir()
+    c, _ = _app(tmp_path / "prod", nexhealth_api_key="", nexhealth_prod_api_key="nh-test")
+    with c:
+        c.post("/api/auth/dev-login").raise_for_status()
+        assert c.post("/api/practices/setup", json=PRODUCTION).status_code == 200
+        ws_b = _new_customer(c, "practice")
+        assert c.post(f"/api/platform/workspaces/{ws_b}/join").status_code == 200
+        c.post("/api/auth/workspace", json={"workspace_id": ws_b}).raise_for_status()
+        r = c.post("/api/practices/setup", json=PRODUCTION)  # a real clinic: one workspace only
+        assert r.status_code == 409 and "another workspace" in r.json()["error"]["message"]

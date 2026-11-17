@@ -25,7 +25,8 @@ Studio: Settings → EHR hub.
    EHR, subdomain, location id, environment. Sandbox practices can be added by the workspace admin;
    **production practices only by CarePlix staff** (the subdomain alone doesn't prove the practice
    belongs to that workspace, and our production key reaches every practice that authorised it).
-   One NexHealth location can belong to only one workspace.
+   A real clinic's location belongs to one workspace; NexHealth's sandbox practice can be added to
+   any number of trial and demo workspaces (once each).
 3. **Watch setup.** The practice's *Setup* sheet shows: added → NexHealth reaches the location →
    signed webhook registered → first full sync (runs in the background; large practices take a while).
    A failed step says why; fix it (e.g. the location id) and press *Verify and register again*.
