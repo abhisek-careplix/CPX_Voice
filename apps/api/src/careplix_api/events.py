@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from careplix_api.db import utcnow
@@ -29,6 +29,13 @@ async def append(
     occurred_at: datetime | None = None,
 ) -> CallEvent | None:
     event_id = event_id or str(uuid.uuid4())
+    # Lock the call's row before the duplicate check. Two requests delivering the same event (a
+    # worker retry while the first is still in flight) then run one after the other, and the
+    # second sees the first's committed row. Checking first and locking later let both pass the
+    # check, and the second insert failed on call_events_pkey (labs, 17 Nov 2026).
+    await session.execute(
+        select(CallAttempt.id).where(CallAttempt.id == attempt.id).with_for_update()
+    )
     if await session.get(CallEvent, event_id) is not None:
         return None  # duplicate delivery
     # Allocate the cursor atomically: concurrent requests for one call (e.g. parallel tool calls
