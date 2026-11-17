@@ -95,6 +95,7 @@ def test_claim_carries_the_front_desk_tools_with_their_timeouts(practice):
         "reschedule_appointment",
         "cancel_appointment",
         "leave_message",
+        "transfer_to_staff",
         "verify_insurance",
         "medicare_benefits",
         "verify_person",

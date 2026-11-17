@@ -266,16 +266,33 @@ async def stedi_events(
         raise ApiError(401, "invalid_signature", "Signature check failed.")
     event = json.loads(body)
     resource = event.get("resource") or {}
-    conn = await session.scalar(select(PayerConnection).where(PayerConnection.kind == "stedi"))
+    # A processed 277 or 835 names its X12 type in relatedResources (transaction.x12.277|835);
+    # the claims worker fetches that report (claims.inbound). Only IDs are kept here.
+    x12 = next(
+        (
+            r
+            for r in event.get("relatedResources") or []
+            if isinstance(r, dict) and str(r.get("type") or "").startswith("transaction.x12.")
+        ),
+        None,
+    )
+    kind = (x12 or resource).get("type")
+    rid = (x12 or resource).get("id")
+    environment = str(event.get("environment") or "").upper()
+    # The clearinghouse account serves every workspace: claims are matched by control number.
+    conn = await session.scalar(
+        select(PayerConnection).where(PayerConnection.kind == "stedi").limit(1)
+    )
     new = await _record(
         session,
-        workspace_id=conn.workspace_id if conn else None,
-        connection_id=conn.id if conn else None,
+        workspace_id=None if x12 else (conn.workspace_id if conn else None),
+        connection_id=None if x12 else (conn.id if conn else None),
         provider="stedi",
         delivery_key=headers["webhook-id"][:80],
         event_name=str(event.get("type") or "unknown")[:80],
-        resource_type=str(resource.get("type") or "")[:40] or None,
-        resource_ids=[str(resource["id"])] if resource.get("id") else [],
+        resource_type=str(kind or "")[:40] or None,
+        resource_ids=[str(rid)] if rid else [],
+        detail={"mode": "test" if environment == "TEST" else "production"} if environment else None,
     )
     return {"ok": True, "duplicate": not new}
 
@@ -475,6 +492,9 @@ def create_webhook_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(status_code=exc.status, content={"error": {"code": exc.code}})
 
     app.include_router(router)
+    from careplix_api.channels import webhooks as channels_webhooks  # Twilio texts
+
+    app.include_router(channels_webhooks.router)
     return app
 
 

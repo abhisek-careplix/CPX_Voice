@@ -31,7 +31,12 @@ from careplix_api.calls_service import CallRunner
 from careplix_api.cases import api as cases_api
 from careplix_api.cases import service as cases_service
 from careplix_api.cases.playbooks import PlaybookEngine
+from careplix_api.channels import api as channels_api
+from careplix_api.channels import case_channel
+from careplix_api.channels import service as channels_service
+from careplix_api.channels import webhooks as channels_webhooks
 from careplix_api.claims import api as claims_api
+from careplix_api.claims import billing_api as claims_billing_api
 from careplix_api.claims import follow_up as claims_follow_up
 from careplix_api.db import Database
 from careplix_api.errors import ApiError
@@ -78,6 +83,7 @@ def create_app(
     browser_agent_factory=None,
 ) -> FastAPI:
     settings = settings or get_settings()
+    case_channel.install()  # text attempts for playbooks (workstream B's channel hook)
     safe_logging.configure(settings.log_level)
     environment.install(settings)  # refuses settings that break this environment's rules
     tenancy.install()  # every signed-in request is limited to its own workspace
@@ -100,6 +106,8 @@ def create_app(
         )
         # Tests inject an in-process transport (e.g. the payer sandbox ASGI app).
         app.state.integration_transport = integration_transport
+        # Text messages: tests inject a fake provider; None sends through Twilio.
+        app.state.sms_provider = None
         await app.state.db.create_all()
         if settings.seed_demo_data:
             async with app.state.db.sessions() as session:
@@ -149,6 +157,11 @@ def create_app(
                 asyncio.create_task(retention.run_forever(app.state.db, settings)),
                 asyncio.create_task(
                     evals_service.run_forever(app.state.db, settings, app.state.gateway)
+                ),
+                asyncio.create_task(
+                    channels_service.run_forever(
+                        app.state.db, settings, lambda: app.state.sms_provider
+                    )
                 ),
                 asyncio.create_task(
                     shadow_service.run_forever(
@@ -221,13 +234,17 @@ def create_app(
     app.include_router(shadow_api.router, prefix="/api")
     app.include_router(personas_api.router, prefix="/api")
     app.include_router(cases_api.router, prefix="/api")
+    app.include_router(channels_api.router, prefix="/api")
     app.include_router(people_api.router, prefix="/api")
+    app.include_router(claims_billing_api.router, prefix="/api")  # before /claims/{id}
     app.include_router(claims_api.router, prefix="/api")
     app.include_router(prior_auth_api.router, prefix="/api")
     app.include_router(internal_api.router)
+    app.include_router(channels_api.internal_router)
     if settings.is_dev:
         # Local webhook testing; in the cloud the public ingress is its own service (no IAP).
         app.include_router(practice_webhooks.router)
+        app.include_router(channels_webhooks.router)
     if settings.studio_dist:
         _mount_studio(app, settings.studio_dist)
     return app

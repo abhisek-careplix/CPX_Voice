@@ -41,6 +41,8 @@ INTENT_OPERATION = {
     "appointment_check_in": "appointment.check_in",
     "appointment_reschedule": "appointment.reschedule",
     "patient_create": "patient.create",
+    "payment_post": "payment.post",
+    "adjustment_post": "payment.post",
 }
 
 

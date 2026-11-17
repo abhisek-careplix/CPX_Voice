@@ -58,6 +58,198 @@ class Claim(IdMixin, Base):
     follow_up_case_id: Mapped[str | None] = mapped_column(String(36))
     follow_up_reason: Mapped[str | None] = mapped_column(String(160))
     follow_up_error: Mapped[str | None] = mapped_column(String(200))
+    # --- claims we build and submit (RC3–RC8); None on claims we only follow -----------------
+    # draft | ready | blocked | submitted | accepted | rejected | paid | partially_paid | denied
+    # | void. ``submitted_on`` stays "" until the clearinghouse takes the claim.
+    stage: Mapped[str | None] = mapped_column(String(16), index=True)
+    place_of_service: Mapped[str | None] = mapped_column(String(2))
+    diagnoses: Mapped[list[str] | None] = mapped_column(JSON)  # ICD-10-CM, no dots, first = primary
+    # [{line_id, cpt, modifiers, units, charge, dx (1-based pointers), date_of_service, charge_id}]
+    lines: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
+    frequency: Mapped[str | None] = mapped_column(String(12))  # original | replacement
+    replaces_claim_id: Mapped[str | None] = mapped_column(String(36))
+    # Test mode only: which remittance the clearinghouse's test payer sends (paid | partial |
+    # denied); it picks the published member-ID prefix.
+    test_outcome: Mapped[str | None] = mapped_column(String(10))
+    scrub: Mapped[dict[str, Any] | None] = mapped_column(JSON)  # {clean, findings, checked_at}
+    submit_mode: Mapped[str | None] = mapped_column(String(12))  # test | production
+    submission_id: Mapped[str | None] = mapped_column(String(60))
+    clearinghouse_claim_id: Mapped[str | None] = mapped_column(String(60))
+    submitted_at: Mapped[datetime | None] = mapped_column()
+    submit_attempts: Mapped[int | None] = mapped_column(Integer)  # one idempotency key each
+    ack_status: Mapped[str | None] = mapped_column(String(12))  # accepted | rejected
+    ack_at: Mapped[datetime | None] = mapped_column()
+    paid_total: Mapped[str | None] = mapped_column(String(16))
+    patient_responsibility: Mapped[str | None] = mapped_column(String(16))
+    era_at: Mapped[datetime | None] = mapped_column()
+    # Unsolicited 275 attachments sent with this claim:
+    # [{attachment_id, label, content_type, report_type, uploaded_at}]
+    attachments: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class ClaimCharge(IdMixin, Base):
+    """One billed service from the EHR (or a synthetic one): the raw material of a claim (RC3).
+
+    NexHealth charges carry the procedure code, fee, date and provider but no diagnoses, units or
+    modifiers: those are added before the claim is scrubbed, and the scrub refuses a claim without
+    them."""
+
+    __tablename__ = "claim_charges"
+    __table_args__ = (UniqueConstraint("workspace_id", "source", "source_ref"),)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    source: Mapped[str] = mapped_column(String(12))  # sample | ehr
+    source_ref: Mapped[str] = mapped_column(String(60))
+    ehr_connection_id: Mapped[str | None] = mapped_column(String(36))
+    synthetic: Mapped[bool] = mapped_column(Boolean, default=True)
+    patient_ref: Mapped[str | None] = mapped_column(String(40), index=True)
+    # Sealed {display_name, first_name, last_name, date_of_birth, member_id, gender, address}.
+    patient: Mapped[str | None] = mapped_column(Text)
+    payer_id: Mapped[str | None] = mapped_column(String(40))
+    payer_name: Mapped[str | None] = mapped_column(String(160))
+    plan_kind: Mapped[str | None] = mapped_column(String(24))
+    provider_ref: Mapped[str | None] = mapped_column(String(40))
+    provider_name: Mapped[str | None] = mapped_column(String(160))
+    provider_npi: Mapped[str | None] = mapped_column(String(10))
+    date_of_service: Mapped[str] = mapped_column(String(10))
+    cpt_code: Mapped[str] = mapped_column(String(10))
+    description: Mapped[str | None] = mapped_column(String(160))
+    modifiers: Mapped[list[str]] = mapped_column(JSON, default=list)
+    units: Mapped[str] = mapped_column(String(8), default="1")
+    amount: Mapped[str] = mapped_column(String(16))
+    diagnoses: Mapped[list[str]] = mapped_column(JSON, default=list)
+    place_of_service: Mapped[str | None] = mapped_column(String(2))
+    test_outcome: Mapped[str | None] = mapped_column(String(10))  # synthetic visits only
+    claim_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+
+
+class BillingProfile(IdMixin, Base):
+    """Who bills: the billing provider, tax ID and submitter on every claim (one per workspace).
+
+    Test claims to the clearinghouse's test payer must use the NPI and tax ID the provider was
+    enrolled with for remittances (docs/solution/RCM_TEST_MODE_WALKTHROUGH.md)."""
+
+    __tablename__ = "billing_profiles"
+    __table_args__ = (UniqueConstraint("workspace_id"),)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    organization: Mapped[str] = mapped_column(String(60))
+    npi: Mapped[str] = mapped_column(String(10))
+    tax_id: Mapped[str] = mapped_column(String(9))  # EIN, digits only
+    taxonomy: Mapped[str | None] = mapped_column(String(10))
+    address1: Mapped[str] = mapped_column(String(55))
+    city: Mapped[str] = mapped_column(String(30))
+    state: Mapped[str] = mapped_column(String(2))
+    postal_code: Mapped[str] = mapped_column(String(9))
+    submitter_name: Mapped[str] = mapped_column(String(60))
+    contact_phone: Mapped[str] = mapped_column(String(10))
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+
+class ClaimTransaction(IdMixin, Base):
+    """Every claim transaction with the clearinghouse, kept as evidence: validation, submission,
+    277CA acknowledgement, 835 remittance, attachment upload. ``raw`` is sealed (it names the
+    patient); ``summary`` holds outcomes only."""
+
+    __tablename__ = "claim_transactions"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    claim_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    kind: Mapped[str] = mapped_column(String(12))  # validate | submit | 277ca | 835 | attachment
+    mode: Mapped[str] = mapped_column(String(12))  # test | production | sample
+    transaction_id: Mapped[str | None] = mapped_column(String(80), index=True)
+    ok: Mapped[bool] = mapped_column(Boolean, default=True)
+    summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    raw: Mapped[str | None] = mapped_column(Text)
+    message: Mapped[str | None] = mapped_column(String(300))
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+
+
+class ClaimWork(IdMixin, Base):
+    """A claim that needs a person: a rejection (277CA) or a denial (835), with its route.
+
+    Rejections are fixed and resubmitted; denials are routed by their CARC/RARC category to a fix
+    and resubmission, a payer call, an appeal, or a write-off for staff to approve."""
+
+    __tablename__ = "claim_work"
+    __table_args__ = (UniqueConstraint("workspace_id", "claim_id", "kind", "source_ref"),)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    claim_id: Mapped[str] = mapped_column(ForeignKey("claims.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(10))  # rejection | denial
+    source_ref: Mapped[str] = mapped_column(String(80))  # the 277CA / 835 transaction
+    category: Mapped[str] = mapped_column(String(24))
+    route: Mapped[str] = mapped_column(String(16))  # fix_resubmit | payer_call | appeal | write_off
+    state: Mapped[str] = mapped_column(String(12), default="open")  # open | done | dismissed
+    title: Mapped[str] = mapped_column(String(160))
+    # [{code, kind (carc|rarc|277), group, text, amount}] — codes and payer text, no patient data.
+    reasons: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    suggestion: Mapped[str | None] = mapped_column(String(300))
+    amount: Mapped[str | None] = mapped_column(String(16))  # denied or adjusted amount
+    due_on: Mapped[str | None] = mapped_column(String(10))  # appeal / corrected-claim deadline
+    case_id: Mapped[str | None] = mapped_column(String(36))
+    appeal_id: Mapped[str | None] = mapped_column(String(36))
+    intent_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    resolved_by: Mapped[str | None] = mapped_column(String(36))
+    resolution: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+    resolved_at: Mapped[datetime | None] = mapped_column()
+
+
+class EraPosting(IdMixin, Base):
+    """One claim's payment from an 835, proposed for posting to the EHR (RC7).
+
+    The EHR stays the system of record: the payment and each adjustment become write intents that
+    staff approve (L3). ``state``: proposed → posting (intents out) → posted, or ``manual`` when
+    the EHR can't take the write and staff post it by hand, or ``unmatched``."""
+
+    __tablename__ = "era_postings"
+    __table_args__ = (UniqueConstraint("workspace_id", "transaction_id", "payer_claim_number"),)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    claim_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    transaction_id: Mapped[str] = mapped_column(String(80))
+    patient_control_number: Mapped[str] = mapped_column(String(40))
+    payer_claim_number: Mapped[str] = mapped_column(String(60))
+    payer_name: Mapped[str | None] = mapped_column(String(160))
+    claim_status_code: Mapped[str | None] = mapped_column(String(4))
+    outcome: Mapped[str] = mapped_column(String(16))  # paid | partially_paid | denied | reversed
+    charge: Mapped[str] = mapped_column(String(16))
+    paid: Mapped[str] = mapped_column(String(16))
+    patient_responsibility: Mapped[str] = mapped_column(String(16))
+    # [{group, code, amount, text, line_id}] claim and line adjustments together.
+    adjustments: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    remarks: Mapped[list[str]] = mapped_column(JSON, default=list)
+    payment_method: Mapped[str | None] = mapped_column(String(4))
+    trace_number: Mapped[str | None] = mapped_column(String(60))  # check / EFT number
+    paid_on: Mapped[str | None] = mapped_column(String(10))
+    state: Mapped[str] = mapped_column(String(12), default="proposed")
+    intent_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    note: Mapped[str | None] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
+
+
+class Appeal(IdMixin, Base):
+    """An appeal of a denied claim: a letter drafted from the claim, the 835 and the evidence, for
+    staff to approve; its deadline; its attachments. Sending by fax or payer portal has no vendor
+    yet (``claims.appeals.SENDERS``), so an approved appeal is marked ready to send by hand."""
+
+    __tablename__ = "claim_appeals"
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    claim_id: Mapped[str] = mapped_column(ForeignKey("claims.id"), index=True)
+    work_id: Mapped[str | None] = mapped_column(String(36))
+    level: Mapped[str] = mapped_column(String(24))  # first_level | redetermination | …
+    # draft | approved | ready_to_send | sent | decided | withdrawn
+    state: Mapped[str] = mapped_column(String(14), default="draft")
+    due_on: Mapped[str] = mapped_column(String(10))
+    letter: Mapped[str | None] = mapped_column(Text)  # sealed: names the patient
+    evidence: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)  # labels, no PHI
+    # [{attachment_id, label, content_type, report_type, uploaded_at}]
+    attachments: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    send_channel: Mapped[str | None] = mapped_column(String(12))  # fax | portal | mail | none
+    send_note: Mapped[str | None] = mapped_column(String(200))
+    approved_by: Mapped[str | None] = mapped_column(String(36))
+    approved_at: Mapped[datetime | None] = mapped_column()
+    sent_at: Mapped[datetime | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 

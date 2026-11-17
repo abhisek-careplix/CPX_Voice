@@ -1,20 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, Banknote, CircleDashed, ClipboardList, FileSearch, FlaskConical, Hourglass, PhoneCall, Play, RefreshCw, Send } from "lucide-react";
+import { AlertCircle, Banknote, CircleDashed, ClipboardList, Download, FileSearch, FlaskConical, Hourglass, PhoneCall, Play, RefreshCw, Send } from "lucide-react";
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { useCan } from "../App";
-import { Banner, Card, Empty, ErrorState, ListSkeleton, Pill, Sheet, Toolbar, timeAgo, useToast } from "../ui";
+import { Banner, Card, Empty, ErrorState, ListSkeleton, Pill, Segmented, Sheet, Toolbar, timeAgo, useToast } from "../ui";
+import { Appeals, BilledClaimPanel, BillingProfileCard, Charges, Remittances, ReportFetch, StagePill, TestModeBanner, WorkQueue, type BilledClaim } from "./ClaimsBilling";
 
 // ---------- Types (mirror apps/api claims views) ----------
 
 type ClaimStatus = "paid" | "denied" | "no_payment" | "finalized" | "pending" | "accepted" | "info_requested" | "rejected" | "not_found" | "error" | "unavailable";
 
-interface ClaimRow {
+interface ClaimRow extends Omit<BilledClaim, "payer_name" | "claim_number" | "id"> {
   id: string;
   claim_number: string;
   payer_claim_number: string | null;
-  source: "sample" | "ehr";
+  source: "sample" | "ehr" | "charges";
   synthetic: boolean;
   sample_scenario: string | null;
   payer_id: string | null;
@@ -105,12 +106,17 @@ function StatusPill({ status, label }: { status: ClaimStatus | null; label: stri
 const money = (v: string | null | undefined) => (v ? `$${Number(v).toFixed(2)}` : "–");
 const SOURCE_LABEL = { clearinghouse: "Clearinghouse", sample: "Synthetic sample", none: "Not asked" } as const;
 
+type Tab = "claims" | "work" | "era" | "appeals" | "charges" | "clearinghouse";
+
 export default function Claims() {
   const canStart = useCan("start_task");
   const qc = useQueryClient();
   const toast = useToast();
   const [params, setParams] = useSearchParams();
   const openId = params.get("claim");
+  const tab = (params.get("tab") as Tab) || "claims";
+  const setTab = (t: Tab) => setParams(t === "claims" ? {} : { tab: t }, { replace: true });
+  const openClaim = (id: string) => setParams({ ...(tab === "claims" ? {} : { tab }), claim: id }, { replace: true });
   const claims = useQuery({ queryKey: ["claims"], queryFn: () => api.get<ClaimRow[]>("/claims") });
   const ch = useQuery({ queryKey: ["clearinghouse"], queryFn: () => api.get<ClearinghouseOverview>("/clearinghouse") });
   const refresh = () => qc.invalidateQueries({ queryKey: ["claims"] });
@@ -131,6 +137,15 @@ export default function Claims() {
     },
     onError: (e) => toast((e as ApiError).message),
   });
+  const poll = useMutation({
+    mutationFn: () => api.post<{ kind: string; claims?: number; error?: string }[]>("/claims/clearinghouse/poll"),
+    onSuccess: (r) => {
+      const n = r.reduce((sum, x) => sum + (x.claims ?? 0), 0);
+      toast(r.length ? `${r.length} report${r.length === 1 ? "" : "s"} read · ${n} claim update${n === 1 ? "" : "s"}` : "Nothing new from the clearinghouse");
+      for (const key of ["claims", "claim-work", "era", "appeals", "claim-tx"]) qc.invalidateQueries({ queryKey: [key] });
+    },
+    onError: (e) => toast((e as ApiError).message),
+  });
   const rows = claims.data ?? [];
   const count = (pred: (c: ClaimRow) => boolean) => (claims.data ? rows.filter(pred).length : undefined);
 
@@ -138,14 +153,19 @@ export default function Claims() {
     <>
       <Toolbar
         eyebrow="Back office"
-        title="Claim follow-up"
-        description="Submitted claims are checked electronically by age (first at 14 days, then weekly) until the payer finalizes them. When the electronic status is stale or unavailable, a claim status case is opened so the agent can call the payer."
+        title="Claims"
+        description="From charge to cash: claims are built from charges, scrubbed, submitted through the clearinghouse, acknowledged (277CA), paid (835) and posted to the EHR with approval. Rejections, denials and appeals are worked from the queue; claims that go quiet get a payer call."
         actions={
           canStart && (
             <>
               <button className="btn btn-secondary" onClick={() => samples.mutate()} disabled={samples.isPending}>
-                <FlaskConical size={15} aria-hidden /> Add sample claims
+                <FlaskConical size={15} aria-hidden /> Add follow-up samples
               </button>
+              {ch.data?.connected && (
+                <button className="btn btn-secondary" onClick={() => poll.mutate()} disabled={poll.isPending}>
+                  {poll.isPending ? <span className="spinner" aria-label="Checking" /> : <Download size={15} aria-hidden />} Check for responses
+                </button>
+              )}
               <button className="btn btn-primary" onClick={() => run.mutate()} disabled={run.isPending}>
                 {run.isPending ? <span className="spinner" aria-label="Running" /> : <Play size={15} aria-hidden />} Run follow-up now
               </button>
@@ -160,13 +180,34 @@ export default function Claims() {
             Sample claims still answer with synthetic payer responses; claims from the EHR wait until it's connected.
           </Banner>
         )}
-        {ch.data?.mode === "test" && (
-          <Banner tone="blue" title="Clearinghouse test mode.">
-            {" "}
-            Checks sent to the clearinghouse carry its published test claim, never your patient, and the answer is labelled Test. Sample claims answer with
-            synthetic payer responses on the schedule.
-          </Banner>
+        {ch.data?.mode === "test" && <TestModeBanner />}
+
+        <Segmented<Tab>
+          label="Claims views"
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "claims", label: "Claims" },
+            { value: "work", label: "Work queue" },
+            { value: "era", label: "Remittances" },
+            { value: "appeals", label: "Appeals" },
+            { value: "charges", label: "Charges" },
+            { value: "clearinghouse", label: "Clearinghouse" },
+          ]}
+        />
+        {tab === "work" && <WorkQueue onOpenClaim={openClaim} />}
+        {tab === "era" && <Remittances onOpenClaim={openClaim} />}
+        {tab === "appeals" && <Appeals />}
+        {tab === "charges" && <Charges />}
+        {tab === "clearinghouse" && (
+          <>
+            <BillingProfileCard />
+            {ch.data?.connected && <ReportFetch />}
+            <ClearinghouseCard data={ch.data} error={ch.error} />
+          </>
         )}
+        {tab === "claims" && (
+          <>
 
         <div className="grid-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
           <Stat icon={ClipboardList} tint="var(--tile-blue)" value={count((c) => !c.final)} label="Open claims" />
@@ -175,12 +216,12 @@ export default function Claims() {
           <Stat icon={PhoneCall} tint="var(--tile-orange)" value={count((c) => !!c.follow_up_case_id)} label="Payer calls opened" />
         </div>
 
-        <Card title="Claims" subtitle="Oldest first. Select a claim for its status history and evidence.">
+        <Card title="Claims" subtitle="Oldest first. Select a claim to fix, submit or see its history and evidence.">
           {claims.isPending && <ListSkeleton rows={4} />}
           {claims.error && <ErrorState error={claims.error} onRetry={() => claims.refetch()} title="Couldn't load claims" />}
           {claims.data && rows.length === 0 && (
             <Empty icon={FileSearch} title="No claims yet">
-              Claims arrive from the EHR's billing once that pull is connected. Until then, add synthetic sample claims to see the follow-up work.
+              Build claims from charges (Charges tab), or add follow-up samples to see the payer-call work.
             </Empty>
           )}
           {rows.length > 0 && (
@@ -193,21 +234,22 @@ export default function Claims() {
                         <span className="mono">{c.claim_number}</span> · {c.payer_name}
                       </div>
                       <div className="row-sub">
-                        Service {c.date_of_service} · {money(c.billed_amount)} · {c.age_days} days with the payer
+                        Service {c.date_of_service} · {money(c.billed_amount)}
+                        {c.stage && !c.submitted_on ? " · not submitted" : ` · ${c.age_days} days with the payer`}
                         {c.follow_up_case_id ? " · payer call opened" : ""}
                       </div>
                     </div>
                     {c.synthetic && <span className="sample-label">Synthetic</span>}
                     {c.status_mock && <span className="chip">Test</span>}
-                    <StatusPill status={c.status} label={c.status_label} />
+                    {c.stage ? <StagePill stage={c.stage} /> : <StatusPill status={c.status} label={c.status_label} />}
                   </button>
                 </li>
               ))}
             </ul>
           )}
         </Card>
-
-        <ClearinghouseCard data={ch.data} error={ch.error} />
+          </>
+        )}
       </div>
       {openId && <ClaimSheet id={openId} canStart={canStart} connected={!!ch.data?.connected} onClose={() => setParams({}, { replace: true })} />}
     </>
@@ -245,7 +287,8 @@ function ClaimSheet({ id, canStart, connected, onClose }: { id: string; canStart
       onClose={onClose}
       footer={
         c &&
-        canStart && (
+        canStart &&
+        (!c.stage || ["submitted", "accepted"].includes(c.stage)) && (
           <>
             {c.source === "sample" && connected && (
               <button className="btn btn-secondary" onClick={() => check.mutate("clearinghouse")} disabled={check.isPending}>
@@ -262,8 +305,9 @@ function ClaimSheet({ id, canStart, connected, onClose }: { id: string; canStart
     >
       {detail.isPending && <ListSkeleton rows={4} icon={false} />}
       {detail.error && <ErrorState error={detail.error} onRetry={() => detail.refetch()} title="Couldn't load this claim" />}
-      {c && (
-        <div className="stack" style={{ gap: 22 }}>
+      {c && c.stage && <BilledClaimPanel key={`${c.id}-${c.stage}-${c.scrub?.checked_at ?? ""}`} claim={c} />}
+      {c && (!c.stage || !["draft", "ready", "blocked"].includes(c.stage)) && (
+        <div className="stack" style={{ gap: 22, marginTop: c.stage ? 22 : 0 }}>
           <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
             <StatusPill status={c.status} label={c.status_label} />
             {c.status_mock && <span className="chip">Test-mode answer (the clearinghouse's test claim, not this one)</span>}

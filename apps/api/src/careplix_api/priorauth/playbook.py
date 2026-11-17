@@ -609,14 +609,14 @@ async def _patient_phone(ctx: RunContext) -> tuple[str | None, str]:
 
 
 def _visit_text(ctx: RunContext) -> str:
+    """The notice body. The text channel puts the practice's name in front of it."""
     data = ctx.case.data or {}
-    practice = types.value(data, "provider.name") or "Your care team"
     when = ((data.get("visit") or {}).get("at") or "").split(" ")[0] or types.value(
         data, "service.date"
     )
     phone = ctx.settings.sandbox_number
     return (
-        f"{practice}: please call us about your upcoming visit"
+        "Please call us about your upcoming visit"
         + (f" on {when}" if when else "")
         + " before you come in"
         + (f", at {phone}" if phone else "")

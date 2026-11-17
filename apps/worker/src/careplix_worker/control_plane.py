@@ -164,6 +164,23 @@ class ControlPlane:
         # Never raise into the conversation: the model gets an explicit "unknown" outcome.
         return {"state": "unknown", "result": {"message": "The system could not complete that."}}
 
+    async def handoff(self, handoff_id: str, outcome: str, detail: str | None) -> dict[str, Any]:
+        """Report a warm transfer's outcome; the API answers with what to tell the caller."""
+        for attempt in range(3):
+            try:
+                response = await self._http.post(
+                    f"/internal/attempts/{self.attempt_id}/handoffs/{handoff_id}",
+                    json={"outcome": outcome, "detail": detail},
+                    headers=self._auth(),
+                )
+                if response.status_code < 500:
+                    response.raise_for_status()
+                    return response.json()
+            except httpx.TransportError:
+                pass
+            await asyncio.sleep(0.3 * (attempt + 1))  # idempotent: a settled hand-off stays put
+        return {"state": "unknown", "message": "Tell the caller the office will call them back."}
+
     async def post_events(self, events: list[dict[str, Any]]) -> dict[str, Any]:
         response = await self._http.post(
             f"/internal/attempts/{self.attempt_id}/events",

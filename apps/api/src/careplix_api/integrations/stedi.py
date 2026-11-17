@@ -40,6 +40,13 @@ import httpx
 ELIGIBILITY_PATH = "/2026-06-01/eligibility-check"
 PAYER_SEARCH_PATH = "/2024-04-01/payers/search"
 CLAIM_STATUS_PATH = "/2024-04-01/change/medicalnetwork/claimstatus/v2"
+# Claims (837P JSON, CMS-1500 layout), on the claims host; reports and polling on their own hosts.
+CLAIM_SUBMIT_PATH = "/2025-03-07/professional-claim-submissions"
+CLAIM_VALIDATE_PATH = "/2025-03-07/professional-claim-submissions/validate"
+ATTACHMENT_PATH = "/2025-03-07/claim-attachments/file"
+REPORT_PATH = "/2024-04-01/change/medicalnetwork/reports/v2/{transaction_id}/{kind}"
+POLL_PATH = "/2023-08-01/polling/transactions"
+ATTACHMENT_TYPES = ("application/pdf", "image/tiff", "image/jpeg", "image/png")
 USER_AGENT = "CarePlix-Voice/1.0"
 TIMEOUT_S = 125.0  # Stedi gives up on the payer after 120 s
 TEST, PRODUCTION = "test", "production"
@@ -482,6 +489,16 @@ def _gate(limit: int) -> asyncio.Semaphore:
     return gate
 
 
+def sibling(base_url: str, service: str) -> str:
+    """Another of the vendor's API hosts next to the healthcare one (``healthcare.us.…`` →
+    ``claims.us.…``, ``core.us.…``). Any other base (a test double) serves every API itself."""
+    parsed = httpx.URL(base_url)
+    host = parsed.host or ""
+    if host.startswith("healthcare."):
+        return str(parsed.copy_with(host=service + host.removeprefix("healthcare."))).rstrip("/")
+    return base_url.rstrip("/")
+
+
 class StediClient:
     def __init__(
         self,
@@ -496,6 +513,9 @@ class StediClient:
         if mode not in (TEST, PRODUCTION):
             raise ValueError(f"unknown clearinghouse mode {mode!r}")
         self.base_url, self.mode = base_url.rstrip("/"), mode
+        self.claims_url = sibling(self.base_url, "claims.")
+        self.core_url = sibling(self.base_url, "core.")
+        self._transport = transport
         self.calls, self._max_in_flight = 0, max_in_flight
         self._http = httpx.AsyncClient(
             timeout=timeout_s,
@@ -511,13 +531,15 @@ class StediClient:
         await self._http.aclose()
 
     async def _request(
-        self, method: str, path: str, **kwargs: Any
+        self, method: str, path: str, *, base: str | None = None, **kwargs: Any
     ) -> tuple[dict[str, Any], int, int]:
         started = time.perf_counter()
         self.calls += 1
         try:
             async with _gate(self._max_in_flight):
-                response = await self._http.request(method, f"{self.base_url}{path}", **kwargs)
+                response = await self._http.request(
+                    method, f"{base or self.base_url}{path}", **kwargs
+                )
         except httpx.TimeoutException:
             raise StediError("timeout", f"{method} {path} timed out") from None
         except httpx.HTTPError as exc:
@@ -567,6 +589,107 @@ class StediClient:
         if http_status >= 400:
             self._raise(body, http_status, "")
         return body, ms
+
+    # --- claims (837P), reports (277CA, 835), attachments (275) ------------------------------
+    # Mode guards live in the gateway (clearinghouse.Clearinghouse), which knows whether a claim
+    # is synthetic: a test key sends only synthetic claims, a production key never the test payer.
+
+    async def validate_claim(self, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
+        """The clearinghouse's edits without submitting: ``{}`` when clean, else ``errors[]``."""
+        out, http_status, ms = await self._request(
+            "POST", CLAIM_VALIDATE_PATH, base=self.claims_url, json=body
+        )
+        if http_status >= 400:
+            self._raise_claim(out, http_status)
+        return out, ms
+
+    async def submit_claim(
+        self, body: dict[str, Any], idempotency_key: str
+    ) -> tuple[dict[str, Any], int]:
+        """Submit one claim. The same key within 24 hours returns the first answer instead of
+        submitting twice; a 201 with ``errors[]`` means it failed edits and wasn't sent."""
+        out, http_status, ms = await self._request(
+            "POST",
+            CLAIM_SUBMIT_PATH,
+            base=self.claims_url,
+            json=body,
+            headers={"Idempotency-Key": idempotency_key[:255]},
+        )
+        if http_status >= 400:
+            self._raise_claim(out, http_status)
+        return out, ms
+
+    @staticmethod
+    def _raise_claim(body: dict[str, Any], http_status: int) -> None:
+        message = white_label(str(body.get("message") or f"HTTP {http_status}"))
+        fields = [
+            f"{f.get('path')}: {f.get('message')}"
+            for f in body.get("fieldList") or []
+            if isinstance(f, dict)
+        ]
+        if fields:
+            message = white_label(f"{message} ({'; '.join(fields[:5])})")
+        if http_status in (401, 403):
+            raise StediError("auth", message, http_status)
+        if http_status in (409, 429):  # 409: the same idempotency key is still in flight
+            raise StediError("busy", message, http_status)
+        raise StediError("invalid" if http_status < 500 else "http", message, http_status)
+
+    async def report(self, transaction_id: str, kind: str) -> tuple[dict[str, Any], int]:
+        """A processed 277 (claim acknowledgement) or 835 (remittance) as JSON."""
+        if kind not in ("277", "835") or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", transaction_id):
+            raise StediError("invalid", "Unknown report.")
+        out, http_status, ms = await self._request(
+            "GET",
+            REPORT_PATH.format(transaction_id=transaction_id, kind=kind),
+            headers={"Accept-Encoding": "gzip"},
+        )
+        if http_status >= 400:
+            self._raise_claim(out, http_status)
+        return out, ms
+
+    async def poll_transactions(self, start: str) -> list[dict[str, Any]]:
+        """Processed transactions since ``start`` (ISO time): the pull alternative to webhooks."""
+        items: list[dict[str, Any]] = []
+        params: dict[str, Any] = {"startDateTime": start}
+        for _ in range(10):
+            out, http_status, _ = await self._request(
+                "GET", POLL_PATH, base=self.core_url, params=params
+            )
+            if http_status >= 400:
+                self._raise_claim(out, http_status)
+            items.extend(i for i in out.get("items") or [] if isinstance(i, dict))
+            token = out.get("nextPageToken")
+            if not token:
+                break
+            params = {"startDateTime": start, "pageToken": token}
+        return items
+
+    async def upload_attachment(self, content_type: str, data: bytes) -> tuple[str, int]:
+        """Unsolicited 275: register the file, then PUT it to the upload URL. Returns the
+        attachment ID that a claim (or corrected claim) then references."""
+        if content_type not in ATTACHMENT_TYPES:
+            raise StediError("invalid", "Attachments are PDF, TIFF, JPEG or PNG.")
+        out, http_status, ms = await self._request(
+            "POST", ATTACHMENT_PATH, base=self.claims_url, json={"contentType": content_type}
+        )
+        if http_status >= 400:
+            self._raise_claim(out, http_status)
+        upload_url = out.get("uploadUrl") or out.get("uploadURL")
+        attachment_id = out.get("attachmentId")
+        if not (upload_url and attachment_id):
+            raise StediError("invalid", "The clearinghouse returned no upload URL.")
+        # A pre-signed URL: no API key on this request (it would break the signature).
+        async with httpx.AsyncClient(timeout=60.0, transport=self._transport) as raw:
+            try:
+                put = await raw.put(
+                    upload_url, content=data, headers={"Content-Type": content_type}
+                )
+            except httpx.HTTPError as exc:
+                raise StediError("network", type(exc).__name__) from None
+        if put.status_code >= 400:
+            raise StediError("http", f"Attachment upload failed (HTTP {put.status_code}).")
+        return str(attachment_id), ms
 
     async def search_payers(
         self,

@@ -451,7 +451,7 @@ def test_a_denial_affects_the_visit_so_the_patient_is_texted_without_details(tmp
             and "Coverage criteria not met" in (denied["status_reason"])
         )
         [(who, words)] = text.notices
-        assert who == "J. R." and "please call us about your upcoming visit" in words
+        assert who == "J. R." and "Please call us about your upcoming visit" in words
         assert "denied" not in words.lower() and "auth" not in words.lower()
         told = [lk for lk in denied["links"] if lk["part"] == "informed"]
         assert [(lk["audience"], lk["channel"]) for lk in told] == [("patient", "text")]

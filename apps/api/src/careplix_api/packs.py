@@ -28,6 +28,7 @@ SHARED_SECTIONS = (
     "browser",
     "approvals",
     "inbox",
+    "texts",  # text messages and call hand-offs: every lead workflow in both lines needs them
 )
 
 PACKS: dict[str, dict[str, Any]] = {
@@ -38,10 +39,12 @@ PACKS: dict[str, dict[str, Any]] = {
         "case_types": (
             "prior_authorization",
             "claim_status",
+            "claim_denial",
             "eligibility_check",
             "appointment_reminder",
             "care_outreach",
             "slot_backfill",
+            "call_back",
         ),
     },
     "home_health": {
@@ -50,7 +53,7 @@ PACKS: dict[str, dict[str, Any]] = {
         # Clinic pages (Practice schedule, backfill, care opportunities) stay hidden until the
         # home-care connector and its workflows land (OPERATING_PLAN phase 3).
         "sections": SHARED_SECTIONS,
-        "case_types": ("prior_authorization", "claim_status", "eligibility_check"),
+        "case_types": ("prior_authorization", "claim_status", "eligibility_check", "call_back"),
     },
 }
 

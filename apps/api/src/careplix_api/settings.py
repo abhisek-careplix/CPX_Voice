@@ -169,6 +169,23 @@ class Settings(BaseSettings):
     receptionist_lead_minutes: int = 60  # earliest bookable time from now
     receptionist_search_days: int = 14
 
+    # Text messages (careplix_api.channels) through Twilio Programmable Messaging (BAA signed).
+    # The Auth Token both sends and checks Twilio's webhook signatures; API keys can't sign, so a
+    # key pair (optional) only replaces it for sending. Empty token: texting is off.
+    twilio_account_sid: str = ""
+    twilio_auth_token: SecretStr = SecretStr("")
+    twilio_api_key_sid: str = ""
+    twilio_api_key_secret: SecretStr = SecretStr("")
+    twilio_messaging_service_sid: str = ""  # MG…; sends through the 10DLC campaign's service
+    sms_from_number: str = ""  # E.164 sender; falls back to the shared sandbox number
+    twilio_api_base: str = "https://api.twilio.com"
+    # STOP/HELP/START replies: "twilio" (Twilio's Advanced Opt-Out sends them, the default on US
+    # long codes) or "app" (we reply; only when Twilio's own replies are switched off).
+    sms_keyword_replies: str = "twilio"
+    sms_interval_s: float = 5.0  # held messages and inbound replies are worked this often
+    sms_reply_window_h: int = 24  # how long an offer waits for a YES or NO
+    workspace_timezone: str = "America/Chicago"  # until a workspace sets its own
+
     # Release D calling policy (FR05, SEC12): only approved synthetic test destinations.
     approved_test_destinations: str = ""
     # Shared sandbox line for trials: one CarePlix Twilio number. Inbound callers key in their
@@ -258,6 +275,14 @@ class Settings(BaseSettings):
         extra = {e.lower() for e in re.split(r"[,;\s]+", self.platform_admins) if e}
         domain = self.iap_allowed_domain.strip().lower()
         return email in extra or bool(domain and email.endswith("@" + domain))
+
+    @property
+    def sms_configured(self) -> bool:
+        return bool(self.twilio_account_sid and self.twilio_auth_token.get_secret_value())
+
+    @property
+    def sms_sender(self) -> str:
+        return self.sms_from_number or self.sandbox_number
 
     @property
     def approved_destinations(self) -> set[str]:
