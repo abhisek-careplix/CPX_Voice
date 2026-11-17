@@ -38,7 +38,7 @@ from careplix_api.channels import webhooks as channels_webhooks
 from careplix_api.claims import api as claims_api
 from careplix_api.claims import billing_api as claims_billing_api
 from careplix_api.claims import follow_up as claims_follow_up
-from careplix_api.db import Database
+from careplix_api.db import from_settings as db_from_settings
 from careplix_api.errors import ApiError
 from careplix_api.evals import api as evals_api
 from careplix_api.evals import service as evals_service
@@ -89,7 +89,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        app.state.db = Database(settings.database_url)
+        app.state.db = db_from_settings(settings)
         app.state.gateway = gateway or LiveKitGateway(settings)
         app.state.runner = CallRunner(app.state.db, app.state.gateway, settings)
         app.state.model_prober = model_prober

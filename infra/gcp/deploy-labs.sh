@@ -241,6 +241,14 @@ openemr() {
 
 # Secret Manager entries the services read. A missing one fails its service's deploy and stops the
 # script halfway (services left on mixed builds), so check them all before changing anything.
+# Cloud SQL connection budget. db-f1-micro allows 25 connections (3 kept for superusers), shared by
+# every instance of every API service, and a deploy briefly runs the old and new Studio side by
+# side. Peak: Studio 2 x 6 + internal 2 x 3 + webhooks 2 x 2 = 22. On 16 Nov 2026 the defaults
+# (15 per process) used up the slots and the new Studio couldn't open its first connection.
+DB_BUDGET_STUDIO="DB_POOL_SIZE=4,DB_MAX_OVERFLOW=2"
+DB_BUDGET_INTERNAL="DB_POOL_SIZE=2,DB_MAX_OVERFLOW=1"
+DB_BUDGET_WEBHOOKS="DB_POOL_SIZE=1,DB_MAX_OVERFLOW=1"
+
 REQUIRED_SECRETS="cpx-database-url cpx-session-secret cpx-worker-token cpx-livekit-api-key cpx-livekit-api-secret
   cpx-nexhealth-api-key cpx-stedi-api-key cpx-data-key cpx-browser-token"
 
@@ -296,7 +304,7 @@ deploy() {
   fi
   $G run deploy careplix-webhooks --region "$REGION" --image "$REGISTRY/api:$TAG" \
     --service-account "$SA_WEBHOOKS" --add-cloudsql-instances "$conn" --allow-unauthenticated \
-    --set-env-vars "$webhooks_env" --set-secrets "DATABASE_URL=cpx-database-url:latest,DATA_ENCRYPTION_KEY=cpx-data-key:latest$stedi_webhook_secret$sms_secrets" \
+    --set-env-vars "$webhooks_env,$DB_BUDGET_WEBHOOKS" --set-secrets "DATABASE_URL=cpx-database-url:latest,DATA_ENCRYPTION_KEY=cpx-data-key:latest$stedi_webhook_secret$sms_secrets" \
     --min-instances 0 --max-instances 2 \
     --command sh --args='-c,uvicorn careplix_api.practice.webhooks:app --host 0.0.0.0 --port $PORT'
   webhooks_url=$(url_of careplix-webhooks)
@@ -360,7 +368,7 @@ deploy() {
   fi
   $G run deploy careplix-studio --region "$REGION" --image "$REGISTRY/api:$TAG" \
     --service-account "$SA_STUDIO" --add-cloudsql-instances "$conn" $VPC_FLAGS \
-    --set-env-vars "$common_env,$practice_env,$browser_env$sms_vars,$identity_env,RUN_BACKGROUND=true,PUBLISH_REQUIRES_EVAL=true$studio_iap_env" \
+    --set-env-vars "$common_env,$practice_env,$browser_env$sms_vars,$identity_env,$DB_BUDGET_STUDIO,RUN_BACKGROUND=true,PUBLISH_REQUIRES_EVAL=true$studio_iap_env" \
     --set-secrets "$secrets,$practice_secrets,$studio_secrets$sms_secrets" --min-instances 1 --max-instances 1 --no-cpu-throttling \
     --timeout 3600 $studio_access
   if [ -n "$studio_iap_env" ]; then
@@ -376,7 +384,7 @@ deploy() {
   #    instance stays warm: every call starts with a claim here, and a cold start (~7 s) lost them.
   $G run deploy careplix-internal --region "$REGION" --image "$REGISTRY/api:$TAG" \
     --service-account "$SA_STUDIO" --add-cloudsql-instances "$conn" $VPC_FLAGS \
-    --set-env-vars "$common_env,$practice_env,RUN_BACKGROUND=false,SEED_DEMO_DATA=false" \
+    --set-env-vars "$common_env,$practice_env,$DB_BUDGET_INTERNAL,RUN_BACKGROUND=false,SEED_DEMO_DATA=false" \
     --set-secrets "$secrets,$practice_secrets" --min-instances 1 --max-instances 2 --no-allow-unauthenticated
   $G run services add-iam-policy-binding careplix-internal --region "$REGION" \
     --member "serviceAccount:$SA_WORKER" --role roles/run.invoker >/dev/null
