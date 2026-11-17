@@ -18,6 +18,15 @@ from careplix_api.main import create_app
 
 from .conftest import FakeGateway, make_settings
 
+
+def utc_today() -> date:
+    """The day the code stamps (UTC), not the machine's local day: they differ in the evening
+    west of UTC and in the morning east of it."""
+    from careplix_api.db import utcnow
+
+    return utcnow().date()
+
+
 PROFILE = {
     "organization": "Riverside Family Medicine (synthetic)",
     "npi": "1999999984",
@@ -313,7 +322,7 @@ def test_timely_filing_dates_are_relative_to_today():
     from careplix_api.claims.charges import VISITS_BY_KEY
 
     late = VISITS_BY_KEY["late"]
-    assert date.today() - timedelta(days=late.days_ago) < date.today() - timedelta(days=90)
+    assert utc_today() - timedelta(days=late.days_ago) < utc_today() - timedelta(days=90)
     assert json.dumps(x837.TEST_PREFIX)  # serialisable constants
 
 
@@ -611,7 +620,7 @@ def test_submit_is_idempotent_on_the_control_number(billing_studio, ch):
     assert first["result"]["state"] == "error" and first["stage"] == "ready"
     out = _submit(billing_studio, claim["id"])
     assert out["stage"] == "submitted" and out["submit_mode"] == "test"
-    assert out["submitted_on"] == date.today().isoformat()
+    assert out["submitted_on"] == utc_today().isoformat()
     [(key, body)] = ch.submitted
     assert key == f"{claim['claim_number']}-1"
     assert body["payer"]["id"] == "STEDI"
@@ -998,7 +1007,7 @@ def test_ehr_claims_post_through_write_intents(tmp_path, ch):
                                 "provider_id": 15,
                                 "procedure_code": "99213",
                                 "fee": {"amount": "142.00"},
-                                "charged_at": date.today().isoformat(),
+                                "charged_at": utc_today().isoformat(),
                             }
                         ],
                         "page_info": {"has_next_page": False},
@@ -1332,7 +1341,7 @@ def test_timely_filing_appeal_cites_the_acceptance(billing_studio, ch):
     )
     [work] = billing_studio.get("/api/claims/work?kind=denial").json()
     full = billing_studio.get(f"/api/claims/appeals/{work['appeal_id']}").json()
-    accepted = date.today().isoformat()
+    accepted = utc_today().isoformat()
     assert f"accepted it on {accepted}" in full["letter"]
     assert any(e["key"] == "acceptance" and e["have"] for e in full["evidence"])
 
