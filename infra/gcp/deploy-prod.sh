@@ -21,6 +21,8 @@ LABS_PROJECT=careplix-labs
 REGION=us-central1
 REPO=careplix-voice
 SQL_INSTANCE=careplix-voice-prod
+SQL_TIER=db-custom-1-3840     # 1 vCPU, 3.75 GB
+SQL_MAX_CONNECTIONS=100       # set explicitly on the instance; 3 are kept for superusers
 DB_NAME=careplix
 DB_USER=careplix
 MODEL=gemini-live-2.5-flash-native-audio
@@ -119,7 +121,8 @@ setup() {
   # connections only, and deletion protection.
   if ! $G sql instances describe "$SQL_INSTANCE" >/dev/null 2>&1; then
     $G sql instances create "$SQL_INSTANCE" --database-version POSTGRES_16 --edition enterprise \
-      --tier db-custom-1-3840 --region "$REGION" --availability-type regional \
+      --tier "$SQL_TIER" --database-flags "max_connections=$SQL_MAX_CONNECTIONS" \
+      --region "$REGION" --availability-type regional \
       --storage-size 20 --storage-auto-increase --backup-start-time 03:00 \
       --enable-point-in-time-recovery --retained-backups-count 30 --retained-transaction-log-days 7 \
       --ssl-mode ENCRYPTED_ONLY --deletion-protection
@@ -225,6 +228,16 @@ confirm() {
 
 url_of() { $G run services describe "$1" --region "$REGION" --format 'value(status.url)' 2>/dev/null || true; }
 
+# Cloud SQL connection budget (per process: pool size steady + overflow in a burst). Every instance
+# of every API service shares SQL_MAX_CONNECTIONS (97 usable), and a rollout runs old and new
+# revisions side by side, so the worst case counts each service's max instances twice:
+# Studio 2 x 1 x 12 + internal 2 x 2 x 6 + webhooks 2 x 2 x 3 = 60, leaving room for admin sessions
+# and a manual restore. labs (db-f1-micro, 25) ran out on 16 Nov 2026 with the 15-per-process
+# defaults; tests/test_deploy_prod.py recomputes this sum from the deploy commands.
+DB_BUDGET_STUDIO="DB_POOL_SIZE=8,DB_MAX_OVERFLOW=4"
+DB_BUDGET_INTERNAL="DB_POOL_SIZE=4,DB_MAX_OVERFLOW=2"
+DB_BUDGET_WEBHOOKS="DB_POOL_SIZE=2,DB_MAX_OVERFLOW=1"
+
 REQUIRED_SECRETS="cpx-database-url cpx-session-secret cpx-worker-token cpx-livekit-api-key cpx-livekit-api-secret
   cpx-nexhealth-prod-api-key cpx-stedi-prod-api-key cpx-data-key cpx-browser-token"
 
@@ -250,7 +263,7 @@ deploy() {
   #    records IDs; no IAP, no PHI in the request it answers.
   $G run deploy careplix-webhooks --region "$REGION" --image "$REGISTRY/api:$TAG" \
     --service-account "$SA_WEBHOOKS" --add-cloudsql-instances "$conn" --allow-unauthenticated \
-    --set-env-vars "CAREPLIX_ENV=production,LOG_LEVEL=INFO" --set-secrets "DATABASE_URL=cpx-database-url:latest,DATA_ENCRYPTION_KEY=cpx-data-key:latest" \
+    --set-env-vars "CAREPLIX_ENV=production,LOG_LEVEL=INFO,$DB_BUDGET_WEBHOOKS" --set-secrets "DATABASE_URL=cpx-database-url:latest,DATA_ENCRYPTION_KEY=cpx-data-key:latest" \
     --min-instances 0 --max-instances 2 \
     --command sh --args='-c,uvicorn careplix_api.practice.webhooks:app --host 0.0.0.0 --port $PORT'
   webhooks_url=$(url_of careplix-webhooks)
@@ -297,7 +310,7 @@ deploy() {
   fi
   $G run deploy careplix-studio --region "$REGION" --image "$REGISTRY/api:$TAG" \
     --service-account "$SA_STUDIO" --add-cloudsql-instances "$conn" \
-    --set-env-vars "$common_env,$practice_env,$browser_env,$identity_env,RUN_BACKGROUND=true,PUBLISH_REQUIRES_EVAL=true$studio_iap_env" \
+    --set-env-vars "$common_env,$practice_env,$browser_env,$identity_env,$DB_BUDGET_STUDIO,RUN_BACKGROUND=true,PUBLISH_REQUIRES_EVAL=true$studio_iap_env" \
     --set-secrets "$secrets,$practice_secrets,$studio_secrets" --min-instances 1 --max-instances 1 --no-cpu-throttling \
     --timeout 3600 $studio_access
   if [ -n "$studio_iap_env" ]; then
@@ -313,7 +326,7 @@ deploy() {
   # 4. Worker-facing internal API: its own identity, IAM-only for the worker, one warm instance.
   $G run deploy careplix-internal --region "$REGION" --image "$REGISTRY/api:$TAG" \
     --service-account "$SA_INTERNAL" --add-cloudsql-instances "$conn" \
-    --set-env-vars "$common_env,$practice_env,RUN_BACKGROUND=false" \
+    --set-env-vars "$common_env,$practice_env,$DB_BUDGET_INTERNAL,RUN_BACKGROUND=false" \
     --set-secrets "$secrets,$practice_secrets" --min-instances 1 --max-instances 2 --no-allow-unauthenticated
   $G run services add-iam-policy-binding careplix-internal --region "$REGION" \
     --member "serviceAccount:$SA_WORKER" --role roles/run.invoker >/dev/null

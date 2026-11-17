@@ -338,6 +338,36 @@ def test_deploy_checks_every_secret_it_mounts():
     assert referenced - {"cpx-anthropic-api-key", "cpx-resend-api-key"} <= required
 
 
+def test_the_api_services_fit_the_database_connection_limit_during_a_rollout():
+    """Each service's pool (size + overflow) x max instances x 2 (old and new revisions side by
+    side) must fit the connections the instance allows, less the 3 superuser slots and headroom."""
+    limit = int(re.search(r"^SQL_MAX_CONNECTIONS=(\d+)", TEXT, re.M).group(1))
+    assert '--database-flags "max_connections=$SQL_MAX_CONNECTIONS"' in TEXT
+    deploys = _deploys_in_script()
+    peak = 0
+    for service, budget in (
+        ("careplix-studio", "DB_BUDGET_STUDIO"),
+        ("careplix-internal", "DB_BUDGET_INTERNAL"),
+        ("careplix-webhooks", "DB_BUDGET_WEBHOOKS"),
+    ):
+        command = deploys[service]
+        assert f"${budget}" in command, service
+        values = dict(item.split("=") for item in _assignment(budget).split(","))
+        per_process = int(values["DB_POOL_SIZE"]) + int(values["DB_MAX_OVERFLOW"])
+        instances = int(re.search(r"--max-instances (\d+)", command).group(1))
+        peak += 2 * instances * per_process
+    assert peak <= (limit - 3) * 0.7, f"peak {peak} of {limit - 3} usable connections"
+    # Every service that opens the database has a budget (no 15-per-process defaults).
+    for service, command in deploys.items():
+        if "--add-cloudsql-instances" in command:
+            assert "$DB_BUDGET_" in command, service
+
+
+def _deploys_in_script() -> dict[str, str]:
+    text = TEXT.replace("\\\n", " ")
+    return dict(re.findall(r"run deploy (careplix-[a-z-]+) ([^\n]*)", text))
+
+
 # --- the script and the app agree -----------------------------------------------------------------
 
 
