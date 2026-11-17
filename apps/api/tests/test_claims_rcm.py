@@ -5,7 +5,8 @@ shapes. HTTP goes through ``httpx.MockTransport``; nothing leaves the test.
 """
 
 import json
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -547,6 +548,28 @@ def ch():
     return Clearinghouse()
 
 
+# The claims code takes "today" from ``careplix_api.db.utcnow`` (UTC). Tests that compare a
+# claim date with today pin that clock to 00:30 UTC, which is still the evening before in the
+# US, so a test that reaches for the local date instead fails on every machine.
+PINNED_UTC = datetime(2026, 11, 17, 0, 30, tzinfo=UTC)
+
+
+@pytest.fixture
+def utc_clock(monkeypatch):
+    """Pin ``careplix_api.db.utcnow`` (and so every claim date) to ``PINNED_UTC``."""
+    from careplix_api import db
+
+    class PinnedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return PINNED_UTC if tz is None else PINNED_UTC.astimezone(tz)
+
+    assert PINNED_UTC.astimezone(ZoneInfo("America/Chicago")).date() == date(2026, 11, 16)
+    monkeypatch.setattr(db, "datetime", PinnedDatetime)
+    assert db.utcnow() == PINNED_UTC
+    return PINNED_UTC
+
+
 @pytest.fixture
 def billing_studio(tmp_path, ch):
     with _app(
@@ -604,14 +627,14 @@ def test_clearinghouse_edits_block_the_claim(billing_studio, ch):
     assert not ch.submitted
 
 
-def test_submit_is_idempotent_on_the_control_number(billing_studio, ch):
+def test_submit_is_idempotent_on_the_control_number(utc_clock, billing_studio, ch):
     [claim] = _drafts(billing_studio, "office_partial")
     ch.fail_next = 429  # busy: nothing submitted, the claim stays ready
     first = _submit(billing_studio, claim["id"])
     assert first["result"]["state"] == "error" and first["stage"] == "ready"
     out = _submit(billing_studio, claim["id"])
     assert out["stage"] == "submitted" and out["submit_mode"] == "test"
-    assert out["submitted_on"] == date.today().isoformat()
+    assert out["submitted_on"] == utc_clock.date().isoformat() == "2026-11-17"
     [(key, body)] = ch.submitted
     assert key == f"{claim['claim_number']}-1"
     assert body["payer"]["id"] == "STEDI"
@@ -1318,7 +1341,7 @@ async def test_a_registered_sender_sends_the_approved_letter(tmp_path):
         appeals.SENDERS.pop("fax")
 
 
-def test_timely_filing_appeal_cites_the_acceptance(billing_studio, ch):
+def test_timely_filing_appeal_cites_the_acceptance(utc_clock, billing_studio, ch):
     _denied(
         billing_studio,
         ch,
@@ -1332,8 +1355,7 @@ def test_timely_filing_appeal_cites_the_acceptance(billing_studio, ch):
     )
     [work] = billing_studio.get("/api/claims/work?kind=denial").json()
     full = billing_studio.get(f"/api/claims/appeals/{work['appeal_id']}").json()
-    accepted = date.today().isoformat()
-    assert f"accepted it on {accepted}" in full["letter"]
+    assert "accepted it on 2026-11-17" in full["letter"]
     assert any(e["key"] == "acceptance" and e["have"] for e in full["evidence"])
 
 
@@ -1377,8 +1399,6 @@ def test_overdue_appeals_are_flagged():
 
 
 # --- claim status follow-up for claims we submitted (RC6) -------------------------------------
-
-from datetime import UTC, datetime  # noqa: E402
 
 from careplix_api.claims import follow_up  # noqa: E402
 from careplix_api.models import Case  # noqa: E402
