@@ -30,11 +30,14 @@ DEFAULT_RULES: dict[str, str] = {
     "browser_plan": "supervisor",
     "clinician_signoff": "clinician",
     "hand_off": "staff",
+    "auth_packet": "staff",
     "escalation": "staff",
     # What a playbook may do on its own
     "playbook.contact": "agent",  # approved destinations only; consent lives in the channel
     "playbook.ehr_write.appointment_confirm": "agent",  # the patient just confirmed it
     "playbook.ehr_write.appointment_book": "agent",  # the patient said yes to the offered slot
+    # Submitting a prior auth the packet supports (synthetic payer sandbox only until the PHI gate).
+    "playbook.prior_auth.submit": "agent",
     "playbook.ehr_write": "admin",  # any other write a playbook proposes waits for a person
     "playbook.clinical_message": "clinician",  # clinical words come from a clinician
 }

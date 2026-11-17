@@ -7,6 +7,8 @@ Kinds, each with its approver from :mod:`careplix_api.cases.policy`:
 - ``browser_plan`` / ``browser_step``: the browser agent waiting on its supervisor (live view).
 - ``clinician_signoff``: a clinical case a clinician must sign off (the fifth contract part).
 - ``hand_off``: a case a playbook or a person handed to staff, or blocked, waiting on its owner.
+- ``auth_packet``: a prior auth whose packet is missing items (orders, notes, codes): the staff
+  task that completes it (``/prior-auth``).
 - ``escalation``: a case past its due date, for its owner.
 
 The old pages (Results, Approvals, Practice) keep working; each item links to its page.
@@ -22,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import careplix_api.cases as cases
 from careplix_api.auth import Principal
 from careplix_api.cases import contract, policy, types
+from careplix_api.cases.models import PlaybookRun
 from careplix_api.db import as_utc, utcnow
 from careplix_api.errors import ApiError
 from careplix_api.models import Agent, Case, Task, WriteIntent
@@ -34,6 +37,7 @@ KINDS = (
     "browser_step",
     "clinician_signoff",
     "hand_off",
+    "auth_packet",
     "escalation",
 )
 KIND_LABELS = {
@@ -43,6 +47,7 @@ KIND_LABELS = {
     "browser_step": "Browser step",
     "clinician_signoff": "Clinician sign-off",
     "hand_off": "Handed off",
+    "auth_packet": "Prior auth packet",
     "escalation": "Overdue case",
 }
 
@@ -188,7 +193,25 @@ async def _cases(session: AsyncSession, principal: Principal) -> list[dict[str, 
                     decide=["approve"],
                 )
             )
-        if case.escalated_at is None and case.status in ("handed_off", "blocked"):
+        gap = await _packet_gap(session, case) if case.escalated_at is None else None
+        if gap:
+            from careplix_api.priorauth.packet import in_sentence
+
+            missing = ", ".join(in_sentence(i["label"]) for i in gap)
+            out.append(
+                _item(
+                    principal,
+                    "auth_packet",
+                    case.id,
+                    "Complete the prior auth packet",
+                    f"Missing: {missing}"[:200],
+                    case.updated_at,
+                    f"/prior-auth?case={case.id}",
+                    case=case,
+                    extra={"mine": case.owner_id == principal.user_id},
+                )
+            )
+        elif case.escalated_at is None and case.status in ("handed_off", "blocked"):
             out.append(
                 _item(
                     principal,
@@ -218,6 +241,17 @@ async def _cases(session: AsyncSession, principal: Principal) -> list[dict[str, 
                 )
             )
     return out
+
+
+async def _packet_gap(session: AsyncSession, case: Case) -> list[dict[str, Any]] | None:
+    """A prior auth blocked on its packet: the missing items (else None)."""
+    if case.status != "blocked" or case.playbook != "prior_authorization":
+        return None
+    run = await session.scalar(select(PlaybookRun).where(PlaybookRun.case_id == case.id))
+    if run is None or run.state != "blocked":
+        return None
+    gaps = [i for i in (run.data or {}).get("packet") or [] if i["required"] and not i["present"]]
+    return gaps or None
 
 
 async def items(

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Briefcase, MessageSquareText, HeartPulse, Building2, UserRound, CalendarPlus, ClipboardCheck, GitCompareArrows, Globe, Home, Inbox, ListChecks, LogOut, Network, OctagonX, Phone, PlugZap, Receipt, ShieldCheck, Sparkles, Stethoscope, Building, Users, ChevronsUpDown } from "lucide-react";
+import { Bot, Briefcase, MessageSquareText, HeartPulse, Building2, UserRound, CalendarPlus, ClipboardCheck, FileCheck, GitCompareArrows, Globe, Home, Inbox, ListChecks, LogOut, Network, OctagonX, Phone, PlugZap, Receipt, ShieldCheck, Sparkles, Stethoscope, Building, Users, ChevronsUpDown } from "lucide-react";
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, ApiError, type Inbox as InboxData, type Me, type MyWorkspace, type WorkspaceSummary } from "./api";
@@ -14,6 +14,7 @@ import Hub from "./pages/Hub";
 import ReviewInbox from "./pages/Inbox";
 import CallDetail from "./pages/CallDetail";
 import Claims from "./pages/Claims";
+import PriorAuth from "./pages/PriorAuth";
 import Cases from "./pages/Cases";
 import CareOpportunities from "./pages/CareOpportunities";
 import Calls from "./pages/Calls";
@@ -201,6 +202,11 @@ function Shell() {
                 <Receipt size={16} aria-hidden /> Claims
               </NavLink>
             ),
+            show("prior_auth") && (
+              <NavLink key="prior_auth" to="/prior-auth" className="nav-link">
+                <FileCheck size={16} aria-hidden /> Prior auth
+              </NavLink>
+            ),
           ]}
         </NavGroup>
         <NavGroup label="Settings">
@@ -295,6 +301,7 @@ function Shell() {
           <Route path="/backfill" element={<Gate show={show("backfill")}><Backfill /></Gate>} />
           <Route path="/texts" element={<Gate show={show("texts")}><TextMessages /></Gate>} />
           <Route path="/claims" element={<Gate show={show("claims")}><Claims /></Gate>} />
+          <Route path="/prior-auth" element={<Gate show={show("prior_auth")}><PriorAuth /></Gate>} />
           <Route path="/hub" element={<Gate show={show("hub")}><Hub /></Gate>} />
           <Route path="/members" element={<Members />} />
           <Route path="/platform" element={<Gate show={me.platform}><Platform /></Gate>} />

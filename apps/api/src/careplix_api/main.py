@@ -53,6 +53,7 @@ from careplix_api.practice import setup_api as practice_setup_api
 from careplix_api.practice import webhooks as practice_webhooks
 from careplix_api.practice.connections import ensure_practice_connections
 from careplix_api.practice.worker import PracticeWorker
+from careplix_api.priorauth import api as prior_auth_api
 from careplix_api.settings import Settings, get_settings
 from careplix_api.shadow import api as shadow_api
 from careplix_api.shadow import service as shadow_service
@@ -237,6 +238,7 @@ def create_app(
     app.include_router(people_api.router, prefix="/api")
     app.include_router(claims_billing_api.router, prefix="/api")  # before /claims/{id}
     app.include_router(claims_api.router, prefix="/api")
+    app.include_router(prior_auth_api.router, prefix="/api")
     app.include_router(internal_api.router)
     app.include_router(channels_api.internal_router)
     if settings.is_dev:
