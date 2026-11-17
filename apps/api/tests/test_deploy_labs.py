@@ -48,6 +48,7 @@ def test_deploy_checks_every_secret_before_changing_anything():
         "cpx-anthropic-api-key",
         "cpx-resend-api-key",
         "cpx-stedi-webhook-secret",
+        "cpx-twilio-auth-token",  # texting stays off until the owner adds the token
     }
     assert referenced - optional <= set(required)
     first_deploy = text.index("run deploy", text.index("deploy() {"))
@@ -266,6 +267,15 @@ def test_the_studio_gets_customer_sign_in_settings_and_stays_behind_iap_by_defau
     assert 'studio_access="--no-allow-unauthenticated --iap"' in text
     assert "STUDIO_PUBLIC=true needs a sign-in method" in text
     assert "RESEND_API_KEY=cpx-resend-api-key:latest" in text
+
+
+def test_texting_gets_the_twilio_token_where_it_sends_and_where_it_checks_signatures():
+    text = SCRIPT.read_text()
+    assert "TWILIO_AUTH_TOKEN=cpx-twilio-auth-token:latest" in text
+    for service in ("careplix-studio", "careplix-webhooks"):
+        assert "$sms_secrets" in _deploy_command(service), service
+    assert "$sms_vars" in _deploy_command("careplix-studio")
+    assert "$webhooks_env" in _deploy_command("careplix-webhooks")
 
 
 def test_every_database_service_fits_the_cloud_sql_connection_limit():

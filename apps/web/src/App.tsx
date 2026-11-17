@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Briefcase, HeartPulse, Building2, UserRound, CalendarPlus, ClipboardCheck, GitCompareArrows, Globe, Home, Inbox, ListChecks, LogOut, Network, OctagonX, Phone, PlugZap, Receipt, ShieldCheck, Sparkles, Stethoscope, Building, Users, ChevronsUpDown } from "lucide-react";
+import { Bot, Briefcase, MessageSquareText, HeartPulse, Building2, UserRound, CalendarPlus, ClipboardCheck, GitCompareArrows, Globe, Home, Inbox, ListChecks, LogOut, Network, OctagonX, Phone, PlugZap, Receipt, ShieldCheck, Sparkles, Stethoscope, Building, Users, ChevronsUpDown } from "lucide-react";
 import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, ApiError, type Inbox as InboxData, type Me, type MyWorkspace, type WorkspaceSummary } from "./api";
@@ -26,6 +26,7 @@ import Personas from "./pages/Personas";
 import Results from "./pages/Results";
 import ShadowMode from "./pages/ShadowMode";
 import TaskComposer from "./pages/TaskComposer";
+import TextMessages from "./pages/TextMessages";
 import Tasks from "./pages/Tasks";
 import VoiceStudio from "./pages/VoiceStudio";
 import Members from "./pages/Members";
@@ -187,6 +188,11 @@ function Shell() {
               <CalendarPlus size={16} aria-hidden /> Backfill
             </NavLink>
           )}
+          {show("texts") && (
+            <NavLink to="/texts" className="nav-link">
+              <MessageSquareText size={16} aria-hidden /> Text messages
+            </NavLink>
+          )}
         </NavGroup>
         <NavGroup label="Back office">
           {[
@@ -287,6 +293,7 @@ function Shell() {
           <Route path="/integrations" element={<Gate show={show("integrations")}><Integrations /></Gate>} />
           <Route path="/practice" element={<Gate show={show("practice")}><Practice /></Gate>} />
           <Route path="/backfill" element={<Gate show={show("backfill")}><Backfill /></Gate>} />
+          <Route path="/texts" element={<Gate show={show("texts")}><TextMessages /></Gate>} />
           <Route path="/claims" element={<Gate show={show("claims")}><Claims /></Gate>} />
           <Route path="/hub" element={<Gate show={show("hub")}><Hub /></Gate>} />
           <Route path="/members" element={<Members />} />

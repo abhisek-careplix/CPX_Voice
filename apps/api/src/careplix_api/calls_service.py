@@ -835,6 +835,7 @@ WORKER_EVENT_TYPES = {
     "hold.ended",
     "hold.timeout",
     "budget.exceeded",
+    "handoff.agent_left",  # warm transfer: staff have the caller, the agent left
 }
 
 

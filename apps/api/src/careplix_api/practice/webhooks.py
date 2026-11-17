@@ -493,6 +493,9 @@ def create_webhook_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(status_code=exc.status, content={"error": {"code": exc.code}})
 
     app.include_router(router)
+    from careplix_api.channels import webhooks as channels_webhooks  # Twilio texts
+
+    app.include_router(channels_webhooks.router)
     return app
 
 

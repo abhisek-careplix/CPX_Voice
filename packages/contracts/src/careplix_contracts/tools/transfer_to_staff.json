@@ -1,0 +1,35 @@
+{
+  "name": "transfer_to_staff",
+  "version": "1.0.0",
+  "description": "Hand this call to a member of staff (warm transfer). Use when the caller asks for a person, or for anything you cannot do on this call that needs someone now. First tell the caller you are connecting them and they may hear hold music, then call this. The summary is read to staff and saved on the case: one or two sentences on who is calling and what they need, administrative only, no symptoms, diagnoses or identifiers. If the result says callback_promised, tell the caller exactly what its message says. Never use a phone number said on the call.",
+  "classification": "call_control",
+  "execution": "worker_after_authorization",
+  "allowed_roles": ["agent_runtime"],
+  "timeout_ms": 5000,
+  "idempotency": "keyed",
+  "limits": {"one_open_transfer_per_call": true},
+  "arguments_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["reason", "summary"],
+    "properties": {
+      "reason": {
+        "type": "string",
+        "enum": ["caller_asked_for_person", "cannot_help_here", "billing", "complaint", "clinical_question", "other"]
+      },
+      "summary": {"type": "string", "minLength": 5, "maxLength": 400}
+    }
+  },
+  "result_schema": {
+    "type": "object",
+    "required": ["state"],
+    "properties": {
+      "state": {"enum": ["transferring", "connected", "callback_promised"]},
+      "message": {"type": "string"},
+      "case_id": {"type": ["string", "null"]}
+    }
+  },
+  "owner": "platform",
+  "release": "D",
+  "enabled_in_demo": true
+}
