@@ -9,9 +9,10 @@ location id NexHealth shows in its Developer Portal. The flow:
 4. Enable it: the practice worker's next pass runs the first full sync.
 
 Each step's outcome is kept on the connection (``auth_ref.onboarding``) so the Studio can show
-progress and retry a step. Production practices are added by CarePlix staff only, and one
-location belongs to one workspace: the subdomain alone doesn't prove a clinic is yours, and
-CarePlix's production key reaches every practice that authorised it.
+progress and retry a step. Production practices are added by CarePlix staff only, and a real
+clinic's location belongs to one workspace: the subdomain alone doesn't prove a clinic is yours,
+and CarePlix's production key reaches every practice that authorised it. Sandbox locations may be
+shared by trial and demo workspaces.
 """
 
 from __future__ import annotations
@@ -54,17 +55,21 @@ def _step(conn: PayerConnection, key: str, ok: bool | None, detail: str) -> None
     conn.auth_ref = {**(conn.auth_ref or {}), "onboarding": state}
 
 
-async def _claimed_elsewhere(
-    session: AsyncSession, workspace_id: str, subdomain: str, location: str
+async def _claimed(
+    session: AsyncSession, workspace_id: str, subdomain: str, location: str, env: str
 ) -> PayerConnection | None:
-    """Any connection (in any workspace) for this NexHealth location."""
+    """A connection that already holds this NexHealth location: in this workspace always; in
+    another workspace only for a real clinic. Sandbox locations hold synthetic patients, so trial
+    and demo workspaces may share NexHealth's sandbox practice."""
     with tenancy.unscoped():
         rows = list(
             await session.scalars(select(PayerConnection).where(PayerConnection.kind == EHR))
         )
     for conn in rows:
         ref = conn.auth_ref or {}
-        if ref.get("subdomain") == subdomain and str(ref.get("location_id")) == location:
+        if ref.get("subdomain") != subdomain or str(ref.get("location_id")) != location:
+            continue
+        if conn.workspace_id == workspace_id or env == "production":
             return conn
     return None
 
@@ -113,7 +118,7 @@ async def create(
             "CarePlix staff add production practices until NexHealth's onboarding link is live: "
             "the subdomain alone doesn't prove the practice is yours.",
         )
-    existing = await _claimed_elsewhere(session, workspace_id, subdomain, location_id)
+    existing = await _claimed(session, workspace_id, subdomain, location_id, env)
     if existing is not None:
         here = existing.workspace_id == workspace_id
         raise ApiError(
