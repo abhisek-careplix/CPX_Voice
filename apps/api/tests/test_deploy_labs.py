@@ -295,6 +295,9 @@ def test_every_database_service_fits_the_cloud_sql_connection_limit():
         ("careplix-webhooks", "WEBHOOKS"),
     ):
         assert f"$DB_BUDGET_{name}" in _deploy_command(service), service
-    # Two instances of each at worst (the Studio during a rollout; internal and webhooks max 2).
+    # Two instances of each at worst (old and new revision during a rollout; internal and webhooks
+    # also scale to 2), with spare slots for overlapping rollouts (17 Nov 2026: a budget of exactly
+    # the usable 22 failed when two deploys overlapped).
     usable = 25 - 3  # db-f1-micro: 25 connections, 3 reserved for superusers
-    assert 2 * sum(budgets.values()) <= usable
+    headroom = 4
+    assert 2 * sum(budgets.values()) <= usable - headroom
