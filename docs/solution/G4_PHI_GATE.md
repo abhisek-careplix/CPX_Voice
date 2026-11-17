@@ -79,7 +79,8 @@ build, and only after the owner types the project id.
 **Infrastructure in `setup`:** one service account per service with only the roles and secrets it
 uses (the internal API has its own identity; no service-account keys); Cloud SQL with high
 availability, daily backups kept 30 days, point-in-time recovery (7 days), encrypted connections
-only and deletion protection; a production data key generated in the project, never copied from
+only, deletion protection and `max_connections=100`, with a per-service connection budget whose
+rollout peak (60) leaves headroom; a production data key generated in the project, never copied from
 labs; the production NexHealth and clearinghouse keys under their own names (`NEXHEALTH_PROD_API_KEY`
 from `cpx-nexhealth-prod-api-key`, `STEDI_PROD_API_KEY` from `cpx-stedi-prod-api-key`; the sandbox
 `NEXHEALTH_API_KEY` is refused);
