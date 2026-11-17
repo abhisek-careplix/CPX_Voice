@@ -134,7 +134,7 @@ export default function People() {
   return (
     <>
       <Toolbar
-        eyebrow="Operate"
+        eyebrow="Work"
         title="People"
         description="Patients, clients, families and their representatives, caregivers, staff and payer contacts. Agents read only what a verified caller may hear, write back what they learn, and never contact anyone marked do not contact."
         actions={<Segmented label="View" value={view} onChange={setView} options={[{ value: "directory", label: "Directory" }, { value: "match", label: "Shift match" }, { value: "policy", label: "Verification" }]} />}

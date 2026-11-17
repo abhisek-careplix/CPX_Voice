@@ -4,7 +4,7 @@ import { useState } from "react";
 import { api, ApiError, type BackfillBoard, type BackfillOfferRow, type BackfillOpeningRow } from "../api";
 import { useCan } from "../App";
 import { usePractice, withPractice } from "../practice";
-import { Banner, Card, Empty, Pill, Toolbar, timeAgo, useToast } from "../ui";
+import { Banner, Card, Empty, Pill, StatTile, Toolbar, timeAgo, useToast } from "../ui";
 
 const TIER: Record<BackfillOfferRow["tier"], string> = { asap: "Wants sooner", move_up: "Move-up", recent_cancel: "Recent cancel" };
 
@@ -62,7 +62,7 @@ export default function Backfill() {
   return (
     <>
       <Toolbar
-        eyebrow="Front office"
+        eyebrow="Front Office"
         title="Cancellation backfill"
         description="When a visit is cancelled, CarePlix offers the slot to waitlisted patients and books the first who accepts."
         actions={
@@ -88,10 +88,10 @@ export default function Backfill() {
         {board.error && <Banner tone="red" title={(board.error as ApiError).message} />}
 
         <div className="grid-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
-          <Stat icon={CalendarPlus} tint="var(--tile-blue)" value={open} label="Open slots" />
-          <Stat icon={CalendarCheck2} tint="var(--tile-green)" value={m?.states.filled ?? (m ? 0 : undefined)} label="Filled" />
-          <Stat icon={Gauge} tint="var(--tile-purple)" value={m ? (m.fill_rate === null ? "–" : `${Math.round(m.fill_rate * 100)}%`) : undefined} label="Fill rate" />
-          <Stat icon={Timer} tint="var(--tile-orange)" value={m?.visit_minutes_recovered} label="Visit minutes recovered" />
+          <StatTile icon={CalendarPlus} tint="var(--tile-blue)" value={open} label="Open slots" />
+          <StatTile icon={CalendarCheck2} tint="var(--tile-green)" value={m?.states.filled ?? (m ? 0 : undefined)} label="Filled" />
+          <StatTile icon={Gauge} tint="var(--tile-purple)" value={m ? (m.fill_rate === null ? "–" : `${Math.round(m.fill_rate * 100)}%`) : undefined} label="Fill rate" />
+          <StatTile icon={Timer} tint="var(--tile-orange)" value={m?.visit_minutes_recovered} label="Visit minutes recovered" />
         </div>
 
         {d && d.active.length === 0 ? (
@@ -126,19 +126,6 @@ export default function Backfill() {
   );
 }
 
-function Stat({ icon: Icon, tint, value, label }: { icon: typeof Clock; tint: string; value: number | string | undefined; label: string }) {
-  return (
-    <div className="card stat row" style={{ gap: 14 }}>
-      <div className="row-icon" style={{ background: tint, width: 40, height: 40 }}>
-        <Icon size={20} aria-hidden />
-      </div>
-      <div>
-        <div className="stat-value">{value ?? <span className="skeleton" style={{ display: "inline-block", width: 40, height: 26 }} />}</div>
-        <div className="stat-label">{label}</div>
-      </div>
-    </div>
-  );
-}
 
 function OpeningCard({ o, onDone }: { o: BackfillOpeningRow; onDone: () => void }) {
   const canRun = useCan("start_task");

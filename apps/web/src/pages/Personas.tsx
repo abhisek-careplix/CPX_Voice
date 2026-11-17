@@ -28,7 +28,7 @@ export default function Personas() {
   return (
     <>
       <Toolbar
-        eyebrow="Build"
+        eyebrow="Agents & Studio"
         title="Personas"
         description="How your agents sound: name, voice, greeting, warmth, pace, languages and the words they never use. Apply a persona to an agent on its Voice tab; it goes live with the next published version."
         actions={

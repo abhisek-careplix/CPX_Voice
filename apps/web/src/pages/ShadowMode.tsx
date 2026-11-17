@@ -95,7 +95,7 @@ function RunList() {
   return (
     <>
       <Toolbar
-        eyebrow="Build"
+        eyebrow="Agents & Studio"
         title="Shadow mode"
         description="Run CarePlix on a worklist your current vendor already worked, then compare the answers side by side. Settle each disagreement, and take the parity report to your switch decision."
         actions={

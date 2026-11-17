@@ -149,7 +149,7 @@ export default function TextMessages() {
   return (
     <>
       <Toolbar
-        eyebrow="Channels"
+        eyebrow="Work"
         title="Text messages"
         description="Two-way texts through Twilio, with consent, STOP and HELP, quiet hours and delivery status. Warm transfers and call-back promises from voice agents are listed below."
         actions={

@@ -28,7 +28,7 @@ export default function Integrations() {
   return (
     <>
       <Toolbar
-        eyebrow="Settings"
+        eyebrow="Data & connections"
         title="Integrations"
         description="Payer APIs and public systems of record. Before a status call CarePlix asks the payer's API; after it, it checks what was heard against the payer record."
         actions={

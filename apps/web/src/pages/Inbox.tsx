@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Inbox as InboxIcon } from "lucide-react";
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError, type Inbox as InboxData, type InboxItem, type InboxKind } from "../api";
 import { Banner, Card, Empty, ErrorState, ListSkeleton, Pill, Segmented, Toolbar, useToast } from "../ui";
 
@@ -29,7 +28,11 @@ const waited = (s: number) => (s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 6
 
 /** The one review inbox (D5): call results, EHR writes, browser approvals, sign-offs, overdue cases. */
 export default function Inbox() {
-  const [kind, setKind] = useState<"all" | InboxKind>("all");
+  // The kind filter lives in the address, so the Clinical menu can open "/inbox?kind=clinician_signoff".
+  const [params, setParams] = useSearchParams();
+  const kind = (params.get("kind") as InboxKind | null) ?? "all";
+  const setKind = (k: "all" | InboxKind) => setParams(k === "all" ? {} : { kind: k }, { replace: true });
+  const signoffs = kind === "clinician_signoff";
   const qc = useQueryClient();
   const toast = useToast();
   const q = useQuery({ queryKey: ["inbox"], queryFn: () => api.get<InboxData>("/inbox"), refetchInterval: 4000 });
@@ -43,13 +46,17 @@ export default function Inbox() {
   });
   const data = q.data;
   const items = (data?.items ?? []).filter((i) => kind === "all" || i.kind === kind);
-  const present = (data?.kinds ?? []).filter((k) => data?.counts[k.kind]);
+  const present = (data?.kinds ?? []).filter((k) => data?.counts[k.kind] || k.kind === kind);
   return (
     <>
       <Toolbar
-        eyebrow="Operate"
-        title="Review inbox"
-        description="Everything waiting for a person, longest wait first: call results to review, EHR writes to approve, browser-agent approvals, clinician sign-offs and overdue cases. The approval policy decides who signs each one."
+        eyebrow={signoffs ? "Clinical" : "Work"}
+        title={signoffs ? "Clinician review" : "Review inbox"}
+        description={
+          signoffs
+            ? "What an agent prepared and only a clinician may approve. Nothing clinical reaches a patient until it is signed off here."
+            : "Everything waiting for a person, longest wait first: call results to review, EHR writes to approve, browser-agent approvals, clinician sign-offs and overdue cases. The approval policy decides who signs each one."
+        }
       />
       <div className="content">
         {present.length > 0 && (
@@ -57,7 +64,7 @@ export default function Inbox() {
             label="Kind"
             value={kind}
             onChange={setKind}
-            options={[{ value: "all", label: `All ${data?.total ?? 0}` }, ...present.map((k) => ({ value: k.kind, label: `${k.label} ${data?.counts[k.kind]}` }))]}
+            options={[{ value: "all", label: `All ${data?.total ?? 0}` }, ...present.map((k) => ({ value: k.kind, label: `${k.label} ${data?.counts[k.kind] ?? 0}` }))]}
           />
         )}
         <Card>
@@ -65,7 +72,7 @@ export default function Inbox() {
           {q.error && <ErrorState error={q.error} onRetry={() => q.refetch()} title="Couldn't load the inbox" />}
           {data && items.length === 0 && (
             <Empty icon={InboxIcon} title="Nothing is waiting">
-              When an agent or a playbook needs a decision, it appears here.
+              {signoffs ? "When an agent prepares something a clinician must approve, it appears here." : "When an agent or a playbook needs a decision, it appears here."}
             </Empty>
           )}
           {items.length > 0 && (

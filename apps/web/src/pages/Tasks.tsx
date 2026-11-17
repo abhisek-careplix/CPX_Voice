@@ -11,7 +11,7 @@ export default function Tasks() {
   return (
     <>
       <Toolbar
-        eyebrow="Operate"
+        eyebrow="Work"
         title="Tasks"
         description="A task is one attempt to finish a case: a published agent calling the right party about it. One task can take several calls; its result waits under Results for a reviewer."
         actions={

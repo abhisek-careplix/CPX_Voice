@@ -53,7 +53,7 @@ export default function Connections() {
   return (
     <>
       <Toolbar
-        eyebrow="Settings"
+        eyebrow="Data & connections"
         title="Connections"
         description="Everything a call depends on, checked one by one: the voice platform, the agent runtime, the voice model and your phone lines. Live calls need every step ready."
         actions={

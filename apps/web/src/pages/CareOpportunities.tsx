@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, CircleDashed, Clock, FileUp, HeartPulse, R
 import { useState } from "react";
 import { api, ApiError, type CareOpportunity, type CareQueue, type CareStatus } from "../api";
 import { useCan } from "../App";
-import { Banner, Card, Empty, ErrorState, ListSkeleton, Pill, Segmented, Toolbar, useToast } from "../ui";
+import { Banner, Card, Empty, ErrorState, ListSkeleton, Pill, Segmented, StatTile, Toolbar, useToast } from "../ui";
 
 type View = "proposed" | "approved" | "contacted" | "closed";
 const CLOSED: CareStatus[] = ["enrolled", "done", "not_interested", "declined", "resolved"];
@@ -68,7 +68,7 @@ export default function CareOpportunities() {
   return (
     <>
       <Toolbar
-        eyebrow="Operate"
+        eyebrow="Clinical"
         title="Care opportunities"
         description="Services each patient qualifies for and hasn’t had: care management, monitoring, transitions, behavioral health and preventive care. A clinician approves each one before anyone contacts the patient."
         actions={
@@ -130,10 +130,10 @@ export default function CareOpportunities() {
         {q && q.patients > 0 && (
           <>
             <div className="grid-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
-              <Stat value={q.patients} label="Patients scanned" />
-              <Stat value={count(["proposed"])} label="To review" />
-              <Stat value={count(["approved", "contacted"])} label="In outreach" />
-              <Stat value={count(["enrolled", "done"])} label="Enrolled or done" />
+              <StatTile value={q.patients} label="Patients scanned" />
+              <StatTile value={count(["proposed"])} label="To review" />
+              <StatTile value={count(["approved", "contacted"])} label="In outreach" />
+              <StatTile value={count(["enrolled", "done"])} label="Enrolled or done" />
             </div>
             {q.open_by_program.length > 0 && (
               <Card title="Open by program">
@@ -179,14 +179,6 @@ export default function CareOpportunities() {
   );
 }
 
-function Stat({ value, label }: { value: number; label: string }) {
-  return (
-    <div className="card stat">
-      <div className="stat-value">{value}</div>
-      <div className="stat-label">{label}</div>
-    </div>
-  );
-}
 
 function Row({ o, onDone, onError }: { o: CareOpportunity; onDone: (q: CareQueue) => void; onError: (e: unknown) => void }) {
   const canReview = useCan("review");

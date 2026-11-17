@@ -16,6 +16,22 @@ export const CASE_STATUS: Record<CaseStatus, { label: string; tone: "blue" | "or
   failed: { label: "Failed", tone: "red" },
   closed: { label: "Closed", tone: "gray" },
 };
+// Where each case type sits in the Studio menu, and its list's title when the menu opens it.
+const CASE_AREA: Record<string, string> = {
+  appointment_reminder: "Front Office",
+  slot_backfill: "Front Office",
+  call_back: "Front Office",
+  prior_authorization: "Back Office",
+  claim_status: "Back Office",
+  claim_denial: "Back Office",
+  eligibility_check: "Back Office",
+  care_outreach: "Clinical",
+};
+const TYPE_TITLE: Record<string, string> = {
+  appointment_reminder: "Reminders",
+  prior_authorization: "Prior auth",
+  care_outreach: "Care outreach",
+};
 // The status filter shows the live and finished states; "closed" is only on rows from before Cases v2.
 const FILTER_STATUSES: CaseStatus[] = ["open", "in_progress", "handed_off", "blocked", "done", "failed"];
 
@@ -45,20 +61,42 @@ export default function Cases() {
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<"all" | CaseStatus>("all");
-  const [type, setType] = useState("");
+  // The case-type filter lives in the address, so menu rows such as Reminders or Prior auth open
+  // this page already filtered ("/cases?type=prior_authorization").
+  const type = params.get("type") ?? "";
+  const setType = (t: string) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (t) next.set("type", t);
+        else next.delete("type");
+        return next;
+      },
+      { replace: true },
+    );
   const [sheet, setSheet] = useState<"new" | "samples" | null>(null);
   const openId = params.get("case");
   const caseTypes = useCaseTypes();
   const qs = new URLSearchParams({ q: query, ...(type ? { case_type: type } : {}), ...(status !== "all" ? { status } : {}) });
   const cases = useQuery({ queryKey: ["cases", qs.toString()], queryFn: () => api.get<CaseItem[]>(`/cases?${qs}`) });
-  const open = (id: string | null) => setParams(id ? { case: id } : {}, { replace: true });
+  const open = (id: string | null) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (id) next.set("case", id);
+        else next.delete("case");
+        return next;
+      },
+      { replace: true },
+    );
+  const typeName = caseTypes.data?.find((t) => t.id === type)?.name;
   const filtered = query || type || status !== "all";
 
   return (
     <>
       <Toolbar
-        eyebrow="Operate"
-        title="Cases"
+        eyebrow={type ? CASE_AREA[type] ?? "Work" : "Work"}
+        title={type ? TYPE_TITLE[type] ?? typeName ?? "Cases" : "Cases"}
         description="Each case is one piece of work: a prior auth to chase, a claim to check, a patient to remind. Playbooks start and work cases on their own; a case is done only when its completion contract holds: evidence, the system of record updated, people told, and an owned next action."
         actions={
           canStart && (

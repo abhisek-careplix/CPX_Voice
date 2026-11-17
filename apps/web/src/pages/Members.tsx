@@ -49,7 +49,7 @@ export default function Members() {
   return (
     <>
       <Toolbar
-        eyebrow="Team"
+        eyebrow="Admin"
         title="Members"
         description={`Who can use ${me.workspace_name}. People join by invitation: they sign in with the invited email address, using Google, Microsoft or an emailed code.`}
         actions={

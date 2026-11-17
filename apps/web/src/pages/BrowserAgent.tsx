@@ -104,7 +104,7 @@ function Runs() {
   const s = settings.data;
   return (
     <div className="content">
-      <Toolbar eyebrow="Labs" title="Browser agent" description="A supervised agent that works in payer and portal websites. You approve its plan and any risky step, and can take over at any time." />
+      <Toolbar eyebrow="Agents & Studio" title="Browser agent" description="A supervised agent that works in payer and portal websites. You approve its plan and any risky step, and can take over at any time." />
       {s && !s.configured && (
         <Banner tone="orange" title="The browser agent isn't enabled for this workspace">
           It's a preview add-on. Ask your CarePlix team to turn it on.
