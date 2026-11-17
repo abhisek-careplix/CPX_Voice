@@ -21,7 +21,7 @@ import { useState } from "react";
 import { api, ApiError, type EligibilitySettings, type EligibilityView, type FrontDeskMessage, type PayerMappingRow, type Huddle, type HuddleRow, type NpiLookup, type PracticeConnection, type PracticeOverview, type Program, type WriteIntentRow } from "../api";
 import { useCan } from "../App";
 import { PRACTICE_LABEL, usePractice, withPractice } from "../practice";
-import { Banner, Card, Empty, ListSkeleton, Pill, Segmented, Sheet, Toolbar, timeAgo, useToast } from "../ui";
+import { Banner, Card, Empty, ListSkeleton, Pill, Segmented, Sheet, StatTile, Toolbar, timeAgo, useToast } from "../ui";
 import MedicareBenefitsSheet from "./MedicareBenefits";
 
 type Range = "today" | "tomorrow" | "week";
@@ -79,13 +79,21 @@ const PROGRAM_LABEL: Record<Program, string> = {
  * can still be checked with Medicare (test mode always sends the clearinghouse's CMS test member). */
 const CMS_PROGRAMS: Program[] = ["medicare", "railroad_medicare"];
 
-export default function Practice() {
+// Flags that don't need a person: the visit is on the ASAP list, or its check is still running.
+const QUIET_FLAGS = new Set(["asap_list", "check_pending"]);
+const needsAttention = (a: HuddleRow) => a.status !== "cancelled" && a.flags.some((f) => !QUIET_FLAGS.has(f));
+
+/** The practice page. `view="eligibility"` is the Back Office cut of the same schedule: coverage for
+ * each visit, filtered to what needs a person, with the Medicare benefits planner one click away. */
+export default function Practice({ view }: { view?: "eligibility" } = {}) {
+  const eligibilityView = view === "eligibility";
+  const [only, setOnly] = useState<"attention" | "all">("attention");
   const isAdmin = useCan("admin");
   const canRun = useCan("start_task");
   const qc = useQueryClient();
   const toast = useToast();
   const [params, setParams] = useSearchParams();
-  const tab = (["schedule", "inbox", "setup"].includes(params.get("tab") ?? "") ? params.get("tab") : "schedule") as Tab;
+  const tab = (!eligibilityView && ["schedule", "inbox", "setup"].includes(params.get("tab") ?? "") ? params.get("tab") : "schedule") as Tab;
   const setTab = (t: Tab) => setParams(t === "schedule" ? {} : { tab: t }, { replace: true });
   const [range, setRange] = useState<Range>("week");
   const [alertFor, setAlertFor] = useState<HuddleRow | null>(null);
@@ -129,7 +137,11 @@ export default function Practice() {
   if (overview.isSuccess && !d?.ehr) {
     return (
       <>
-        <Toolbar eyebrow="Front office" title="Practice" description="Today's schedule, coverage checks and front-desk messages from your connected practice system." />
+        <Toolbar
+          eyebrow={eligibilityView ? "Back Office" : "Front Office"}
+          title={eligibilityView ? "Eligibility & benefits" : "Practice"}
+          description={eligibilityView ? "Coverage for every upcoming visit, checked with the payer before the patient arrives." : "Today's schedule, coverage checks and front-desk messages from your connected practice system."}
+        />
         <div className="content">
           <Card>
             <Empty icon={Stethoscope} title="No practice connected" action={<Link to="/hub" className="btn btn-secondary">Open EHR hub</Link>}>
@@ -142,12 +154,14 @@ export default function Practice() {
   }
 
   const h = huddle.data;
+  const shown = !h ? [] : eligibilityView && only === "attention" ? h.appointments.filter(needsAttention) : h.appointments;
   const demo = d?.ehr?.env === "sandbox" || d?.ehr?.kind === "openemr" || d?.clearinghouse?.env === "test";
   return (
     <>
       <Toolbar
-        eyebrow="Front office"
-        title={d?.location?.name ?? "Practice"}
+        eyebrow={eligibilityView ? "Back Office" : "Front Office"}
+        title={eligibilityView ? "Eligibility & benefits" : d?.location?.name ?? "Practice"}
+        description={eligibilityView ? `Coverage for every upcoming visit${d?.location?.name ? ` at ${d.location.name}` : ""}, checked with the payer before the patient arrives. Open a Medicare patient for benefits used and remaining.` : undefined}
         actions={
           <>
             {d && d.practices.length > 1 && (
@@ -188,7 +202,7 @@ export default function Practice() {
           </div>
         )}
         {err && <Banner tone="red" title={err.message} />}
-        {isAdmin && todo.count > 0 && tab !== "setup" && (
+        {isAdmin && todo.count > 0 && tab !== "setup" && !eligibilityView && (
           <div className="banner tone-orange" role="status" style={{ alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ color: "var(--label)" }}>
               <span style={{ fontWeight: 600 }}>Finish setup:</span> {todo.items.join(" · ")}
@@ -200,12 +214,13 @@ export default function Practice() {
         )}
 
         <div className="grid-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
-          <Stat icon={CalendarClock} tint="var(--tile-blue)" value={h?.counts.scheduled} label="Visits scheduled" />
-          <Stat icon={BadgeCheck} tint="var(--tile-green)" value={h?.counts.verified_active} label="Coverage verified active" />
-          <Stat icon={AlertTriangle} tint="var(--tile-orange)" value={h?.counts.needs_attention} label="Need attention" />
-          <Stat icon={CalendarX2} tint="var(--tile-gray)" value={h?.counts.cancelled} label="Cancelled (backfill next)" />
+          <StatTile icon={CalendarClock} tint="var(--tile-blue)" value={h?.counts.scheduled} label="Visits scheduled" />
+          <StatTile icon={BadgeCheck} tint="var(--tile-green)" value={h?.counts.verified_active} label="Coverage verified active" />
+          <StatTile icon={AlertTriangle} tint="var(--tile-orange)" value={h?.counts.needs_attention} label="Need attention" />
+          <StatTile icon={CalendarX2} tint="var(--tile-gray)" value={h?.counts.cancelled} label={eligibilityView ? "Cancelled" : "Cancelled (backfill next)"} to={eligibilityView ? undefined : "/backfill"} />
         </div>
 
+        {!eligibilityView && (
         <Segmented
           label="Section"
           value={tab}
@@ -216,12 +231,25 @@ export default function Practice() {
             ...(isAdmin ? [{ value: "setup" as Tab, label: todo.count ? `Setup (${todo.count})` : "Setup" }] : []),
           ]}
         />
+        )}
 
         {tab === "schedule" && (
           <Card
-            title="Front-desk huddle"
+            title={eligibilityView ? "Coverage by visit" : "Front-desk huddle"}
             subtitle={h ? `Insurance and eligibility for each visit · times in ${h.timezone}` : "Loading the schedule…"}
             actions={
+              <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              {eligibilityView && (
+                <Segmented
+                  label="Show"
+                  value={only}
+                  onChange={setOnly}
+                  options={[
+                    { value: "attention", label: "Needs attention" },
+                    { value: "all", label: "All visits" },
+                  ]}
+                />
+              )}
               <Segmented
                 label="Range"
                 value={range}
@@ -232,17 +260,24 @@ export default function Practice() {
                   { value: "week", label: "7 days" },
                 ]}
               />
+              </div>
             }
           >
             {!h ? (
               <ListSkeleton rows={4} />
-            ) : h.appointments.length === 0 ? (
-              <Empty icon={CalendarClock} title="No visits in this range">
-                Sync the practice, or pick a longer range.
-              </Empty>
+            ) : shown.length === 0 ? (
+              eligibilityView && only === "attention" && h.appointments.length > 0 ? (
+                <Empty icon={BadgeCheck} title="Nothing needs attention">
+                  Every visit in this range has coverage checked or a check on the way.
+                </Empty>
+              ) : (
+                <Empty icon={CalendarClock} title="No visits in this range">
+                  Sync the practice, or pick a longer range.
+                </Empty>
+              )
             ) : (
               <ul className="list">
-                {h.appointments.map((a) => (
+                {shown.map((a) => (
                   <HuddleItem
                     key={a.id}
                     a={a}
@@ -288,19 +323,6 @@ function setupTodo(d: PracticeOverview | undefined, s: EligibilitySettings | und
   return { items: out, count: unverified + (out.includes("add the billing NPI") ? 1 : 0) + choose };
 }
 
-function Stat({ icon: Icon, tint, value, label }: { icon: typeof CalendarClock; tint: string; value: number | undefined; label: string }) {
-  return (
-    <div className="card stat row" style={{ gap: 14 }}>
-      <div className="row-icon" style={{ background: tint, width: 40, height: 40 }}>
-        <Icon size={20} aria-hidden />
-      </div>
-      <div>
-        <div className="stat-value">{value ?? <span className="skeleton" style={{ display: "inline-block", width: 40, height: 26 }} />}</div>
-        <div className="stat-label">{label}</div>
-      </div>
-    </div>
-  );
-}
 
 function EligibilityPill({ e, status }: { e: EligibilityView | null; status: string }) {
   if (status === "cancelled") return <Pill tone="gray">Cancelled</Pill>;

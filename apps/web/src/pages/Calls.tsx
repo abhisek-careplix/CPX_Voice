@@ -19,7 +19,7 @@ export default function Calls() {
 
   return (
     <>
-      <Toolbar eyebrow="Operate" title="Calls" description="Every call attempt, live and finished: phone calls, browser rehearsals and simulations. Open one for its transcript, findings and what the agent was told." />
+      <Toolbar eyebrow="Work" title="Calls" description="Every call attempt, live and finished: phone calls, browser rehearsals and simulations. Open one for its transcript, findings and what the agent was told." />
       <div className="content">
         <Segmented
           label="Filter calls"

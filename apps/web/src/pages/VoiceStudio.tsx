@@ -127,7 +127,7 @@ export default function VoiceStudio() {
   return (
     <>
       <Toolbar
-        eyebrow="Build"
+        eyebrow="Agents & Studio"
         title="Voice Studio"
         description="Write a scenario for each call your agent should handle, then rehearse it yourself or simulate it while you listen. The same scenarios make up the agent's regression suite."
         actions={

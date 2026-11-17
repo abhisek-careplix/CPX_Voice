@@ -12,6 +12,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import type { AttemptState, CheckStatus, Finding, TaskState } from "./api";
 
 // ---------- Status pills: icon + text, never colour alone ----------
@@ -172,6 +173,118 @@ export function ListSkeleton({ rows = 3, icon = true }: { rows?: number; icon?: 
         </div>
       ))}
     </div>
+  );
+}
+
+// ---------- Metrics and work queues ----------
+
+/** One headline number. With `to`, the whole tile opens the list behind the number. A missing
+ * value shows a skeleton, so a row of tiles keeps its shape while it loads. */
+export function StatTile({ icon: Icon, tint, value, label, hint, to }: { icon?: LucideIcon; tint?: string; value: number | string | null | undefined; label: string; hint?: ReactNode; to?: string }) {
+  const body = (
+    <>
+      {Icon && (
+        <div className="row-icon" style={{ background: tint ?? "var(--tile-gray)", width: 40, height: 40 }}>
+          <Icon size={20} aria-hidden />
+        </div>
+      )}
+      <div style={{ minWidth: 0 }}>
+        <div className="stat-value">{value ?? <span className="skeleton" style={{ display: "inline-block", width: 40, height: 26 }} />}</div>
+        <div className="stat-label">{label}</div>
+        {hint && <div className="stat-hint">{hint}</div>}
+      </div>
+    </>
+  );
+  return to ? (
+    <Link to={to} className="card stat stat-link row" style={{ gap: 14 }}>
+      {body}
+    </Link>
+  ) : (
+    <div className="card stat row" style={{ gap: 14 }}>
+      {body}
+    </div>
+  );
+}
+
+export interface QueueItem {
+  id: string;
+  title: ReactNode;
+  meta?: ReactNode;
+  badge?: ReactNode;
+  to?: string;
+}
+
+/** A titled list of work waiting on someone: a count, up to `limit` rows that open the item, and a
+ * link to the full list. Shows its own loading, error and empty states. */
+export function WorkQueue({
+  title,
+  icon: Icon,
+  items,
+  total,
+  to,
+  empty,
+  loading,
+  error,
+  limit = 5,
+}: {
+  title: string;
+  icon?: LucideIcon;
+  items: QueueItem[] | undefined;
+  total?: number;
+  to?: string;
+  empty: string;
+  loading?: boolean;
+  error?: unknown;
+  limit?: number;
+}) {
+  const count = total ?? items?.length;
+  return (
+    <section className="card queue">
+      <div className="card-head">
+        <h2 className="card-title row" style={{ gap: 8, flex: 1, minWidth: 0 }}>
+          {Icon && <Icon size={16} aria-hidden style={{ color: "var(--label-2)", flex: "none" }} />}
+          {title}
+          {!!count && <span className="queue-count">{count}</span>}
+        </h2>
+        {to && !!count && (
+          <Link to={to} className="btn btn-plain btn-sm">
+            Open all
+          </Link>
+        )}
+      </div>
+      {error ? (
+        <ErrorState error={error} title={`Couldn't load ${title.toLowerCase()}`} />
+      ) : loading || !items ? (
+        <ListSkeleton rows={2} icon={false} />
+      ) : items.length === 0 ? (
+        <p className="queue-empty">{empty}</p>
+      ) : (
+        <ul className="list">
+          {items.slice(0, limit).map((i) => {
+            const row = (
+              <>
+                <div className="row-main">
+                  <div className="row-title">{i.title}</div>
+                  {i.meta && <div className="row-sub">{i.meta}</div>}
+                </div>
+                {i.badge}
+              </>
+            );
+            return (
+              <li key={i.id}>
+                {i.to ? (
+                  <Link to={i.to} className="list-row">
+                    {row}
+                  </Link>
+                ) : (
+                  <div className="list-row">{row}</div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 

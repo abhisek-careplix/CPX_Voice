@@ -14,7 +14,7 @@ export default function Agents() {
   return (
     <>
       <Toolbar
-        eyebrow="Build"
+        eyebrow="Agents & Studio"
         title="Agents"
         description="Each agent is a reusable voice configuration: who it is, what it may do and say, and the version your calls use. Test a draft, pass its regression suite, then publish."
         actions={

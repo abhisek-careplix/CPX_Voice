@@ -3,7 +3,7 @@ import { AudioLines, Bot, Check, ChevronRight, ClipboardCheck, Inbox, Phone, Pho
 import { Link } from "react-router-dom";
 import { api, type Attempt, type Readiness, type WorkspaceSummary } from "../api";
 import { useCan, useMe } from "../App";
-import { AttemptPill, Card, CheckPill, DIRECTION_LABEL, Empty, ErrorState, ListSkeleton, TaskPill, Toolbar, duration, timeAgo, useNow } from "../ui";
+import { AttemptPill, Card, CheckPill, DIRECTION_LABEL, Empty, ErrorState, ListSkeleton, StatTile, TaskPill, Toolbar, duration, timeAgo, useNow } from "../ui";
 
 const CHECK_LABEL: Record<string, string> = {
   database: "Database",
@@ -47,9 +47,9 @@ export default function Workspace() {
           </Card>
         )}
         <div className="grid-3">
-          <Stat icon={Radio} tint="var(--tile-green)" value={s?.active_calls.length} label="Live calls" />
-          <Stat icon={ClipboardCheck} tint="var(--tile-orange)" value={s?.needs_attention.length} label="Results needing review" />
-          <Stat icon={Bot} tint="var(--tile-navy)" value={s ? `${s.agents.published}/${s.agents.total}` : undefined} label="Agents published" />
+          <StatTile icon={Radio} tint="var(--tile-green)" value={s?.active_calls.length} label="Live calls" to="/calls" />
+          <StatTile icon={ClipboardCheck} tint="var(--tile-orange)" value={s?.needs_attention.length} label="Results needing review" to="/results" />
+          <StatTile icon={Bot} tint="var(--tile-navy)" value={s ? `${s.agents.published}/${s.agents.total}` : undefined} label="Agents published" to="/agents" />
         </div>
 
         <div className="split">
@@ -176,19 +176,6 @@ export default function Workspace() {
   );
 }
 
-function Stat({ icon: Icon, tint, value, label }: { icon: typeof Phone; tint: string; value: number | string | undefined; label: string }) {
-  return (
-    <div className="card stat row" style={{ gap: 14 }}>
-      <div className="row-icon" style={{ background: tint, width: 40, height: 40 }}>
-        <Icon size={20} aria-hidden />
-      </div>
-      <div>
-        <div className="stat-value">{value ?? <span className="skeleton" style={{ display: "inline-block", width: 40, height: 26 }} />}</div>
-        <div className="stat-label">{label}</div>
-      </div>
-    </div>
-  );
-}
 
 /** The self-serve path for a new workspace, in order. Each step links to where it's done and
  * ticks itself off from data the workspace already has. Hidden once every step is done. */

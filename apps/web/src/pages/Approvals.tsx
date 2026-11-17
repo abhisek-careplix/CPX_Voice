@@ -24,7 +24,7 @@ export default function Approvals() {
   const items = q.data?.items ?? [];
   return (
     <>
-      <Toolbar eyebrow="Labs" title="Approvals" description="Plans and steps the browser agent is waiting on, longest wait first. Open a run to approve from its live view." />
+      <Toolbar eyebrow="Agents & Studio" title="Approvals" description="Plans and steps the browser agent is waiting on, longest wait first. Open a run to approve from its live view." />
       <div className="content">
       <Card title="Waiting for a person">
         {q.isPending && <ListSkeleton rows={2} icon={false} />}

@@ -11,7 +11,7 @@ export default function Results() {
   const rows = (tasks.data ?? []).filter((t) => (filter === "review" ? t.state === "Review" : ["Completed", "Partial", "Unsuccessful", "Cancelled"].includes(t.state)));
   return (
     <>
-      <Toolbar eyebrow="Operate" title="Results" description="Business outcomes backed by evidence from the call. A finished call isn't a finished task: each result waits here until a reviewer records the outcome." />
+      <Toolbar eyebrow="Work" title="Results" description="Business outcomes backed by evidence from the call. A finished call isn't a finished task: each result waits here until a reviewer records the outcome." />
       <div className="content">
         <Segmented
           label="Filter results"

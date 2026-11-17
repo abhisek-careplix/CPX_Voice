@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Briefcase, MessageSquareText, HeartPulse, Building2, UserRound, CalendarPlus, ClipboardCheck, FileCheck, GitCompareArrows, Globe, Home, Inbox, ListChecks, LogOut, Network, OctagonX, Phone, PlugZap, Receipt, ShieldCheck, Sparkles, Stethoscope, Building, Users, ChevronsUpDown } from "lucide-react";
-import { createContext, useContext, useEffect, type ReactNode } from "react";
-import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Building2, ChevronsUpDown, Home, LogOut, Menu, OctagonX, ShieldCheck, X } from "lucide-react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { Link, NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, ApiError, type Inbox as InboxData, type Me, type MyWorkspace, type WorkspaceSummary } from "./api";
 import { BrandLockup } from "./Brand";
+import { GROUPS, hasOverview, isActive, visibleRows, type Badge, type NavItem } from "./nav";
+import { BackOfficeOverview, ClinicalOverview, FrontOfficeOverview } from "./pages/Overview";
 import { SignIn } from "./SignIn";
 import AgentEditor from "./pages/AgentEditor";
 import Agents from "./pages/Agents";
@@ -60,7 +62,7 @@ const initials = (name: string) =>
 function Shell() {
   const me = useMe();
   const show = (section: string) => me.pack.sections.includes(section);
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [pathname]);
@@ -78,9 +80,14 @@ function Shell() {
     },
   });
   const inbox = useQuery({ queryKey: ["inbox"], queryFn: () => api.get<InboxData>("/inbox"), refetchInterval: 8000, enabled: show("inbox") });
-  const waiting = inbox.data?.total ?? 0;
-  const live = summary.data?.active_calls.length ?? 0;
-  const review = summary.data?.needs_attention.length ?? 0;
+  const badges: Record<Badge, number> = {
+    inbox: inbox.data?.total ?? 0,
+    calls: summary.data?.active_calls.length ?? 0,
+    results: summary.data?.needs_attention.length ?? 0,
+  };
+  // On a phone the menu folds behind a button and closes again once a page is picked.
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => setMenuOpen(false), [pathname, search]);
 
   return (
     <div className="app">
@@ -94,160 +101,21 @@ function Shell() {
           </NavLink>
           <WorkspaceSwitcher />
         </div>
-        <ul className="nav-group">
-          <li>
-            <NavLink to="/" end className="nav-link">
-              <Home size={16} aria-hidden /> Home
-            </NavLink>
-          </li>
-        </ul>
-        <NavGroup label="Build">
-          {show("agents") && (
-            <NavLink to="/agents" className="nav-link">
-              <Bot size={16} aria-hidden /> Agents
-            </NavLink>
-          )}
-          {show("studio") && (
-            <NavLink to="/studio" className="nav-link">
-              <Sparkles size={16} aria-hidden /> Voice Studio
-            </NavLink>
-          )}
-          {show("personas") && (
-            <NavLink to="/personas" className="nav-link">
-              <UserRound size={16} aria-hidden /> Personas
-            </NavLink>
-          )}
-          {show("shadow") && (
-            <NavLink to="/shadow" className="nav-link">
-              <GitCompareArrows size={16} aria-hidden /> Shadow mode
-            </NavLink>
-          )}
-        </NavGroup>
-        <NavGroup label="Operate">
-          {show("inbox") && (
-            <NavLink to="/inbox" className="nav-link">
-              <Inbox size={16} aria-hidden /> Review inbox
-              {waiting > 0 && (
-                <span className="count" aria-label={`${waiting} waiting`}>
-                  {waiting}
-                </span>
-              )}
-            </NavLink>
-          )}
-          {show("cases") && (
-            <NavLink to="/cases" className="nav-link">
-              <Briefcase size={16} aria-hidden /> Cases
-            </NavLink>
-          )}
-          {show("people") && (
-            <NavLink to="/people" className="nav-link">
-              <Users size={16} aria-hidden /> People
-            </NavLink>
-          )}
-          {show("tasks") && (
-            <NavLink to="/tasks" className="nav-link">
-              <ListChecks size={16} aria-hidden /> Tasks
-            </NavLink>
-          )}
-          {show("calls") && (
-            <NavLink to="/calls" className="nav-link">
-              <Phone size={16} aria-hidden /> Calls
-              {live > 0 && (
-                <span className="count" aria-label={`${live} live`}>
-                  <span className="pill tone-green" style={{ padding: "0 7px" }}>
-                    <span className="live-dot" aria-hidden />
-                    {live}
-                  </span>
-                </span>
-              )}
-            </NavLink>
-          )}
-          {show("care") && (
-            <NavLink to="/care" className="nav-link">
-              <HeartPulse size={16} aria-hidden /> Care opportunities
-            </NavLink>
-          )}
-          {show("results") && (
-            <NavLink to="/results" className="nav-link">
-              <ClipboardCheck size={16} aria-hidden /> Results
-              {review > 0 && (
-                <span className="count" aria-label={`${review} to review`}>
-                  {review}
-                </span>
-              )}
-            </NavLink>
-          )}
-        </NavGroup>
-        <NavGroup label="Front office">
-          {show("practice") && (
-            <NavLink to="/practice" className="nav-link">
-              <Stethoscope size={16} aria-hidden /> Practice
-            </NavLink>
-          )}
-          {show("backfill") && (
-            <NavLink to="/backfill" className="nav-link">
-              <CalendarPlus size={16} aria-hidden /> Backfill
-            </NavLink>
-          )}
-          {show("texts") && (
-            <NavLink to="/texts" className="nav-link">
-              <MessageSquareText size={16} aria-hidden /> Text messages
-            </NavLink>
-          )}
-        </NavGroup>
-        <NavGroup label="Back office">
-          {[
-            show("claims") && (
-              <NavLink key="claims" to="/claims" className="nav-link">
-                <Receipt size={16} aria-hidden /> Claims
+        <button type="button" className="btn btn-secondary nav-toggle" aria-expanded={menuOpen} aria-controls="nav-menu" onClick={() => setMenuOpen((o) => !o)}>
+          {menuOpen ? <X size={16} aria-hidden /> : <Menu size={16} aria-hidden />} Menu
+        </button>
+        <div className="nav-menu" id="nav-menu" data-open={menuOpen}>
+          <ul className="nav-group">
+            <li>
+              <NavLink to="/" end className="nav-link">
+                <Home size={16} aria-hidden /> Home
               </NavLink>
-            ),
-            show("prior_auth") && (
-              <NavLink key="prior_auth" to="/prior-auth" className="nav-link">
-                <FileCheck size={16} aria-hidden /> Prior auth
-              </NavLink>
-            ),
-          ]}
-        </NavGroup>
-        <NavGroup label="Settings">
-          {show("connections") && (
-            <NavLink to="/connections" className="nav-link">
-              <PlugZap size={16} aria-hidden /> Connections
-            </NavLink>
-          )}
-          {show("integrations") && (
-            <NavLink to="/integrations" className="nav-link">
-              <Building2 size={16} aria-hidden /> Integrations
-            </NavLink>
-          )}
-          {show("hub") && (
-            <NavLink to="/hub" className="nav-link">
-              <Network size={16} aria-hidden /> EHR hub
-            </NavLink>
-          )}
-        </NavGroup>
-        <NavGroup label="Team">
-          <NavLink to="/members" className="nav-link">
-            <Users size={16} aria-hidden /> Members
-          </NavLink>
-          {me.platform && (
-            <NavLink to="/platform" className="nav-link">
-              <Building size={16} aria-hidden /> Customers <span className="nav-tag">Staff</span>
-            </NavLink>
-          )}
-        </NavGroup>
-        <NavGroup label="Labs">
-          {show("browser") && (
-            <NavLink to="/browser" className="nav-link">
-              <Globe size={16} aria-hidden /> Browser agent <span className="nav-tag">Preview</span>
-            </NavLink>
-          )}
-          {show("approvals") && (
-            <NavLink to="/approvals" className="nav-link">
-              <Inbox size={16} aria-hidden /> Approvals
-            </NavLink>
-          )}
-        </NavGroup>
+            </li>
+          </ul>
+          {GROUPS.map((g) => (
+            <NavGroup key={g} label={g} rows={visibleRows(g, me)} badges={badges} />
+          ))}
+        </div>
         <div className="sidebar-foot">
           {me.emergency_stop && (
             <span className="pill tone-red" style={{ justifySelf: "start" }}>
@@ -276,6 +144,10 @@ function Shell() {
       <main className="main" id="main" tabIndex={-1}>
         <Routes>
           <Route path="/" element={<Workspace />} />
+          <Route path="/front-office" element={<Gate show={hasOverview("Front Office", me)}><FrontOfficeOverview /></Gate>} />
+          <Route path="/back-office" element={<Gate show={hasOverview("Back Office", me)}><BackOfficeOverview /></Gate>} />
+          <Route path="/clinical" element={<Gate show={hasOverview("Clinical", me)}><ClinicalOverview /></Gate>} />
+          <Route path="/eligibility" element={<Gate show={show("practice")}><Practice view="eligibility" /></Gate>} />
           <Route path="/studio" element={<Gate show={show("studio")}><VoiceStudio /></Gate>} />
           <Route path="/personas" element={<Gate show={show("personas")}><Personas /></Gate>} />
           <Route path="/shadow" element={<Gate show={show("shadow")}><ShadowMode /></Gate>} />
@@ -312,18 +184,41 @@ function Shell() {
   );
 }
 
-function NavGroup({ label, children }: { label: string; children: ReactNode[] }) {
-  children = children.filter(Boolean);
-  if (!children.length) return null;
+function NavGroup({ label, rows, badges }: { label: string; rows: NavItem[]; badges: Record<Badge, number> }) {
+  const { pathname, search } = useLocation();
+  if (!rows.length) return null;
+  const id = `nav-${label.replace(/\W+/g, "-").toLowerCase()}`;
   return (
     <>
-      <div className="nav-section" id={`nav-${label}`}>
+      <div className="nav-section" id={id}>
         {label}
       </div>
-      <ul className="nav-group" aria-labelledby={`nav-${label}`}>
-        {children.map((c, i) => (
-          <li key={i}>{c}</li>
-        ))}
+      <ul className="nav-group" aria-labelledby={id}>
+        {rows.map((r) => {
+          const active = isActive(r, pathname, search);
+          const n = r.badge ? badges[r.badge] : 0;
+          return (
+            <li key={r.path}>
+              <Link to={r.path} className={`nav-link${active ? " active" : ""}`} aria-current={active ? "page" : undefined}>
+                <r.icon size={16} aria-hidden /> {r.label}
+                {r.tag && <span className="nav-tag">{r.tag}</span>}
+                {n > 0 &&
+                  (r.badge === "calls" ? (
+                    <span className="count" aria-label={`${n} live`}>
+                      <span className="pill tone-green" style={{ padding: "0 7px" }}>
+                        <span className="live-dot" aria-hidden />
+                        {n}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="count" aria-label={`${n} ${r.badge === "inbox" ? "waiting" : "to review"}`}>
+                      {n}
+                    </span>
+                  ))}
+              </Link>
+            </li>
+          );
+        })}
       </ul>
     </>
   );

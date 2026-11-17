@@ -71,7 +71,7 @@ export default function Hub() {
 
   return (
     <>
-      <Toolbar eyebrow="Settings" title="EHR hub" description="Which EHRs are connected, and what each one supports for scheduling, eligibility and patient records." />
+      <Toolbar eyebrow="Data & connections" title="EHR hub" description="Which EHRs are connected, and what each one supports for scheduling, eligibility and patient records." />
       <div className="content">
         <Banner tone="blue" title="One integration layer for every CarePlix product." icon={Network}>
           {" "}

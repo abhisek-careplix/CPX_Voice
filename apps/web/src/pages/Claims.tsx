@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { useCan } from "../App";
-import { Banner, Card, Empty, ErrorState, ListSkeleton, Pill, Segmented, Sheet, Toolbar, timeAgo, useToast } from "../ui";
+import { Banner, Card, Empty, ErrorState, ListSkeleton, Pill, Segmented, Sheet, StatTile, Toolbar, timeAgo, useToast } from "../ui";
 import { Appeals, BilledClaimPanel, BillingProfileCard, Charges, Remittances, ReportFetch, StagePill, TestModeBanner, WorkQueue, type BilledClaim } from "./ClaimsBilling";
 
 // ---------- Types (mirror apps/api claims views) ----------
@@ -152,7 +152,7 @@ export default function Claims() {
   return (
     <>
       <Toolbar
-        eyebrow="Back office"
+        eyebrow="Back Office"
         title="Claims"
         description="From charge to cash: claims are built from charges, scrubbed, submitted through the clearinghouse, acknowledged (277CA), paid (835) and posted to the EHR with approval. Rejections, denials and appeals are worked from the queue; claims that go quiet get a payer call."
         actions={
@@ -210,10 +210,10 @@ export default function Claims() {
           <>
 
         <div className="grid-3" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
-          <Stat icon={ClipboardList} tint="var(--tile-blue)" value={count((c) => !c.final)} label="Open claims" />
-          <Stat icon={Banknote} tint="var(--tile-green)" value={count((c) => c.status === "paid")} label="Paid" />
-          <Stat icon={Hourglass} tint="var(--tile-purple)" value={count((c) => !c.final && c.age_days >= 30)} label="Over 30 days" />
-          <Stat icon={PhoneCall} tint="var(--tile-orange)" value={count((c) => !!c.follow_up_case_id)} label="Payer calls opened" />
+          <StatTile icon={ClipboardList} tint="var(--tile-blue)" value={count((c) => !c.final)} label="Open claims" />
+          <StatTile icon={Banknote} tint="var(--tile-green)" value={count((c) => c.status === "paid")} label="Paid" />
+          <StatTile icon={Hourglass} tint="var(--tile-purple)" value={count((c) => !c.final && c.age_days >= 30)} label="Over 30 days" />
+          <StatTile icon={PhoneCall} tint="var(--tile-orange)" value={count((c) => !!c.follow_up_case_id)} label="Payer calls opened" />
         </div>
 
         <Card title="Claims" subtitle="Oldest first. Select a claim to fix, submit or see its history and evidence.">
@@ -463,16 +463,3 @@ function ClearinghouseCard({ data, error }: { data?: ClearinghouseOverview; erro
   );
 }
 
-function Stat({ icon: Icon, tint, value, label }: { icon: typeof Banknote; tint: string; value: number | undefined; label: string }) {
-  return (
-    <div className="card stat row" style={{ gap: 14 }}>
-      <div className="row-icon" style={{ background: tint, width: 40, height: 40 }}>
-        <Icon size={20} aria-hidden />
-      </div>
-      <div>
-        <div className="stat-value">{value ?? <span className="skeleton" style={{ display: "inline-block", width: 40, height: 26 }} />}</div>
-        <div className="stat-label">{label}</div>
-      </div>
-    </div>
-  );
-}

@@ -128,7 +128,7 @@ export default function PriorAuth() {
   return (
     <>
       <Toolbar
-        eyebrow="Back office"
+        eyebrow="Back Office"
         title="Prior authorizations"
         description="Visits whose eligibility check or a payer rule says they need prior auth open a case on their own. The playbook builds the packet from the EHR, submits it (the payer's API first, then a call), chases the decision and writes the auth number back. Anything it can't finish lands here and in the review inbox."
         actions={
