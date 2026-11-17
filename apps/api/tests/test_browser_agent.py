@@ -112,7 +112,8 @@ def bclient(tmp_path, runtime, agent_box):
         yield c
 
 
-def _wait(client, run_id, check, timeout=6.0):
+# The runner polls every 0.5 s beside the app's other background loops; a loaded CI box needs room.
+def _wait(client, run_id, check, timeout=15.0):
     deadline = time.time() + timeout
     while time.time() < deadline:
         run = client.get(f"/api/browser/runs/{run_id}").json()
