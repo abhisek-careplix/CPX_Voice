@@ -276,3 +276,25 @@ def test_texting_gets_the_twilio_token_where_it_sends_and_where_it_checks_signat
         assert "$sms_secrets" in _deploy_command(service), service
     assert "$sms_vars" in _deploy_command("careplix-studio")
     assert "$webhooks_env" in _deploy_command("careplix-webhooks")
+
+
+def test_every_database_service_fits_the_cloud_sql_connection_limit():
+    # 16 Nov 2026: with the default pool (15 per process) the new Studio revision couldn't open its
+    # first connection ("remaining connection slots are reserved"), and the deploy failed.
+    text = SCRIPT.read_text()
+    budgets = {}
+    for name in ("STUDIO", "INTERNAL", "WEBHOOKS"):
+        match = re.search(
+            rf'^DB_BUDGET_{name}="DB_POOL_SIZE=(\d+),DB_MAX_OVERFLOW=(\d+)"', text, re.M
+        )
+        assert match, name
+        budgets[name] = int(match.group(1)) + int(match.group(2))
+    for service, name in (
+        ("careplix-studio", "STUDIO"),
+        ("careplix-internal", "INTERNAL"),
+        ("careplix-webhooks", "WEBHOOKS"),
+    ):
+        assert f"$DB_BUDGET_{name}" in _deploy_command(service), service
+    # Two instances of each at worst (the Studio during a rollout; internal and webhooks max 2).
+    usable = 25 - 3  # db-f1-micro: 25 connections, 3 reserved for superusers
+    assert 2 * sum(budgets.values()) <= usable

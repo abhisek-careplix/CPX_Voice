@@ -48,6 +48,8 @@ export interface NavItem {
   label: string;
   icon: LucideIcon;
   section?: string;
+  /** Hidden when the pack shows this section instead (a fuller page for the same work). */
+  unless?: string;
   caseType?: string;
   overview?: boolean;
   staff?: boolean;
@@ -76,7 +78,9 @@ export const NAV: NavItem[] = [
   // Back Office: coverage, authorizations and getting paid.
   { group: "Back Office", path: "/back-office", label: "Overview", icon: LayoutGrid, overview: true },
   { group: "Back Office", path: "/eligibility", label: "Eligibility & benefits", icon: BadgeCheck, section: "practice" },
-  { group: "Back Office", path: "/cases?type=prior_authorization", label: "Prior auth", icon: ShieldCheck, section: "cases", caseType: "prior_authorization" },
+  { group: "Back Office", path: "/prior-auth", label: "Prior auth", icon: ShieldCheck, section: "prior_auth" },
+  // Lines without the prior-auth work list still see their prior-auth cases.
+  { group: "Back Office", path: "/cases?type=prior_authorization", label: "Prior auth", icon: ShieldCheck, section: "cases", caseType: "prior_authorization", unless: "prior_auth" },
   { group: "Back Office", path: "/claims", label: "Claims", icon: Receipt, section: "claims" },
   { group: "Back Office", path: "/claims?tab=work", label: "Rejections & follow-up", icon: FileWarning, section: "claims" },
   { group: "Back Office", path: "/claims?tab=era", label: "Payments (ERA)", icon: Banknote, section: "claims" },
@@ -113,6 +117,7 @@ export function allowed(item: NavItem, me: Me): boolean {
   if (item.staff) return me.platform;
   if (item.admin && !me.permissions.includes("admin")) return false;
   if (item.section && !me.pack.sections.includes(item.section)) return false;
+  if (item.unless && me.pack.sections.includes(item.unless)) return false;
   if (item.caseType && !me.pack.case_types.includes(item.caseType)) return false;
   return true;
 }

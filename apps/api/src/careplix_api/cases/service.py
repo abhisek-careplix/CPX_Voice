@@ -32,6 +32,7 @@ SOURCES = (
     "claim_denial",
     "schedule",
     "webhook",
+    "prior_auth",
 )
 SOURCE_LABEL = {
     "sample": "Synthetic sample",
@@ -45,6 +46,7 @@ SOURCE_LABEL = {
     "claim_denial": "Claim denial",
     "schedule": "EHR schedule",
     "webhook": "EHR event",
+    "prior_auth": "Auth required (eligibility or payer rule)",
 }
 # Hand-entered sources must use made-up people until the PHI gate.
 TYPED_SOURCES = ("manual", "webhook", "import")

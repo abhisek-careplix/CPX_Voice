@@ -53,15 +53,22 @@ class Readiness:
         return asdict(self)
 
 
-async def check_database(settings: Settings) -> Check:
+async def check_database(settings: Settings, session: AsyncSession | None = None) -> Check:
     if not settings.database_url:
         return Check("database", Status.BLOCKED, "Database connection missing. Set DATABASE_URL.")
-    engine = create_async_engine(settings.database_url, pool_pre_ping=False)
+    # With a request session, check through the app's pool: a separate engine per check would be
+    # one connection outside the service's Cloud SQL budget every time the page refreshes.
+    engine = None if session is not None else create_async_engine(settings.database_url)
     try:
-        async with asyncio.timeout(settings.check_timeout_s), engine.connect() as conn:
-            sqlite = engine.dialect.name == "sqlite"
+        async with asyncio.timeout(settings.check_timeout_s):
+            bind = session.bind if session is not None else engine
+            sqlite = bind.dialect.name == "sqlite"
             query = "select sqlite_version()" if sqlite else "SHOW server_version"
-            version = (await conn.execute(text(query))).scalar_one()
+            if session is not None:
+                version = (await session.execute(text(query))).scalar_one()
+            else:
+                async with engine.connect() as conn:
+                    version = (await conn.execute(text(query))).scalar_one()
         engine_name = "SQLite (local development)" if sqlite else "PostgreSQL"
         return Check(
             "database",
@@ -74,7 +81,8 @@ async def check_database(settings: Settings) -> Check:
             "database", Status.BLOCKED, "Database unreachable.", {"error": type(exc).__name__}
         )
     finally:
-        await engine.dispose()
+        if engine is not None:
+            await engine.dispose()
 
 
 def _host(url: str) -> str:
@@ -275,7 +283,7 @@ async def run_all(
             .limit(1)
         )
     db, lk = await asyncio.gather(
-        check_database(settings), check_livekit(settings, eff, routes, gateway)
+        check_database(settings, session), check_livekit(settings, eff, routes, gateway)
     )
     checks = [db, *lk, check_model(settings, eff), check_agent_worker(settings, probe)]
     statuses = {c.status for c in checks}

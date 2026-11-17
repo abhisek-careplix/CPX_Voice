@@ -29,6 +29,16 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+def from_settings(settings) -> Database:
+    """The API's database with this service's connection budget."""
+    return Database(
+        settings.database_url,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_timeout=settings.db_pool_timeout_s,
+    )
+
+
 def as_utc(value: datetime | None) -> datetime | None:
     """SQLite returns naive datetimes; every stored timestamp is UTC."""
     return value if value is None or value.tzinfo else value.replace(tzinfo=UTC)
@@ -72,11 +82,22 @@ POOL_RECYCLE_S = 1800
 
 
 class Database:
-    def __init__(self, url: str):
+    def __init__(
+        self, url: str, *, pool_size: int = 5, max_overflow: int = 10, pool_timeout: float = 30
+    ):
         # pre_ping tests each pooled connection on checkout and silently replaces a dead one;
         # recycle retires connections before server or proxy idle limits close them.
+        # pool_size + max_overflow caps this process's connections. Every Cloud Run instance of
+        # every API service shares the Cloud SQL limit (~22 usable on db-f1-micro), so each
+        # service gets a budget (settings.db_pool_size) and loops queue for a connection
+        # (pool_timeout) instead of opening more.
         self.engine: AsyncEngine = create_async_engine(
-            url, pool_pre_ping=True, pool_recycle=POOL_RECYCLE_S
+            url,
+            pool_pre_ping=True,
+            pool_recycle=POOL_RECYCLE_S,
+            pool_size=pool_size,
+            max_overflow=max_overflow,
+            pool_timeout=pool_timeout,
         )
         if url.startswith("sqlite"):
 

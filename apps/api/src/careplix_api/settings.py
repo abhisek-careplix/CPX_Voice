@@ -20,6 +20,11 @@ class Settings(BaseSettings):
 
     # SQLite keeps local development dependency-free; Postgres (+ RLS) is the deployed store.
     database_url: str = "sqlite+aiosqlite:///./careplix-dev.db"
+    # Connections this process may hold: pool_size steady, plus max_overflow in a burst. The deploy
+    # sets a budget per service so all of them fit Cloud SQL's connection limit together.
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_timeout_s: float = 30.0
     seed_demo_data: bool = True
 
     livekit_url: str = ""
@@ -160,7 +165,7 @@ class Settings(BaseSettings):
     # Playbooks (careplix_api.cases.playbooks): which triggers start work without a person, and
     # whether patient contact waits for contact_hours.
     playbooks_enabled: bool = True
-    playbook_triggers: str = "care_opportunity,backfill_opening,schedule"
+    playbook_triggers: str = "care_opportunity,backfill_opening,schedule,auth_required"
     playbook_contact_hours: bool = True
     # FO-3 receptionist. Patient-requested bookings and reschedules are L2 (automatic). A plain
     # cancellation is L3 in the EMR design, so by default it waits for one click in the write

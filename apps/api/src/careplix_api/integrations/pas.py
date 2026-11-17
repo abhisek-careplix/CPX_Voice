@@ -1,5 +1,8 @@
 """Da Vinci PAS (Prior Authorization Support) connector, aligned to STU 2 resource shapes.
 
+- ``$submit``: POST a request Bundle (Claim use=preauthorization with diagnoses, the ordering
+  provider, the date of service and the supporting documents listed) to ``Claim/$submit``; the
+  payer answers with a ClaimResponse, usually pended (A4) while it reviews.
 - ``$inquire``: POST a Bundle (Claim use=preauthorization + Patient + Organizations) to
   ``Claim/$inquire``; the payer answers with a Bundle holding a ClaimResponse.
 - Review outcomes come from the ``extension-reviewAction`` extension on item adjudications, coded
@@ -23,6 +26,7 @@ X12_306 = "https://codesystem.x12.org/005010/306"
 NPI = "http://hl7.org/fhir/sid/us-npi"
 MEMBER_ID = "http://terminology.hl7.org/CodeSystem/v2-0203|MB"
 CPT = "http://www.ama-assn.org/go/cpt"
+ICD10 = "http://hl7.org/fhir/sid/icd-10-cm"
 TRACKING_SYSTEM = "urn:careplix:pa-tracking"
 
 # X12 306 review action → (CarePlix reported_status, final determination?)
@@ -117,6 +121,52 @@ def build_inquiry_bundle(case: dict[str, Any], tracking_id: str) -> dict[str, An
     }
 
 
+def build_submit_bundle(
+    case: dict[str, Any], tracking_id: str, documents: list[dict[str, str]] | None = None
+) -> dict[str, Any]:
+    """PAS ``$submit`` request: the inquiry's Claim plus what a payer reviews.
+
+    Adds the ICD-10 diagnoses, the ordering provider (careTeam), the planned date of service and
+    one ``supportingInfo`` entry per packet document (by reference: titles and EHR ids, never the
+    clinical text itself in this sandbox build).
+    """
+    bundle = build_inquiry_bundle(case, tracking_id)
+    claim = bundle["entry"][0]["resource"]
+    service = case.get("service") or {}
+    codes = service.get("icd_codes") or []
+    if isinstance(codes, str):
+        codes = [c.strip() for c in codes.replace(";", ",").split(",") if c.strip()]
+    claim["diagnosis"] = [
+        {
+            "sequence": i,
+            "diagnosisCodeableConcept": {"coding": [{"system": ICD10, "code": code}]},
+        }
+        for i, code in enumerate(codes, start=1)
+    ]
+    if service.get("ordering_provider"):
+        claim["careTeam"] = [
+            {
+                "sequence": 1,
+                "provider": {"display": service["ordering_provider"]},
+                "role": {"coding": [{"code": "primary"}]},
+            }
+        ]
+    if service.get("date"):
+        claim["item"][0]["servicedDate"] = service["date"]
+    if claim["diagnosis"]:
+        claim["item"][0]["diagnosisSequence"] = [d["sequence"] for d in claim["diagnosis"]]
+    claim["supportingInfo"] = [
+        {
+            "sequence": i,
+            "category": {"coding": [{"code": "attachment"}]},
+            "valueReference": {"display": doc.get("label") or doc.get("item") or "Document"},
+        }
+        for i, doc in enumerate(documents or [], start=1)
+    ]
+    bundle["type"] = "collection"
+    return bundle
+
+
 @dataclass
 class PasStatus:
     found: bool
@@ -127,6 +177,8 @@ class PasStatus:
     authorization_reference: str | None = None
     reason: str | None = None
     synthetic: bool = False
+    valid_from: str | None = None  # ClaimResponse.preAuthPeriod
+    valid_to: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -166,6 +218,8 @@ def parse_inquiry_response(bundle: dict[str, Any]) -> PasStatus:
         authorization_reference=response.get("preAuthRef"),
         reason=reason,
         synthetic=synthetic,
+        valid_from=(response.get("preAuthPeriod") or {}).get("start"),
+        valid_to=(response.get("preAuthPeriod") or {}).get("end"),
     )
 
 

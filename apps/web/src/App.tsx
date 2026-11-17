@@ -16,6 +16,7 @@ import Hub from "./pages/Hub";
 import ReviewInbox from "./pages/Inbox";
 import CallDetail from "./pages/CallDetail";
 import Claims from "./pages/Claims";
+import PriorAuth from "./pages/PriorAuth";
 import Cases from "./pages/Cases";
 import CareOpportunities from "./pages/CareOpportunities";
 import Calls from "./pages/Calls";
@@ -172,6 +173,7 @@ function Shell() {
           <Route path="/backfill" element={<Gate show={show("backfill")}><Backfill /></Gate>} />
           <Route path="/texts" element={<Gate show={show("texts")}><TextMessages /></Gate>} />
           <Route path="/claims" element={<Gate show={show("claims")}><Claims /></Gate>} />
+          <Route path="/prior-auth" element={<Gate show={show("prior_auth")}><PriorAuth /></Gate>} />
           <Route path="/hub" element={<Gate show={show("hub")}><Hub /></Gate>} />
           <Route path="/members" element={<Members />} />
           <Route path="/platform" element={<Gate show={me.platform}><Platform /></Gate>} />

@@ -41,7 +41,17 @@ from careplix_api.settings import Settings, get_settings
 CHANNELS = ("call", "text", "email", "fax", "browser")
 ANSWERS = ("yes", "no", "no_answer")
 WAITING = ("queued", "sent")
-SETTLED = ("confirmed", "declined", "no_answer", "failed", "superseded", "too_late", "cancelled")
+# ``notified``: a one-way notice (nothing to answer), e.g. "please call us about your visit".
+SETTLED = (
+    "confirmed",
+    "declined",
+    "no_answer",
+    "failed",
+    "superseded",
+    "too_late",
+    "cancelled",
+    "notified",
+)
 FILLED_NOTICE = "Thanks for answering. That time has now been filled, so there's nothing to do."
 
 

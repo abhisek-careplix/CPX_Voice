@@ -5,6 +5,11 @@
 Stands in for a payer's CMS-0057-F Prior Authorization API until real endpoints (or the Inferno
 PAS simulator) are available. It matches inquiries by member ID + CPT against the synthetic cases
 and answers from ``fixtures/synthetic/payer_sandbox.json``. Every response is tagged synthetic.
+
+``$submit`` takes a new request and answers pended (A4); the first ``$inquire`` with the same
+tracking identifier answers with the outcome the fixture's ``submit_outcomes`` names for the CPT
+code (approved by default). Tracking identifiers starting ``pa:`` (the prior-auth playbook's) count
+as submitted even after a restart, so the outcome never depends on this process's memory.
 No real payer data, no authentication: never expose this outside development.
 """
 
@@ -13,7 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -33,17 +38,38 @@ SYNTHETIC_TAG = {"system": "urn:careplix:tag", "code": "synthetic", "display": "
 FHIR_JSON = "application/fhir+json"
 
 
-def _load() -> tuple[dict[tuple[str, str], str], dict[str, Any]]:
+def _load() -> tuple[dict[tuple[str, str], str], dict[str, Any], dict[str, Any]]:
     by_member_cpt = {}
     for path in sorted((FIXTURES / "cases").glob("*.json")):
         case = json.loads(path.read_text())
         by_member_cpt[(case["patient"]["member_id"], case["service"]["cpt_code"])] = case["case_id"]
-    decisions = json.loads((FIXTURES / "payer_sandbox.json").read_text())["decisions"]
-    return by_member_cpt, decisions
+    fixture = json.loads((FIXTURES / "payer_sandbox.json").read_text())
+    return by_member_cpt, fixture["decisions"], fixture.get("submit_outcomes") or {}
 
 
-CASES, DECISIONS = _load()
+CASES, DECISIONS, SUBMIT_OUTCOMES = _load()
 SUBMISSIONS: dict[str, dict[str, Any]] = {}  # in-memory, keyed by our tracking identifier
+PLAYBOOK_TRACKING = "pa:"
+
+
+def _submitted_ref(tracking: str) -> str:
+    return f"SYN-PA-S{int(hashlib.sha256(tracking.encode()).hexdigest(), 16) % 100000:05d}"
+
+
+def _outcome(tracking: str, cpt: str | None) -> dict[str, Any]:
+    """The decision on a submitted request: by CPT code from the fixture, approved by default."""
+    rule = dict(
+        SUBMIT_OUTCOMES.get(cpt or "") or SUBMIT_OUTCOMES.get("default") or {"action": "A1"}
+    )
+    decision: dict[str, Any] = {"action": rule["action"], "ref": _submitted_ref(tracking)}
+    if rule.get("reason"):
+        decision["reason"] = rule["reason"]
+    if rule["action"] in {"A1", "A2", "A6"}:
+        today = datetime.now(UTC).date()
+        decision["valid_from"] = today.isoformat()
+        decision["valid_to"] = (today + timedelta(days=int(rule.get("valid_days", 90)))).isoformat()
+    return decision
+
 
 app = FastAPI(title="CarePlix Payer Sandbox (synthetic)", version="0.1.0")
 
@@ -167,8 +193,9 @@ async def metadata():
 @app.post("/fhir/Claim/$inquire")
 async def inquire(request: Request):
     _, member, cpt, tracking = _claim_and_keys(await request.json())
-    if tracking in SUBMISSIONS:
-        return _fhir(_bundle([SUBMISSIONS[tracking]]))
+    if tracking and (tracking in SUBMISSIONS or tracking.startswith(PLAYBOOK_TRACKING)):
+        submitted = SUBMISSIONS.get(tracking) or {"cpt": cpt}
+        return _fhir(_bundle([_claim_response(_outcome(tracking, submitted["cpt"]), tracking)]))
     case_id = CASES.get((member or "", cpt or ""))
     decision = DECISIONS.get(case_id) if case_id else None
     if not decision:
@@ -179,7 +206,7 @@ async def inquire(request: Request):
 
 @app.post("/fhir/Claim/$submit")
 async def submit(request: Request):
-    claim, _, _, tracking = _claim_and_keys(await request.json())
+    claim, _, cpt, tracking = _claim_and_keys(await request.json())
     if not claim or not tracking:
         return _fhir(
             {
@@ -188,9 +215,11 @@ async def submit(request: Request):
             },
             400,
         )
-    if tracking not in SUBMISSIONS:  # idempotent on our tracking identifier
-        ref = f"SYN-PA-S{int(hashlib.sha256(tracking.encode()).hexdigest(), 16) % 100000:05d}"
-        SUBMISSIONS[tracking] = _claim_response(
-            {"action": "A4", "reason": "Pended for medical review", "ref": ref}, tracking
-        )
-    return _fhir(_bundle([SUBMISSIONS[tracking]]))
+    # Idempotent on our tracking identifier: a resubmission answers the same pended response.
+    SUBMISSIONS.setdefault(tracking, {"cpt": cpt})
+    pended = {
+        "action": "A4",
+        "reason": "Pended for medical review",
+        "ref": _submitted_ref(tracking),
+    }
+    return _fhir(_bundle([_claim_response(pended, tracking)]))

@@ -270,6 +270,7 @@ export function BackOfficeOverview() {
   const cases = useCases(show.section("cases"));
 
   const live = waitingCases(cases.data, AREA_CASE_TYPES.back);
+  const authList = show.section("prior_auth") ? "/prior-auth" : "/cases?type=prior_authorization";
   const auths = live?.filter((c) => c.case_type === "prior_authorization");
   const denials = live?.filter((c) => c.case_type === "claim_denial" || c.case_type === "claim_status");
   const open = claims.data?.filter((c) => !c.final);
@@ -291,14 +292,14 @@ export function BackOfficeOverview() {
       }
       tiles={[
         tile("coverage", practice, BadgeCheck, "var(--tile-orange)", noEhr ? "–" : h7(huddle.data), "Visits with coverage issues (7 days)", "/eligibility"),
-        tile("auths", show.caseType("prior_authorization") && show.section("cases"), ShieldCheck, "var(--tile-blue)", auths?.length, "Prior auths in progress", "/cases?type=prior_authorization"),
+        tile("auths", show.caseType("prior_authorization") && show.section("cases"), ShieldCheck, "var(--tile-blue)", auths?.length, "Prior auths in progress", authList),
         tile("claims", claimsOn, Receipt, "var(--tile-navy)", open?.length, "Open claims", "/claims"),
         tile("aged", claimsOn, Hourglass, "var(--tile-purple)", aged?.length, "Claims over 30 days", "/claims?tab=work"),
         tile("paid", claimsOn, Banknote, "var(--tile-green)", claims.data?.filter((c) => c.status === "paid").length, "Claims paid", "/claims?tab=era"),
       ]}
       queues={[
         show.section("cases") && show.caseType("prior_authorization") && (
-          <WorkQueue key="auths" title="Prior auths" icon={ShieldCheck} items={auths?.map(caseItem)} to="/cases?type=prior_authorization" empty="No prior auths waiting. They open on their own when a payer requires one." error={cases.error} />
+          <WorkQueue key="auths" title="Prior auths" icon={ShieldCheck} items={auths?.map(caseItem)} to={authList} empty="No prior auths waiting. They open on their own when a payer requires one." error={cases.error} />
         ),
         claimsOn && (
           <WorkQueue
