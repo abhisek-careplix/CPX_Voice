@@ -8,8 +8,8 @@ inbox shows each item with its approver, and playbooks ask it before acting on t
 - ``staff``: a person with the review permission approves.
 - ``admin``: a workspace administrator approves (EHR writes, as the practice API already requires).
 - ``supervisor``: the person supervising a browser run approves its steps.
-- ``clinician``: a clinician signs off. Until identity (workstream A) adds a clinician role, the
-  review permission stands in for it; :func:`can_decide` is the one place to change that.
+- ``clinician``: a clinician signs off: a member with the clinician role, or one an admin marked as
+  a clinician (``clinical_signoff`` permission). The review permission is not enough.
 
 A workspace override (by product line, later by customer) plugs into :func:`rules_for`.
 """
@@ -40,6 +40,14 @@ DEFAULT_RULES: dict[str, str] = {
     "playbook.prior_auth.submit": "agent",
     "playbook.ehr_write": "admin",  # any other write a playbook proposes waits for a person
     "playbook.clinical_message": "clinician",  # clinical words come from a clinician
+    # Clinical support (OPERATING_PLAN §5.3): the agent gathers, prepares, routes and delivers
+    # clinician-approved words. It never decides.
+    "red_flag": "clinician",  # a red-flag answer goes to a clinician at once
+    "clinical.refill_decision": "clinician",
+    "clinical.instruction": "clinician",  # adding or changing approved wording
+    "playbook.clinical.deliver_approved": "agent",  # word for word, from the approved library
+    "playbook.ehr_write.patient_update": "admin",  # intake demographics
+    "playbook.ehr_write.coverage_create": "admin",  # intake coverage
 }
 
 
@@ -70,7 +78,9 @@ def can_decide(principal: Principal, who: str, context: dict[str, Any] | None = 
         return principal.can("admin")
     if who == "supervisor":
         return principal.can("browser_supervise")
-    if who in ("staff", "clinician"):
+    if who == "clinician":
+        return principal.can("clinical_signoff")
+    if who == "staff":
         return principal.can("review")
     return False
 

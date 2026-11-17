@@ -35,7 +35,16 @@ PACKS: dict[str, dict[str, Any]] = {
     "practice": {
         "label": "CarePlix Practice",
         "audience": "Ambulatory clinics",
-        "sections": (*SHARED_SECTIONS, "care", "practice", "backfill", "claims", "prior_auth"),
+        "sections": (
+            *SHARED_SECTIONS,
+            "care",
+            "practice",
+            "backfill",
+            "claims",
+            "prior_auth",
+            "clinical",  # refills, discharge follow-up, pre-visit, approved instructions
+            "intake",  # registration forms by secure link
+        ),
         "case_types": (
             "prior_authorization",
             "claim_status",
@@ -45,6 +54,10 @@ PACKS: dict[str, dict[str, Any]] = {
             "care_outreach",
             "slot_backfill",
             "call_back",
+            "refill_request",
+            "discharge_followup",
+            "previsit_prep",
+            "patient_intake",
         ),
     },
     "home_health": {

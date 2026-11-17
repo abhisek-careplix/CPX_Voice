@@ -33,6 +33,10 @@ SOURCES = (
     "schedule",
     "webhook",
     "prior_auth",
+    "staff",
+    "discharge",
+    "previsit",
+    "text",
 )
 SOURCE_LABEL = {
     "sample": "Synthetic sample",
@@ -47,9 +51,13 @@ SOURCE_LABEL = {
     "schedule": "EHR schedule",
     "webhook": "EHR event",
     "prior_auth": "Auth required (eligibility or payer rule)",
+    "staff": "Staff entry",
+    "discharge": "Discharge notice",
+    "previsit": "Upcoming visit",
+    "text": "Text message",
 }
 # Hand-entered sources must use made-up people until the PHI gate.
-TYPED_SOURCES = ("manual", "webhook", "import")
+TYPED_SOURCES = ("manual", "webhook", "import", "staff")
 # Task outcomes that finish the work; the others leave the case open for another try.
 DONE_OUTCOMES = ("Completed",)
 OPEN_TASK_STATES = ("Draft", "Ready", "Running", "Review")

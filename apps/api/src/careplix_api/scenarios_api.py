@@ -95,6 +95,21 @@ async def add_examples(
     return {"added": len(added)}
 
 
+@router.post("/examples/clinical")
+async def add_clinical_suite(
+    principal: Principal = Depends(require("edit_draft")),
+    session: AsyncSession = Session,
+    settings: Settings = Depends(get_settings),
+):
+    """The clinical-check agent and its suite: refill, discharge and pre-visit calls, and
+    red-team callers trying to get clinical advice or a decision out of it."""
+    from careplix_api.clinical import studio
+
+    out = await studio.add_suite(session, principal, settings)
+    await session.commit()
+    return out
+
+
 @router.get("/{scenario_id}")
 async def get_scenario(
     scenario_id: str,

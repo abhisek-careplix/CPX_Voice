@@ -2,25 +2,7 @@
 // what is left to set up. Each tile and queue appears only when the workspace's pack shows the page
 // it opens, so the same layout serves CarePlix Practice and CarePlix Home Health.
 import { useQuery } from "@tanstack/react-query";
-import {
-  AlertTriangle,
-  Banknote,
-  BadgeCheck,
-  CalendarClock,
-  CalendarPlus,
-  Check,
-  FileWarning,
-  Gauge,
-  HeartPulse,
-  Hourglass,
-  MessagesSquare,
-  PhoneForwarded,
-  Receipt,
-  ShieldCheck,
-  Stethoscope,
-  Users,
-  type LucideIcon,
-} from "lucide-react";
+import { AlertTriangle, BadgeCheck, Banknote, CalendarClock, CalendarPlus, Check, FileWarning, Gauge, HeartPulse, Hourglass, MessagesSquare, PhoneForwarded, Receipt, ShieldAlert, ShieldCheck, Stethoscope, type LucideIcon, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useMe } from "../App";
@@ -42,9 +24,9 @@ import { CaseStatusPill } from "./Cases";
 
 // Which case types each area owns. A new case type joins an area by adding it here.
 export const AREA_CASE_TYPES = {
-  front: ["appointment_reminder", "slot_backfill", "call_back"],
+  front: ["appointment_reminder", "slot_backfill", "call_back", "patient_intake"],
   back: ["prior_authorization", "claim_status", "claim_denial", "eligibility_check"],
-  clinical: ["care_outreach"],
+  clinical: ["care_outreach", "refill_request", "discharge_followup", "previsit_prep"],
 } as const;
 
 const LIVE: CaseItem["status"][] = ["open", "in_progress", "handed_off", "blocked"];
@@ -342,6 +324,7 @@ export function ClinicalOverview() {
   const c = care.data?.counts;
   const count = (...keys: (keyof NonNullable<typeof c>)[]) => (c ? keys.reduce((n, k) => n + (c[k] ?? 0), 0) : undefined);
   const signoffs = inbox.data?.items.filter((i) => i.kind === "clinician_signoff");
+  const redFlags = inbox.data?.items.filter((i) => i.kind === "red_flag");
 
   return (
     <Overview
@@ -349,12 +332,24 @@ export function ClinicalOverview() {
       title="Clinical"
       description="Clinician-approved outreach and sign-offs. Agents find who qualifies, gather what the clinician needs and deliver approved words; they never make a clinical decision."
       tiles={[
+        tile("redflags", show.section("inbox") && show.section("clinical"), ShieldAlert, "var(--tile-red)", inbox.data ? redFlags?.length : undefined, "Red flags for a clinician", "/inbox?kind=red_flag"),
         tile("signoffs", show.section("inbox"), Stethoscope, "var(--tile-orange)", inbox.data ? signoffs?.length : undefined, "Waiting for clinician sign-off", "/inbox?kind=clinician_signoff"),
         tile("review", show.section("care"), HeartPulse, "var(--tile-blue)", count("proposed"), "Care opportunities to review", "/care"),
         tile("outreach", show.section("care"), Users, "var(--tile-purple)", count("approved", "contacted"), "Patients in outreach", "/care"),
-        tile("enrolled", show.section("care"), BadgeCheck, "var(--tile-green)", count("enrolled", "done"), "Enrolled or done", "/care"),
+
       ]}
       queues={[
+        show.section("inbox") && show.section("clinical") && (
+          <WorkQueue
+            key="redflags"
+            title="Red flags"
+            icon={ShieldAlert}
+            items={redFlags?.map((i) => ({ id: i.id, title: i.title, meta: i.detail, to: i.href }))}
+            to="/inbox?kind=red_flag"
+            empty="No red-flag answers waiting."
+            error={inbox.error}
+          />
+        ),
         show.section("inbox") && (
           <WorkQueue
             key="signoffs"

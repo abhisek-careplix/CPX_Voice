@@ -27,7 +27,13 @@ async def demo_principal(session: AsyncSession) -> Principal | None:
     if user is None:
         return None
     membership = await session.scalar(select(Membership).where(Membership.user_id == user.id))
-    return Principal(user.id, membership.workspace_id, membership.role, user.display_name)
+    return Principal(
+        user.id,
+        membership.workspace_id,
+        membership.role,
+        user.display_name,
+        clinician=bool(membership.clinician),
+    )
 
 
 async def seed(session: AsyncSession, settings: Settings) -> None:
@@ -37,7 +43,11 @@ async def seed(session: AsyncSession, settings: Settings) -> None:
     user = User(email=DEMO_EMAIL, display_name="Demo Administrator")
     session.add_all([workspace, user])
     await session.flush()
-    session.add(Membership(user_id=user.id, workspace_id=workspace.id, role="admin"))
+    # The demo administrator also signs clinical work, so a lone tester can walk the clinical
+    # playbooks end to end (synthetic data only); Members turns it off.
+    session.add(
+        Membership(user_id=user.id, workspace_id=workspace.id, role="admin", clinician=True)
+    )
 
     for path in sorted(FIXTURES.glob("*.json")):
         data = json.loads(path.read_text())

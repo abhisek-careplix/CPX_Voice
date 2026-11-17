@@ -33,9 +33,13 @@ PERMISSIONS: dict[str, frozenset[str]] = {
     "stop_calls": frozenset({"operator", "publisher", "admin"}),
     # Supervised browser runs: start one, approve its steps, take over (BROWSER_AGENT_PLAN §6a).
     "browser_supervise": frozenset({"operator", "publisher", "admin"}),
-    "review": frozenset({"reviewer", "admin"}),
-    "view": frozenset({"author", "operator", "publisher", "admin", "reviewer"}),
+    "review": frozenset({"reviewer", "admin", "clinician"}),
+    "view": frozenset({"author", "operator", "publisher", "admin", "reviewer", "clinician"}),
     "admin": frozenset({"admin"}),
+    # Clinical sign-off (OPERATING_PLAN §2 fifth part, D5): refill decisions, red flags, pre-visit
+    # briefs, approved instructions. The clinician role has it; so does any member an admin marks
+    # as a clinician (``Membership.clinician``), e.g. a physician who also runs the workspace.
+    "clinical_signoff": frozenset({"clinician"}),
 }
 
 
@@ -47,9 +51,16 @@ class Principal:
     display_name: str
     # CarePlix staff: customer workspaces and shared telephony (settings.is_platform_admin)
     platform: bool = False
+    # Signs clinical work whatever the role (``Membership.clinician``).
+    clinician: bool = False
 
     def can(self, permission: str) -> bool:
+        if permission == "clinical_signoff" and self.clinician:
+            return True
         return self.role in PERMISSIONS[permission]
+
+    def permissions(self) -> list[str]:
+        return sorted(k for k in PERMISSIONS if self.can(k))
 
 
 def issue_session(settings: Settings, principal: Principal) -> str:
@@ -89,7 +100,7 @@ async def current_principal(
             async with request.app.state.db.sessions() as session:
                 row = (
                     await session.execute(
-                        select(Membership.role, User.email)
+                        select(Membership.role, Membership.clinician, User.email)
                         .join(User, User.id == Membership.user_id)
                         .where(
                             Membership.user_id == claims["sub"],
@@ -107,6 +118,7 @@ async def current_principal(
                     claims["name"],
                     platform=settings.is_platform_admin(row.email)
                     or (settings.is_dev and row.email.endswith("@careplix.local")),
+                    clinician=bool(row.clinician),
                 )
     raise ApiError(401, "unauthenticated", "Sign in to continue.")
 

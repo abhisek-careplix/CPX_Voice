@@ -376,6 +376,174 @@ CASE_TYPES: dict[str, dict[str, Any]] = {
             _f("location", "Location", "slot.location", required=False),
         ],
     },
+    # --- Clinical support (OPERATING_PLAN §5.3) ---------------------------------------------------
+    # The agent never makes a clinical decision: it gathers, prepares, routes to a clinician and
+    # delivers clinician-approved words (careplix_api.clinical). Medicines and diagnoses stay on
+    # the case (share=False); the patient-facing words come from the approved library.
+    "refill_request": {
+        "name": "Refill request",
+        "program": "Clinical support",
+        "prefix": "RFL",
+        "summary": "Capture a refill request (drug, dose, pharmacy), check the protocol facts in "
+        "the EHR mirror, route it to a clinician, and tell the patient the decision in approved "
+        "words. No prescribing here: the clinician sends any prescription from the EHR.",
+        "counterparty": {
+            "role": "patient",
+            "label": "Patient",
+            "name": "patient.display_name",
+            "phone": "patient.phone",
+        },
+        "on_behalf_of": "practice.name",
+        "subject": "patient.display_name",
+        "headline": ("refill.medication", "patient.display_name"),
+        "agents": ["clinical-check"],
+        "checks": ["Protocol facts from the EHR mirror: last visit, medicine on file, last fill"],
+        "packs": [*PATIENT_CALL_PACKS, "clinical-scope"],
+        "objective": "Reach {patient_name} for {practice_name} and, once you are speaking with "
+        "them, ask these questions word for word and record each answer with "
+        "record_check_answers: {check_questions} Never say whether it will be approved, and "
+        "never advise on the medicine.",
+        "contract": {
+            "informed": ["patient", "staff"],
+            "sor": "The clinician's recorded decision (any prescription is sent by the clinician "
+            "in the EHR; a prescribing partner comes later)",
+            "clinical": True,
+            "decides": True,
+        },
+        "fields": [
+            _f("patient_name", "Patient", "patient.display_name"),
+            _f("patient_phone", "Patient phone", "patient.phone", "phone", share=False),
+            _f("date_of_birth", "Date of birth", "patient.date_of_birth", "date", share=False),
+            _f("practice_name", "Practice", "practice.name"),
+            _f("practice_phone", "Practice call-back number", "practice.phone", "phone"),
+            _f("medication", "Medicine", "refill.medication", share=False),
+            _f("dose", "Dose", "refill.dose", required=False, share=False),
+            _f("pharmacy", "Pharmacy", "refill.pharmacy", share=False),
+            _f(
+                "last_visit", "Last visit", "refill.last_visit", "date", required=False, share=False
+            ),
+            _f("requested_by", "Requested by", "refill.channel", required=False, share=False),
+            _f("check_questions", "Questions to ask", "check.questions", required=False),
+        ],
+    },
+    "discharge_followup": {
+        "name": "Discharge follow-up",
+        "program": "Clinical support",
+        "prefix": "DCH",
+        "summary": "A hospital discharge notice (staff entry or import; the ADT feed comes later) "
+        "becomes a call within two business days with a scripted check. Red-flag answers go to "
+        "a clinician at once.",
+        "counterparty": {
+            "role": "patient",
+            "label": "Patient",
+            "name": "patient.display_name",
+            "phone": "patient.phone",
+        },
+        "on_behalf_of": "practice.name",
+        "subject": "patient.display_name",
+        "headline": ("discharge.facility", "discharge.date"),
+        "agents": ["clinical-check"],
+        "checks": ["The discharge notice, and the patient's clinician of record"],
+        "packs": [*PATIENT_CALL_PACKS, "clinical-scope"],
+        "objective": "Reach {patient_name} for {practice_name} after their hospital stay. Once you "
+        "are speaking with them, ask these questions word for word and record each answer with "
+        "record_check_answers: {check_questions} If the tool gives you words to read, read them "
+        "exactly. Never advise, reassure about symptoms or interpret an answer.",
+        "contract": {
+            "informed": ["patient", "staff"],
+            "sor": "The check answers recorded on the case and reviewed by a clinician",
+            "clinical": True,
+        },
+        "fields": [
+            _f("patient_name", "Patient", "patient.display_name"),
+            _f("patient_phone", "Patient phone", "patient.phone", "phone", share=False),
+            _f("date_of_birth", "Date of birth", "patient.date_of_birth", "date", share=False),
+            _f("practice_name", "Practice", "practice.name"),
+            _f("practice_phone", "Practice call-back number", "practice.phone", "phone"),
+            _f("facility", "Discharged from", "discharge.facility", share=False),
+            _f("discharged_on", "Discharge date", "discharge.date", "date", share=False),
+            _f("clinician_name", "Clinician of record", "discharge.clinician", required=False),
+            _f("call_by", "Call by", "discharge.call_by", "date", required=False, share=False),
+            _f("check_questions", "Questions to ask", "check.questions", required=False),
+        ],
+    },
+    "previsit_prep": {
+        "name": "Pre-visit preparation",
+        "program": "Clinical support",
+        "prefix": "PRE",
+        "summary": "Before a visit: a questionnaire by text link (or a call), answers summarised "
+        "for the clinician, and a chart-prep brief with problems, medicines, open care gaps, "
+        "outside records and the answers.",
+        "counterparty": {
+            "role": "patient",
+            "label": "Patient",
+            "name": "patient.display_name",
+            "phone": "patient.phone",
+        },
+        "on_behalf_of": "practice.name",
+        "subject": "patient.display_name",
+        "headline": ("appointment.starts_at", "appointment.clinician"),
+        "agents": ["clinical-check"],
+        "checks": ["Problems, medicines, care gaps and outside records from the EHR mirror"],
+        "packs": [*PATIENT_CALL_PACKS, "clinical-scope"],
+        "objective": "Reach {patient_name} for {practice_name} before their visit on "
+        "{appointment_at}. Once you are speaking with them, ask these questions word for word "
+        "and record each answer with record_check_answers: {check_questions} If the tool gives "
+        "you words to read, read them exactly. Never advise or interpret.",
+        "contract": {
+            "informed": ["patient", "staff"],
+            "sor": "The clinician's review of the pre-visit brief",
+            "clinical": True,
+        },
+        "fields": [
+            _f("patient_name", "Patient", "patient.display_name"),
+            _f("patient_phone", "Patient phone", "patient.phone", "phone", share=False),
+            _f("date_of_birth", "Date of birth", "patient.date_of_birth", "date", share=False),
+            _f("practice_name", "Practice", "practice.name"),
+            _f("practice_phone", "Practice call-back number", "practice.phone", "phone"),
+            _f("clinician_name", "Clinician", "appointment.clinician"),
+            _f("appointment_at", "Appointment", "appointment.starts_at", "datetime"),
+            _f("visit_type", "Visit type", "appointment.visit_type", required=False),
+            _f("check_questions", "Questions to ask", "check.questions", required=False),
+        ],
+    },
+    # --- Front office: intake and registration (OPERATING_PLAN §5.1) ------------------------------
+    "patient_intake": {
+        "name": "Intake and registration",
+        "program": "Front desk",
+        "prefix": "INT",
+        "summary": "Send the registration forms by secure link, capture the insurance card, and "
+        "propose the demographics and coverage to the EHR as write intents a person approves.",
+        "counterparty": {
+            "role": "patient",
+            "label": "Patient",
+            "name": "patient.display_name",
+            "phone": "patient.phone",
+        },
+        "on_behalf_of": "practice.name",
+        "subject": "patient.display_name",
+        "headline": ("appointment.starts_at", "practice.name"),
+        "agents": ["errand"],
+        "checks": [],
+        "packs": list(PATIENT_CALL_PACKS),
+        "objective": None,  # worked by text link; a call only reminds them to fill it in
+        "contract": {
+            "informed": ["patient", "staff"],
+            "sor": "The EHR's acceptance of the demographics and coverage (write intents), or "
+            "staff entering them when the EHR can't take the write",
+            "clinical": False,
+        },
+        "fields": [
+            _f("patient_name", "Patient", "patient.display_name"),
+            _f("patient_phone", "Patient phone", "patient.phone", "phone", share=False),
+            _f("date_of_birth", "Date of birth", "patient.date_of_birth", "date", share=False),
+            _f("practice_name", "Practice", "practice.name"),
+            _f("practice_phone", "Practice call-back number", "practice.phone", "phone"),
+            _f(
+                "appointment_at", "First visit", "appointment.starts_at", "datetime", required=False
+            ),
+        ],
+    },
 }
 
 KINDS = ("text", "date", "datetime", "phone", "code", "number", "money")
@@ -498,6 +666,15 @@ _PROGRAMS = (
 )
 
 
+_MEDICINES = (
+    ("Lisinopril (synthetic sample)", "10 mg once daily"),
+    ("Metformin (synthetic sample)", "500 mg twice daily"),
+    ("Atorvastatin (synthetic sample)", "20 mg at night"),
+)
+_PHARMACIES = ("Main Street Pharmacy (synthetic)", "Riverside Drugs (synthetic)")
+_HOSPITALS = ("Lakeside General (synthetic)", "St. Example Medical Center (synthetic)")
+
+
 def _phone(rng: random.Random) -> str:
     return f"+1202555{rng.randint(170, 199):04d}"
 
@@ -583,6 +760,29 @@ def sample_values(type_id: str, rng: random.Random, n: int) -> dict[str, Any]:
             "minutes": rng.choice([15, 30]),
             "location": address,
         }
+    elif type_id == "refill_request":
+        drug, dose = rng.choice(_MEDICINES)
+        base |= {
+            "medication": drug,
+            "dose": dose,
+            "pharmacy": rng.choice(_PHARMACIES),
+            "requested_by": rng.choice(["call", "text"]),
+        }
+    elif type_id == "discharge_followup":
+        out = date.today() - timedelta(days=rng.randint(0, 1))
+        base |= {
+            "facility": rng.choice(_HOSPITALS),
+            "discharged_on": out.isoformat(),
+            "clinician_name": rng.choice(_CLINICIANS),
+        }
+    elif type_id == "previsit_prep":
+        base |= {
+            "clinician_name": rng.choice(_CLINICIANS),
+            "appointment_at": f"{soon.isoformat()} {rng.choice(['09:00', '10:30', '14:15'])}",
+            "visit_type": rng.choice(["Annual wellness visit", "Follow-up", "New problem"]),
+        }
+    elif type_id == "patient_intake":
+        base |= {"appointment_at": f"{soon.isoformat()} 09:30"}
     return base
 
 

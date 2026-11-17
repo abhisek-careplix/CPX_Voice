@@ -60,6 +60,7 @@ export interface Me {
   workspace_id: string;
   workspace_name: string;
   permissions: string[];
+  clinician?: boolean;
   emergency_stop: boolean;
   platform: boolean;
   product_line: ProductLine;
@@ -73,7 +74,7 @@ export interface AuthMode {
   microsoft_client_id: string | null;
 }
 
-export type Role = "admin" | "publisher" | "author" | "operator" | "reviewer";
+export type Role = "admin" | "publisher" | "author" | "operator" | "reviewer" | "clinician";
 
 export interface MyWorkspace {
   workspace_id: string;
@@ -88,6 +89,7 @@ export interface Member {
   display_name: string;
   email: string;
   role: Role;
+  clinician: boolean;
   last_used_at: string | null;
   you: boolean;
 }
@@ -471,7 +473,7 @@ export interface Playbook {
   hand_off: string;
 }
 
-export type InboxKind = "result_review" | "ehr_write" | "browser_plan" | "browser_step" | "clinician_signoff" | "hand_off" | "auth_packet" | "escalation";
+export type InboxKind = "result_review" | "ehr_write" | "browser_plan" | "browser_step" | "clinician_signoff" | "hand_off" | "auth_packet" | "escalation" | "red_flag";
 
 export interface InboxItem {
   kind: InboxKind;
@@ -1359,4 +1361,183 @@ export interface ChannelHandoff {
   detail: string | null;
   created_at: string | null;
   resolved_at: string | null;
+}
+
+// ---------- Clinical support (refills, discharge follow-up, pre-visit) ----------
+
+export type ClinicalType = "refill_request" | "discharge_followup" | "previsit_prep";
+export type ClinicalStage =
+  | "new"
+  | "preparing"
+  | "waiting_on_patient"
+  | "with_clinician"
+  | "red_flag"
+  | "decided"
+  | "told"
+  | "reviewed"
+  | "handed_off"
+  | "blocked"
+  | "done"
+  | "failed"
+  | "closed";
+
+export interface ScriptQuestion {
+  key: string;
+  text: string;
+  kind: "yes_no" | "text";
+  red_flag: boolean;
+  attention: boolean;
+  required: boolean;
+  label: string;
+}
+
+export interface Script {
+  name: string;
+  intro: string;
+  questions: ScriptQuestion[];
+}
+
+export interface ClinicalRow extends CaseItem {
+  stage: ClinicalStage;
+  red_flag: boolean;
+  decision: string | null;
+  answered: number;
+  questions: number;
+  medication: string | null;
+  pharmacy: string | null;
+  facility: string | null;
+  discharged_on: string | null;
+  call_by: string | null;
+  appointment_at: string | null;
+  clinician_name: string | null;
+}
+
+export interface ClinicalList {
+  cases: ClinicalRow[];
+  counts: Partial<Record<ClinicalStage, number>>;
+  script: Script | null;
+  can_decide: boolean;
+}
+
+export interface AnswerLine {
+  question: string;
+  label: string;
+  text: string;
+  answer: "yes" | "no" | "unsure" | "declined" | "text";
+  detail: string | null;
+  source: string | null;
+  level: "red_flag" | "attention" | "info";
+}
+
+export interface ProtocolFact {
+  key: string;
+  label: string;
+  value: string;
+  meets: boolean | null;
+  source: string;
+}
+
+export interface ChartBrief {
+  linked: boolean;
+  problems: { code: string | null; since: string | null }[];
+  medicines: { name: string | null; dose: string | null; since: string | null }[];
+  care_gaps: { program: string; status: string; due_by: string | null }[];
+  outside_records: { kind: string; source: string | null; date: string | null; summary: string | null }[];
+  last_visit: string | null;
+  next_visit: string | null;
+  questionnaire: AnswerLine[];
+  attention: string[];
+}
+
+export interface ClinicalDetail extends ClinicalRow {
+  case: CaseDetail;
+  script: Script | null;
+  answers: AnswerLine[];
+  remaining: string[];
+  protocol: ProtocolFact[];
+  decided: { outcome: string; instruction_key: string | null; instruction_title: string | null; version: number | null; note: string | null; name: string; at: string } | null;
+  delivered: { by: string; key: string; version: number } | null;
+  red_flags: { question: string; label: string; answer: string; at: string }[];
+  red_flag_ack: { name: string; at: string; action: string; note: string | null } | null;
+  brief: ChartBrief | null;
+  run: PlaybookRun | null;
+  form: FormLinkView | null;
+  can_decide: boolean;
+}
+
+export interface FormLinkView {
+  id: string;
+  kind: "questionnaire" | "intake";
+  sent_at: string;
+  expires_at: string;
+  opened_at: string | null;
+  submitted_at: string | null;
+  revoked: boolean;
+}
+
+export interface Instruction {
+  id: string;
+  key: string;
+  title: string;
+  topic: "refill" | "discharge" | "previsit" | "general";
+  outcome: "approved" | "denied" | "needs_visit" | null;
+  channel: "text" | "call" | "any";
+  body: string;
+  version: number;
+  state: "draft" | "approved" | "retired";
+  approved_by: string | null;
+  approved_at: string | null;
+  updated_at: string;
+}
+
+export interface InstructionList {
+  instructions: Instruction[];
+  placeholders: string[];
+  can_approve: boolean;
+}
+
+export interface UpcomingVisit {
+  id: string;
+  starts_at: string;
+  patient: string;
+  prepared: boolean;
+}
+
+// ---------- Intake and registration ----------
+
+export interface IntakeRow extends CaseItem {
+  submitted_at: string | null;
+  has_card_photo: boolean;
+  no_insurance: boolean;
+  linked: boolean;
+}
+
+export interface IntakeDetail extends IntakeRow {
+  case: CaseDetail;
+  form: FormLinkView | null;
+  answers: Record<string, string | boolean | null>;
+  card: { front: string | null; back: string | null };
+  writes: { id: string; kind: string; state: string }[];
+  run: PlaybookRun | null;
+}
+
+export interface ReminderCadence {
+  stages: { stage: string; hours_before: number }[];
+  replies: { reply: string; does: string }[];
+  fallback: string;
+}
+
+// ---------- Secure form (patient-facing, no sign-in) ----------
+
+export interface PublicForm {
+  kind: "questionnaire" | "intake";
+  practice: string;
+  practice_phone: string | null;
+  submitted: boolean;
+  expires_at: string;
+  title: string;
+  intro: string | null;
+  emergency?: string;
+  questions?: { key: string; text: string; kind: "yes_no" | "text"; required: boolean }[];
+  fields?: { key: string; label: string; section: string; kind: string; required: boolean; options?: string[] }[];
 }

@@ -11,6 +11,7 @@ const ROLES: { value: Role; label: string; help: string }[] = [
   { value: "author", label: "Author", help: "Build and test agents" },
   { value: "operator", label: "Operator", help: "Start and stop work, supervise" },
   { value: "reviewer", label: "Reviewer", help: "Review results" },
+  { value: "clinician", label: "Clinician", help: "Sign clinical work: refill decisions, red flags, briefs, approved wording" },
 ];
 
 export default function Members() {
@@ -27,6 +28,15 @@ export default function Members() {
     onSuccess: () => {
       toast("Role changed");
       refresh();
+    },
+    onError: (e: Error) => toast(e.message),
+  });
+  const setClinician = useMutation({
+    mutationFn: ({ user_id, clinician }: { user_id: string; clinician: boolean }) => api.put(`/workspace/members/${user_id}/clinician`, { clinician }),
+    onSuccess: () => {
+      toast("Clinical sign-off updated");
+      refresh();
+      qc.invalidateQueries({ queryKey: ["me"] });
     },
     onError: (e: Error) => toast(e.message),
   });
@@ -89,10 +99,17 @@ export default function Members() {
                       <div className="small muted">
                         {m.email}
                         {m.last_used_at ? ` · active ${timeAgo(m.last_used_at)}` : ""}
+                        {m.clinician ? " · signs clinical work" : ""}
                       </div>
                     </div>
                     {isAdmin ? (
                       <>
+                        {m.role !== "clinician" && (
+                          <label className="row small" style={{ gap: 6 }} title="A physician or nurse practitioner who also has another role">
+                            <input type="checkbox" checked={m.clinician} disabled={setClinician.isPending} onChange={(e) => setClinician.mutate({ user_id: m.user_id, clinician: e.target.checked })} />
+                            Clinician
+                          </label>
+                        )}
                         <select
                           className="select"
                           style={{ width: 150 }}

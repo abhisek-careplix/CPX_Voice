@@ -165,7 +165,10 @@ class Settings(BaseSettings):
     # Playbooks (careplix_api.cases.playbooks): which triggers start work without a person, and
     # whether patient contact waits for contact_hours.
     playbooks_enabled: bool = True
-    playbook_triggers: str = "care_opportunity,backfill_opening,schedule,auth_required"
+    # "previsit" (booked visits 2-5 days ahead get a questionnaire and a brief) is opt-in.
+    playbook_triggers: str = (
+        "care_opportunity,backfill_opening,schedule,auth_required,discharge_notice"
+    )
     playbook_contact_hours: bool = True
     # FO-3 receptionist. Patient-requested bookings and reschedules are L2 (automatic). A plain
     # cancellation is L3 in the EMR design, so by default it waits for one click in the write

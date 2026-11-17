@@ -19,6 +19,7 @@ import careplix_contracts as contracts
 from careplix_api import events, templates
 from careplix_api.calls_service import ACTIVE_STATES
 from careplix_api.channels import transfer
+from careplix_api.clinical import tools as clinical_tools
 from careplix_api.db import as_utc, utcnow
 from careplix_api.errors import Rejected
 from careplix_api.models import (
@@ -299,4 +300,5 @@ _HANDLERS = {
     **medicare_tool.HANDLERS,
     **transfer.HANDLERS,
     **people_tools.HANDLERS,
+    **clinical_tools.HANDLERS,
 }

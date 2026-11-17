@@ -43,7 +43,12 @@ INTENT_OPERATION = {
     "patient_create": "patient.create",
     "payment_post": "payment.post",
     "adjustment_post": "payment.post",
+    "patient_update": "patient.update",
+    "coverage_create": "coverage.create",
 }
+# Writes that need NexHealth's v3.1 beta (forms, coverage create, patient update; owner ask §11.7):
+# no profile takes them yet, so they become staff tasks in the hub.
+BETA_WRITES = ("patient.update", "coverage.create")
 
 
 @dataclass(frozen=True)
@@ -229,6 +234,8 @@ def nexhealth_profile_for(emr_name: str | None) -> Profile | None:
 
 def support(profile: Profile | None, operation: str) -> Support:
     """Unknown profiles (e.g. the NexHealth sandbox with no sync) are 'verify' for every write."""
+    if operation in BETA_WRITES:
+        return "no"
     if profile is None:
         return "yes" if operation in ("schedule.read", "eligibility.check") else "verify"
     return profile.support(operation)

@@ -108,6 +108,11 @@ async def add_for_agent(
         raise ApiError(422, "red_team_outbound_only", "Red-team runs test agents that place calls.")
     owned = await _agent_scenarios(session, agent)
     base = next((s for s in owned if s.category != CATEGORY), None)
+    attacks = list(ATTACKS)
+    if agent.template_id == "clinical-check":
+        from careplix_api.clinical import studio
+
+        attacks += studio.ATTACKS  # trying to get clinical advice or a decision out of it
     if base is None:
         raise ApiError(
             422,
@@ -118,7 +123,7 @@ async def add_for_agent(
     by_name = {s.name: s for s in owned if s.category == CATEGORY}
     sim = scenarios.simulation_settings(base)
     added = updated = 0
-    for attack in ATTACKS:
+    for attack in attacks:
         name = f"{PREFIX}{attack['name']}"
         data = {
             "name": name,

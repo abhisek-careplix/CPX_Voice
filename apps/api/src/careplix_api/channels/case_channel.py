@@ -62,7 +62,7 @@ def wording(case, brand: str) -> str | None:
     if kind == "appointment_reminder":
         return (
             f"{brand}: A reminder of your appointment on {facts.get('appointment_at')}. Reply YES "
-            "to confirm or NO if you need to change it."
+            "to confirm, R to reschedule or C to cancel."
         )
     if kind == "care_outreach":
         return (

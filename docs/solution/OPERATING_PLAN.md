@@ -108,8 +108,8 @@ Completion: the correct appointment and information are confirmed in the EHR, an
 | Specialty scheduling | Partial (slots, booking) | Specialty rules: visit types, referral or auth required, provider preference, prep instructions, duration | P5 |
 | Rescheduling | ✅ by voice | Two-way by text | P2 |
 | Waitlists | Partial (backfill engine; staff make the offers) | Offers by the agent by text and voice, first yes wins | P2, P4 |
-| Reminders | Partial (case type and agent; nothing schedules them) | 7-day, 72-hour and 24-hour reminders with confirm, cancel and reschedule replies, created from the EHR schedule | P2, P4 |
-| Registration and intake | ❌ | Forms by secure link; insurance card capture; demographics and coverage written to the EHR | P2, P5 (NexHealth v3.1 beta) |
+| Reminders | ✅ labs: the schedule opens a case 7 days out; reminders at 7 days, 72 and 24 hours; YES confirms in the EHR, R reschedules (front desk), C proposes the cancellation (CLINICAL_SUPPORT.md) | Practice-tuned cadence per visit type | P2, P4 |
+| Registration and intake | Partial (labs): forms by secure link, card photos, demographics and coverage proposed as write intents; they become staff tasks until NexHealth v3.1 is on | A patient-facing forms host; the v3.1 writes | P2, P5 (NexHealth v3.1 beta) |
 
 ### 5.2 Back office
 
@@ -130,13 +130,16 @@ Completion: an evidence-backed result, an acknowledged submission or update, and
 Completion: information a clinician has reviewed, and an acknowledged follow-up or escalation.
 **The agent never makes a clinical decision.** It gathers, prepares, routes and delivers approved words.
 
-| Workflow | To build |
+Built in labs (16 Nov 2026) as playbooks on Cases v2, with a clinician role and Voice Studio suites; see
+`docs/solution/CLINICAL_SUPPORT.md`.
+
+| Workflow | Status |
 |---|---|
-| Pre-visit questionnaires | Questionnaire by text link or call; answers summarised for the clinician |
-| Chart preparation | A pre-visit brief: problems, medicines, open care gaps, outside records received, questionnaire answers |
-| Refill-request routing | Capture the request (drug, dose, pharmacy), check the protocol facts, route to the clinician queue; tell the patient when it is decided |
-| Approved instructions | A library of clinician-approved instructions, delivered word for word; anything else goes to a person |
-| Discharge follow-up | Hospital discharge notice in (ADT feed or staff entry); call within two business days; escalate red-flag answers at once |
+| Pre-visit questionnaires | ✅ labs: by secure text link, else a call; answers summarised for the clinician (red flags first) |
+| Chart preparation | ✅ labs: a brief with problems, medicines, open care gaps, outside records and the answers |
+| Refill-request routing | ✅ labs: voice (receptionist), text or staff; protocol facts from the mirror; clinician queue; approved words back. No prescribing |
+| Approved instructions | ✅ labs: a clinician-approved library delivered word for word; anything else goes to a person |
+| Discharge follow-up | ✅ labs: staff entry, import or a discharge fact; call within two business days; red flags to a clinician at once. ADT feed later |
 | Care-gap outreach | Partial: care opportunities are approved by a clinician and a care outreach case type exists; approval should create the case, then add text and booking |
 | Care navigation | Referrals, community resources, transport; track until the patient is seen |
 

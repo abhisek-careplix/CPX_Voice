@@ -95,6 +95,7 @@ def test_claim_carries_the_front_desk_tools_with_their_timeouts(practice):
         "reschedule_appointment",
         "cancel_appointment",
         "leave_message",
+        "request_refill",
         "transfer_to_staff",
         "verify_insurance",
         "medicare_benefits",
@@ -380,3 +381,24 @@ def test_an_ehr_that_cannot_cancel_never_gets_a_half_done_move(tmp_path):
         assert task.state == "manual" and "OrthoTrac" in task.last_error
     finally:
         c.__exit__(None, None, None)
+
+
+def test_a_refill_by_voice_becomes_a_case_for_the_clinician(practice):
+    c, _ = practice
+    call = _call(c)
+    refused = call.tool("request_refill", medication="Lisinopril", pharmacy="Main St Pharmacy")
+    assert refused["result"]["error"] == "not_verified"
+    assert call.ok("find_patient", **JANE) == {"verified": True}
+    out = call.ok(
+        "request_refill", medication="Lisinopril", dose="10 mg", pharmacy="Main St Pharmacy"
+    )
+    assert out["state"] == "requested" and "RFL" in out["reference"]
+    assert "can't say whether it will be approved" in out["message"]
+    [case] = c.get("/api/cases?case_type=refill_request").json()
+    detail = c.get(f"/api/cases/{case['id']}").json()
+    assert detail["source"] == "inbound" and detail["playbook"] == "refill_request"
+    assert any(lk["kind"] == "call" for lk in detail["links"] if lk["part"] == "evidence")
+    for n in range(2):
+        call.ok("request_refill", medication=f"Medicine {n}", pharmacy="Main St Pharmacy")
+    limited = call.tool("request_refill", medication="Another", pharmacy="Main St Pharmacy")
+    assert limited["result"]["error"] == "refill_limit"

@@ -94,7 +94,8 @@ async def scan(
 async def decide(
     opportunity_id: str,
     body: DecideIn,
-    principal: Principal = Depends(require("review")),
+    # Approving outreach for a patient is a clinical call: a clinician makes it.
+    principal: Principal = Depends(require("clinical_signoff")),
     session: AsyncSession = Session,
     settings: Settings = Depends(get_settings),
 ):
