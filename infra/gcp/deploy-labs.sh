@@ -242,12 +242,15 @@ openemr() {
 # Secret Manager entries the services read. A missing one fails its service's deploy and stops the
 # script halfway (services left on mixed builds), so check them all before changing anything.
 # Cloud SQL connection budget. db-f1-micro allows 25 connections (3 kept for superusers), shared by
-# every instance of every API service, and a deploy briefly runs the old and new Studio side by
-# side. Peak: Studio 2 x 6 + internal 2 x 3 + webhooks 2 x 2 = 22. On 16 Nov 2026 the defaults
-# (15 per process) used up the slots and the new Studio couldn't open its first connection.
-DB_BUDGET_STUDIO="DB_POOL_SIZE=4,DB_MAX_OVERFLOW=2"
+# every instance of every API service, and a deploy briefly runs each service's old and new
+# revisions side by side. Peak: 2 x (Studio 5 + internal 3 + webhooks 1) = 18, leaving 4 spare for
+# a rollout that starts while the previous one is still draining and for one-off connections.
+# 16 Nov 2026: the default pools (15 per process) used up every slot; 17 Nov 2026: a budget of
+# exactly 22 failed again when two deploys overlapped. db-g1-small (~50 connections) is the next
+# step up if the Studio's loops need more.
+DB_BUDGET_STUDIO="DB_POOL_SIZE=4,DB_MAX_OVERFLOW=1"
 DB_BUDGET_INTERNAL="DB_POOL_SIZE=2,DB_MAX_OVERFLOW=1"
-DB_BUDGET_WEBHOOKS="DB_POOL_SIZE=1,DB_MAX_OVERFLOW=1"
+DB_BUDGET_WEBHOOKS="DB_POOL_SIZE=1,DB_MAX_OVERFLOW=0"
 
 REQUIRED_SECRETS="cpx-database-url cpx-session-secret cpx-worker-token cpx-livekit-api-key cpx-livekit-api-secret
   cpx-nexhealth-api-key cpx-stedi-api-key cpx-data-key cpx-browser-token"
