@@ -399,3 +399,16 @@ def test_claude_uses_the_anthropic_api_when_a_key_is_set(tmp_path):
     assert not isinstance(keyed._client, AsyncAnthropicVertex)
     vertex = make_agent("claude", _Target(), make_settings(tmp_path), "Find an NPI")
     assert isinstance(vertex._client, AsyncAnthropicVertex)
+
+
+def test_a_pending_card_always_reads_as_awaiting_approval():
+    """CI flake (17 Nov 2026): the view read the run, then its steps. A card committed between
+    the two reads showed with the older "running" state."""
+    from careplix_api.browser.service import state_with_pending
+
+    assert state_with_pending("running", True) == "awaiting_approval"
+    assert state_with_pending("running", False) == "running"
+    # A decided card with the run not yet resumed is a real state, left as it is.
+    assert state_with_pending("awaiting_approval", False) == "awaiting_approval"
+    assert state_with_pending("paused", True) == "paused"
+    assert state_with_pending("done", True) == "done"

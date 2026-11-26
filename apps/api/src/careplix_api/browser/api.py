@@ -156,6 +156,7 @@ async def get_run(
     pending = next((v for v in views if v["status"] == "proposed"), None)
     return {
         **service.run_view(run, settings),
+        "state": service.state_with_pending(run.state, pending is not None),
         "steps": views,
         "pending": pending,
         "is_supervisor": mine,

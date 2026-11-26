@@ -331,6 +331,16 @@ async def control(
     audit(session, run.workspace_id, principal.user_id, f"browser.{action}", run.id)
 
 
+def state_with_pending(state: str, has_pending: bool) -> str:
+    """The run's state as one consistent read would show it.
+
+    A run view reads the run, then its steps, in two queries. The agent saves a new approval card
+    and sets ``awaiting_approval`` in one commit; landing between the two reads, it showed the card
+    with the older ``running`` state. A proposed card means the run is waiting for its decision.
+    """
+    return "awaiting_approval" if has_pending and state == "running" else state
+
+
 async def record_presence(
     session: AsyncSession, principal: Principal, run: BrowserRun, timeout_s: float
 ) -> None:
